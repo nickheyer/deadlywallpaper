@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="plasma_virtual_desktop">
+  <copyright><![CDATA[
+    SPDX-FileCopyrightText: 2018 Marco Martin
+
+    SPDX-License-Identifier: LGPL-2.1-or-later
+  ]]></copyright>
+
+  <interface name="org_kde_plasma_virtual_desktop_management" version="2">
+    <request name="get_virtual_desktop">
+      <description summary="get the org_kde_plasma_virtual_desktop for a given desktop id">
+        Given the id of a particular virtual desktop, get the corresponding org_kde_plasma_virtual_desktop which represents only the desktop with that id.
+      </description>
+      <arg name="id" type="new_id" interface="org_kde_plasma_virtual_desktop"/>
+      <arg name="desktop_id" type="string" summary="the id of the desktop to get"/>
+    </request>
+
+    <request name="request_create_virtual_desktop">
+      <description summary="ask to create a new virtual desktop">
+        Ask the server to create a new virtual desktop, and position it at a specified position. If the position is zero or less, it will be positioned at the beginning, if the position is the count or more, it will be positioned at the end.
+      </description>
+      <arg name="name" type="string" summary="the name of the desktop to create"/>
+      <arg name="position" type="uint" summary="the position of the desktop to create"/>
+    </request>
+
+    <request name="request_remove_virtual_desktop">
+      <description summary="ask to remove a virtual desktop">
+        Ask the server to get rid of a virtual desktop, the server may or may not acconsent to the request.
+      </description>
+      <arg name="desktop_id" type="string" summary="the id of the desktop to remove"/>
+    </request>
+
+    <event name="desktop_created">
+      <description summary="a new desktop has been created">
+        A new virtual desktop has been created, along with its position.
+      </description>
+      <arg name="desktop_id" type="string" summary="the id of the new desktop"/>
+      <arg name="position" type="uint" summary="the position of the new desktop"/>
+    </event>
+
+    <event name="desktop_removed">
+      <description summary="a desktop has been removed">
+        A virtual desktop has been removed: the compositor will send a "removed" event on the corresponding org_kde_plasma_virtual_desktop object as well.
+      </description>
+      <arg name="desktop_id" type="string" summary="the id of the removed desktop"/>
+    </event>
+
+    <event name="done">
+      <description summary="all information has been sent">
+        This event is sent after all other properties has been sent after binding to the desktop manager object and after any other property changes done after that. This allows changes to the org_kde_plasma_virtual_desktop_management properties to be seen as atomic, even if they happen via multiple events.
+      </description>
+    </event>
+
+    <event name="rows" since="2">
+      <description summary="the number of rows in the desktop grid">
+        The number of rows the virtual desktops are laid out in.
+      </description>
+      <arg name="rows" type="uint" summary="the number of rows"/>
+    </event>
+  </interface>
+
+  <interface name="org_kde_plasma_virtual_desktop" version="1">
+    <request name="request_activate">
+      <description summary="ask the compositor to make this desktop the current one">
+        Request the server to set the status of this desktop to active: The server is free to consent or deny the request.
+      </description>
+    </request>
+
+    <event name="desktop_id">
+      <description summary="the id of this desktop">
+        The format of the id is decided by the compositor implementation. A desktop id uniquely identifies a virtual desktop and must be guaranteed to never exist two desktops with the same id. The format of the string id is up to the server implementation.
+      </description>
+      <arg name="desktop_id" type="string" summary="the id of this desktop"/>
+    </event>
+
+    <event name="name">
+      <description summary="the name of this desktop">
+        The human readable name of this virtual desktop.
+      </description>
+      <arg name="name" type="string" summary="the name of this desktop"/>
+    </event>
+
+    <event name="activated">
+      <description summary="this desktop has become the current one">
+        The desktop will be the new "current" desktop of the system. The server may support either one virtual desktop active at a time, or other combinations such as one virtual desktop active per screen at any time. The "activated" event is not necessarily followed by a "deactivated" event on another desktop.
+      </description>
+    </event>
+
+    <event name="deactivated">
+      <description summary="this desktop is no longer the current one">
+        The desktop is not the current one any more.
+      </description>
+    </event>
+
+    <event name="done">
+      <description summary="all information has been sent">
+        This event is sent after all other properties has been sent after binding to the desktop object and after any other property changes done after that. This allows changes to the org_kde_plasma_virtual_desktop properties to be seen as atomic, even if they happen via multiple events.
+      </description>
+    </event>
+
+    <event name="removed">
+      <description summary="this desktop has been removed">
+        This virtual desktop has been removed and the client should destroy the org_kde_plasma_virtual_desktop object.
+      </description>
+    </event>
+  </interface>
+</protocol>

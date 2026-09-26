@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.ReportWallpaperView"
+             x:DataType="vm:ReportWallpaperViewModel">
+  <StackPanel Spacing="4">
+    <Border Classes="card" Padding="10,5,0,0">
+      <Grid ColumnDefinitions="160,*">
+        <Border Grid.Column="0" Width="144" Height="81" Margin="0,5,0,10" HorizontalAlignment="Left" CornerRadius="5" ClipToBounds="True">
+          <Image conv:ImageLoader.Source="{Binding Model.ImagePath}" Stretch="UniformToFill" />
+        </Border>
+        <StackPanel Grid.Column="1" Margin="0,5,5,0">
+          <TextBlock Classes="body" MaxLines="1" TextTrimming="CharacterEllipsis" Text="{Binding Model.Title}" />
+          <TextBlock Classes="caption" MaxLines="3" TextTrimming="CharacterEllipsis" Text="{Binding Model.Desc}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <controls:SettingsExpander Header="{loc:Str ReportWallpaper/Header}" HeaderIcon="{DynamicResource IconFlag}" IsExpanded="True">
+      <ComboBox MinWidth="{StaticResource SettingActionControlMinWidth}" SelectedIndex="0">
+        <ComboBoxItem Content="{loc:Str ReportWallpaperOther/Content}" />
+        <ComboBoxItem Content="{loc:Str ReportWallpaperMisleading/Content}" />
+        <ComboBoxItem Content="{loc:Str ReportWallpaperViolence/Content}" />
+        <ComboBoxItem Content="{loc:Str ReportWallpaperCopyright/Content}" />
+        <ComboBoxItem Content="{loc:Str ReportWallpaperSpam/Content}" />
+      </ComboBox>
+      <controls:SettingsExpander.Items>
+        <controls:SettingsCard ContentAlignment="Left">
+          <StackPanel Spacing="6">
+            <TextBlock Text="{loc:Str TextAdditionalNotes/Text}" />
+            <TextBox MinWidth="350" MinHeight="150" AcceptsReturn="True" TextWrapping="Wrap" />
+          </StackPanel>
+        </controls:SettingsCard>
+      </controls:SettingsExpander.Items>
+    </controls:SettingsExpander>
+  </StackPanel>
+</UserControl>

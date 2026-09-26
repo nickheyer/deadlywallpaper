@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="using:Lively.Models.UserControls"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.ControlPanel.ControlPanelView"
+             x:DataType="vm:ControlPanelViewModel"
+             MinWidth="490"
+             MinHeight="520"
+             MaxWidth="490"
+             MaxHeight="520">
+  <Grid RowDefinitions="Auto,*">
+    <ListBox Grid.Row="0"
+             Classes="navigation"
+             Margin="0,0,0,8"
+             ItemsSource="{Binding MenuItems}"
+             SelectedItem="{Binding SelectedMenuItem, Mode=TwoWay}">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="models:DialogNavigationItem">
+          <TextBlock Text="{Binding Name}" IsVisible="{Binding IsVisible}" />
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+      <ListBox.Styles>
+        <Style Selector="ListBoxItem" x:DataType="models:DialogNavigationItem">
+          <Setter Property="IsVisible" Value="{Binding IsVisible}" />
+        </Style>
+      </ListBox.Styles>
+    </ListBox>
+    <ContentControl Grid.Row="1" x:Name="ContentFrame" />
+  </Grid>
+</UserControl>

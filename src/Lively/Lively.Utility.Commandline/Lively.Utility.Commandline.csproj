@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <RollForward>Major</RollForward>
     <TargetFramework>net8.0</TargetFramework>
     <PublishTrimmed>true</PublishTrimmed>
     <PublishAot>false</PublishAot>

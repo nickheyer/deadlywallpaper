@@ -427,3 +427,8 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Linux port build output (top-level Makefile)
+build/
+src/native/*/build/
+src/plasma/test/out/

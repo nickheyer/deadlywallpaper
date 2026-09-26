@@ -1,11 +1,10 @@
-﻿using Lively.Common.Extensions;
+using Lively.Common.Extensions;
 using Lively.Common.Helpers.Files;
-using Lively.Common.Helpers.Shell;
 using Lively.Common.Helpers.Storage;
+using Lively.Common.Services;
 using Lively.Models;
 using Lively.Models.Enums;
 using System;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -13,6 +12,13 @@ namespace Lively.Common.Factories
 {
     public class WallpaperLibraryFactory : IWallpaperLibraryFactory
     {
+        private readonly IThumbnailService thumbnailService;
+
+        public WallpaperLibraryFactory(IThumbnailService thumbnailService)
+        {
+            this.thumbnailService = thumbnailService;
+        }
+
         public LivelyInfoModel GetMetadata(string folderPath)
         {
             if (!File.Exists(Path.Combine(folderPath, "LivelyInfo.json")))
@@ -164,8 +170,7 @@ namespace Lively.Common.Factories
 
             Directory.CreateDirectory(destDirectory);
             // Create thumbnail, 512x512 quality is not guaranteed depending on file format and system codecs.
-            using var thumbnail = ThumbnailUtil.GetThumbnail(filePath, 512, 512, ThumbnailUtil.ThumbnailOptions.None);
-            thumbnail.Save(thumbnailPath, ImageFormat.Jpeg);
+            await thumbnailService.CreateThumbnailAsync(filePath, thumbnailPath, 512, 512);
             // Update metadata file.
             JsonStorage<LivelyInfoModel>.StoreData(Path.Combine(destDirectory, "LivelyInfo.json"), metadata);
 

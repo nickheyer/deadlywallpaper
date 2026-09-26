@@ -1,0 +1,150 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:lc="using:Lively.Models.LivelyControls"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.LivelyProperty.LivelyPropertiesView"
+             x:DataType="vm:CustomiseWallpaperViewModel"
+             x:Name="Root">
+  <UserControl.Resources>
+    <x:Double x:Key="TitleControlSpacing">10</x:Double>
+    <Thickness x:Key="MinControlMargin">0,0,0,15</Thickness>
+  </UserControl.Resources>
+
+  <Grid RowDefinitions="*,Auto">
+    <!-- Controls -->
+    <ScrollViewer Grid.Row="0" Padding="0,0,5,0" IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNullOrEmpty}}">
+      <ItemsControl ItemsSource="{Binding Controls}">
+        <ItemsControl.DataTemplates>
+          <!-- label -->
+          <DataTemplate DataType="lc:LabelModel">
+            <TextBlock Margin="{StaticResource MinControlMargin}"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Text="{Binding Value}"
+                       TextWrapping="Wrap"
+                       ToolTip.Tip="{Binding Help}" />
+          </DataTemplate>
+          <!-- slider -->
+          <DataTemplate DataType="lc:SliderModel">
+            <StackPanel Margin="0,0,0,5" ToolTip.Tip="{Binding Help}">
+              <TextBlock Text="{Binding Text}" />
+              <Slider Minimum="{Binding Min}"
+                      Maximum="{Binding Max}"
+                      TickFrequency="{Binding Step}"
+                      IsSnapToTickEnabled="True"
+                      Value="{Binding Value, Mode=TwoWay}"
+                      ValueChanged="Slider_ValueChanged" />
+            </StackPanel>
+          </DataTemplate>
+          <!-- textbox -->
+          <DataTemplate DataType="lc:TextboxModel">
+            <StackPanel Margin="{StaticResource MinControlMargin}" Spacing="{StaticResource TitleControlSpacing}" ToolTip.Tip="{Binding Help}">
+              <TextBlock Text="{Binding Text}" />
+              <TextBox MaxHeight="75"
+                       HorizontalAlignment="Stretch"
+                       AcceptsReturn="True"
+                       TextWrapping="Wrap"
+                       Text="{Binding Value, Mode=TwoWay}"
+                       TextChanged="TextBox_TextChanged" />
+            </StackPanel>
+          </DataTemplate>
+          <!-- dropdown -->
+          <DataTemplate DataType="lc:DropdownModel">
+            <StackPanel Margin="{StaticResource MinControlMargin}" Spacing="{StaticResource TitleControlSpacing}" ToolTip.Tip="{Binding Help}">
+              <TextBlock Text="{Binding Text}" />
+              <ComboBox HorizontalAlignment="Stretch"
+                        ItemsSource="{Binding Items}"
+                        SelectedIndex="{Binding Value, Mode=TwoWay}"
+                        SelectionChanged="ComboBox_SelectionChanged" />
+            </StackPanel>
+          </DataTemplate>
+          <!-- scaler dropdown -->
+          <DataTemplate DataType="lc:ScalerDropdownModel">
+            <StackPanel Margin="{StaticResource MinControlMargin}" Spacing="{StaticResource TitleControlSpacing}" ToolTip.Tip="{Binding Help}">
+              <TextBlock Text="{Binding Text}" />
+              <ComboBox HorizontalAlignment="Stretch"
+                        ItemsSource="{Binding Items}"
+                        SelectedIndex="{Binding Value, Mode=TwoWay}"
+                        SelectionChanged="ComboBox_SelectionChanged" />
+            </StackPanel>
+          </DataTemplate>
+          <!-- folderDropdown -->
+          <DataTemplate DataType="lc:FolderDropdownModel">
+            <StackPanel Margin="{StaticResource MinControlMargin}" HorizontalAlignment="Stretch" Spacing="{StaticResource TitleControlSpacing}" ToolTip.Tip="{Binding Help}">
+              <TextBlock Text="{Binding Text}" />
+              <controls:FolderDropdown Command="{Binding #Root.((vm:CustomiseWallpaperViewModel)DataContext).DropdownValueChangedCommand}"
+                                       CommandParameter="{Binding}"
+                                       FileName="{Binding Value, Mode=TwoWay}"
+                                       Filter="{Binding Filter}"
+                                       FolderName="{Binding Folder}"
+                                       ParentFolderPath="{Binding #Root.((vm:CustomiseWallpaperViewModel)DataContext).Model.LivelyInfoFolderPath}" />
+            </StackPanel>
+          </DataTemplate>
+          <!-- checkbox -->
+          <DataTemplate DataType="lc:CheckboxModel">
+            <CheckBox Margin="{StaticResource MinControlMargin}"
+                      Content="{Binding Text}"
+                      IsChecked="{Binding Value, Mode=TwoWay}"
+                      ToolTip.Tip="{Binding Help}"
+                      IsCheckedChanged="CheckBox_IsCheckedChanged" />
+          </DataTemplate>
+          <!-- button -->
+          <DataTemplate DataType="lc:ButtonModel">
+            <StackPanel Margin="{StaticResource MinControlMargin}" Spacing="{StaticResource TitleControlSpacing}" ToolTip.Tip="{Binding Help}">
+              <TextBlock Text="{Binding Text}" />
+              <Button HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Center"
+                      Command="{Binding #Root.((vm:CustomiseWallpaperViewModel)DataContext).ButtonCommand}"
+                      CommandParameter="{Binding}"
+                      Content="{Binding Value}" />
+            </StackPanel>
+          </DataTemplate>
+          <!-- colorpicker -->
+          <DataTemplate DataType="lc:ColorPickerModel">
+            <StackPanel Margin="{StaticResource MinControlMargin}" Spacing="{StaticResource TitleControlSpacing}" ToolTip.Tip="{Binding Help}">
+              <TextBlock Text="{Binding Text}" />
+              <controls:ColorPickerButton ColorChangedCommand="{Binding #Root.((vm:CustomiseWallpaperViewModel)DataContext).ColorPickerValueChangedCommand}"
+                                          CommandParameter="{Binding}"
+                                          SelectedColor="{Binding Value, Mode=TwoWay}" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.DataTemplates>
+      </ItemsControl>
+    </ScrollViewer>
+    <!-- Error -->
+    <controls:InfoBar Grid.Row="0"
+                      VerticalAlignment="Top"
+                      IsClosable="False"
+                      Message="{Binding ErrorText}"
+                      Severity="Error"
+                      IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+      <controls:InfoBar.ActionButton>
+        <HyperlinkButton NavigateUri="https://github.com/rocksdanister/lively/wiki/Common-Problems"
+                         ToolTip.Tip="https://github.com/rocksdanister/lively/wiki/Common-Problems"
+                         Content="{loc:Str TextLearnMore/Text}" />
+      </controls:InfoBar.ActionButton>
+    </controls:InfoBar>
+    <!-- Informational -->
+    <controls:InfoBar Grid.Row="0"
+                      VerticalAlignment="Top"
+                      Message="{Binding InfoText}"
+                      Severity="Informational"
+                      IsVisible="{Binding InfoText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+      <controls:InfoBar.ActionButton>
+        <HyperlinkButton NavigateUri="https://github.com/rocksdanister/lively/wiki/Web-Guide-IV-:-Interaction"
+                         ToolTip.Tip="https://github.com/rocksdanister/lively/wiki/Web-Guide-IV-:-Interaction"
+                         Content="{loc:Str TextLearnMore/Text}" />
+      </controls:InfoBar.ActionButton>
+    </controls:InfoBar>
+    <!-- Restore default -->
+    <Button Grid.Row="1"
+            Margin="0,5,0,0"
+            HorizontalAlignment="Right"
+            Command="{Binding RestoreDefaultCommand}"
+            ToolTip.Tip="{loc:Str TextRestoreDefault}">
+      <PathIcon Width="16" Height="16" Data="{DynamicResource IconUpdate}" />
+    </Button>
+  </Grid>
+</UserControl>

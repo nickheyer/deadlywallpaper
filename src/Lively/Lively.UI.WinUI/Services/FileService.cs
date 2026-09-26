@@ -101,7 +101,7 @@ namespace Lively.UI.WinUI.Services
         {
             if (!PackageUtil.IsRunningAsPackaged)
             {
-                FileUtil.OpenFolder(path);
+                FileUtilWindows.OpenFolder(path);
             }
             else
             {

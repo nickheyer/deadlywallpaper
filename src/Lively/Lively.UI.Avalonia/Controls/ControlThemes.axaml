@@ -1,0 +1,349 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="using:Lively.UI.Avalonia.Controls">
+
+  <!-- SettingsCard -->
+  <ControlTheme x:Key="{x:Type controls:SettingsCard}" TargetType="controls:SettingsCard">
+    <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="16,12" />
+    <Setter Property="Margin" Value="0,0,0,3" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Right" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="PART_Root"
+                Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+          <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto,Auto">
+            <PathIcon Name="PART_HeaderIcon"
+                      Grid.Row="0"
+                      Grid.Column="0"
+                      Width="20"
+                      Height="20"
+                      Margin="0,0,16,0"
+                      VerticalAlignment="Center"
+                      Data="{TemplateBinding HeaderIcon}"
+                      IsVisible="{TemplateBinding HeaderIcon, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <StackPanel Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+              <TextBlock Text="{TemplateBinding Header}"
+                         TextWrapping="Wrap"
+                         IsVisible="{TemplateBinding Header, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <ContentPresenter Content="{TemplateBinding Description}"
+                                IsVisible="{TemplateBinding Description, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <ContentPresenter.Styles>
+                  <Style Selector="TextBlock">
+                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <Setter Property="FontSize" Value="12" />
+                    <Setter Property="TextWrapping" Value="Wrap" />
+                  </Style>
+                </ContentPresenter.Styles>
+              </ContentPresenter>
+            </StackPanel>
+            <ContentPresenter Name="PART_ContentPresenter"
+                              Grid.Row="0"
+                              Grid.Column="2"
+                              Margin="16,0,0,0"
+                              HorizontalAlignment="Right"
+                              VerticalAlignment="Center"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" />
+            <PathIcon Name="PART_ActionIcon"
+                      Grid.Row="0"
+                      Grid.Column="3"
+                      Width="14"
+                      Height="14"
+                      Margin="12,0,0,0"
+                      VerticalAlignment="Center"
+                      Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                      Data="{TemplateBinding ActionIcon}"
+                      IsVisible="{TemplateBinding ActionIcon, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+
+    <Style Selector="^:vertical /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Grid.Row" Value="1" />
+      <Setter Property="Grid.Column" Value="1" />
+      <Setter Property="Grid.ColumnSpan" Value="3" />
+      <Setter Property="Margin" Value="0,8,0,0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="^:clickable">
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="^:clickable:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorSecondaryBrush}" />
+    </Style>
+    <Style Selector="^:clickable:pressed /template/ Border#PART_Root">
+      <Setter Property="Opacity" Value="0.7" />
+    </Style>
+    <Style Selector="^:disabled">
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+  </ControlTheme>
+
+  <!-- SettingsExpander header. A ToggleButton only for its IsChecked plumbing: the WinUI expander header
+       is a plain card row, so this theme has no accent fill in the checked state. -->
+  <ControlTheme x:Key="SettingsExpanderHeaderTheme" TargetType="ToggleButton">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="16,12" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="PART_Root"
+                Background="{TemplateBinding Background}"
+                CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+          <ContentPresenter Name="PART_ContentPresenter"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+    </Style>
+    <Style Selector="^:pressed /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
+    </Style>
+  </ControlTheme>
+
+  <!-- SettingsExpander -->
+  <ControlTheme x:Key="{x:Type controls:SettingsExpander}" TargetType="controls:SettingsExpander">
+    <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Margin" Value="0,0,0,3" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}">
+          <StackPanel>
+            <ToggleButton Name="PART_Header"
+                          Theme="{StaticResource SettingsExpanderHeaderTheme}"
+                          IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}">
+              <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                <PathIcon Grid.Column="0"
+                          Width="20"
+                          Height="20"
+                          Margin="0,0,16,0"
+                          VerticalAlignment="Center"
+                          Data="{TemplateBinding HeaderIcon}"
+                          IsVisible="{TemplateBinding HeaderIcon, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                  <TextBlock Text="{TemplateBinding Header}" TextWrapping="Wrap" />
+                  <ContentPresenter Content="{TemplateBinding Description}"
+                                    IsVisible="{TemplateBinding Description, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <ContentPresenter.Styles>
+                      <Style Selector="TextBlock">
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <Setter Property="FontSize" Value="12" />
+                        <Setter Property="TextWrapping" Value="Wrap" />
+                      </Style>
+                    </ContentPresenter.Styles>
+                  </ContentPresenter>
+                </StackPanel>
+                <ContentPresenter Grid.Column="2"
+                                  Margin="16,0,0,0"
+                                  VerticalAlignment="Center"
+                                  Content="{TemplateBinding Content}"
+                                  ContentTemplate="{TemplateBinding ContentTemplate}" />
+                <PathIcon Name="PART_Chevron"
+                          Grid.Column="3"
+                          Width="12"
+                          Height="12"
+                          Margin="16,0,0,0"
+                          VerticalAlignment="Center"
+                          Data="{DynamicResource IconChevronDown}" />
+              </Grid>
+            </ToggleButton>
+            <Border Name="PART_Items"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="0,1,0,0"
+                    Padding="8,4,8,4"
+                    IsVisible="{TemplateBinding IsExpanded}">
+              <ItemsControl ItemsSource="{TemplateBinding Items}">
+                <ItemsControl.Styles>
+                  <Style Selector="controls|SettingsCard">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="Margin" Value="0" />
+                  </Style>
+                </ItemsControl.Styles>
+              </ItemsControl>
+            </Border>
+          </StackPanel>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^[IsExpanded=True] /template/ PathIcon#PART_Chevron">
+      <Setter Property="RenderTransform" Value="rotate(180deg)" />
+    </Style>
+    <Style Selector="^:disabled">
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+  </ControlTheme>
+
+  <!-- InfoBar -->
+  <ControlTheme x:Key="{x:Type controls:InfoBar}" TargetType="controls:InfoBar">
+    <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="12,10" />
+    <Setter Property="Margin" Value="0,0,0,3" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="PART_Root"
+                Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto">
+            <PathIcon Name="PART_Icon"
+                      Grid.Row="0"
+                      Grid.Column="0"
+                      Width="18"
+                      Height="18"
+                      Margin="0,1,12,0"
+                      VerticalAlignment="Top"
+                      IsVisible="{TemplateBinding IsIconVisible}" />
+            <StackPanel Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+              <TextBlock Text="{TemplateBinding Title}"
+                         FontWeight="SemiBold"
+                         TextWrapping="Wrap"
+                         IsVisible="{TemplateBinding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <TextBlock Text="{TemplateBinding Message}"
+                         TextWrapping="Wrap"
+                         IsVisible="{TemplateBinding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+            <ContentPresenter Grid.Row="0"
+                              Grid.Column="2"
+                              Margin="12,0,0,0"
+                              VerticalAlignment="Center"
+                              Content="{TemplateBinding ActionButton}" />
+            <Button Name="PART_CloseButton"
+                    Grid.Row="0"
+                    Grid.Column="3"
+                    Margin="8,-4,-4,0"
+                    Padding="6"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    VerticalAlignment="Top"
+                    IsVisible="{TemplateBinding IsClosable}">
+              <PathIcon Width="10" Height="10" Data="{DynamicResource IconClose}" />
+            </Button>
+            <ContentPresenter Grid.Row="1"
+                              Grid.Column="1"
+                              Grid.ColumnSpan="3"
+                              Margin="0,6,0,0"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              IsVisible="{TemplateBinding Content, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:informational /template/ PathIcon#PART_Icon">
+      <Setter Property="Data" Value="{DynamicResource IconInfo}" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+    </Style>
+    <Style Selector="^:success /template/ PathIcon#PART_Icon">
+      <Setter Property="Data" Value="{DynamicResource IconSuccess}" />
+      <Setter Property="Foreground" Value="#2E8B57" />
+    </Style>
+    <Style Selector="^:success /template/ Border#PART_Root">
+      <Setter Property="Background" Value="#332E8B57" />
+    </Style>
+    <Style Selector="^:warning /template/ PathIcon#PART_Icon">
+      <Setter Property="Data" Value="{DynamicResource IconWarning}" />
+      <Setter Property="Foreground" Value="#E0A000" />
+    </Style>
+    <Style Selector="^:warning /template/ Border#PART_Root">
+      <Setter Property="Background" Value="#33E0A000" />
+    </Style>
+    <Style Selector="^:error /template/ PathIcon#PART_Icon">
+      <Setter Property="Data" Value="{DynamicResource IconError}" />
+      <Setter Property="Foreground" Value="#D2323C" />
+    </Style>
+    <Style Selector="^:error /template/ Border#PART_Root">
+      <Setter Property="Background" Value="#33D2323C" />
+    </Style>
+  </ControlTheme>
+
+  <!-- Segmented -->
+  <ControlTheme x:Key="{x:Type controls:SegmentedItem}" TargetType="controls:SegmentedItem">
+    <Setter Property="Padding" Value="14,6" />
+    <Setter Property="Margin" Value="2" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="PART_Border"
+                Background="{TemplateBinding Background}"
+                CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+          <ContentPresenter Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover /template/ Border#PART_Border">
+      <Setter Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+    </Style>
+    <Style Selector="^:selected /template/ Border#PART_Border">
+      <Setter Property="Background" Value="{DynamicResource ControlFillColorDefaultBrush}" />
+      <Setter Property="BoxShadow" Value="0 1 3 0 #40000000" />
+    </Style>
+  </ControlTheme>
+
+  <ControlTheme x:Key="{x:Type controls:Segmented}" TargetType="controls:Segmented">
+    <Setter Property="Background" Value="{DynamicResource ControlAltFillColorSecondaryBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="2" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="ItemsPanel">
+      <ItemsPanelTemplate>
+        <StackPanel Orientation="Horizontal" />
+      </ItemsPanelTemplate>
+    </Setter>
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+          <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </ControlTheme>
+
+</ResourceDictionary>

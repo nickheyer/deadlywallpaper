@@ -1,0 +1,91 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:models="using:Lively.Models"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.Gallery.GalleryLibraryView"
+             x:DataType="vm:GalleryViewModel"
+             x:Name="Root">
+  <Grid RowDefinitions="*,50">
+    <ScrollViewer x:Name="TileScroller" Grid.Row="0" ScrollChanged="TileScroller_ScrollChanged">
+      <ItemsControl Margin="5" ItemsSource="{Binding Wallpapers}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel Orientation="Horizontal" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="models:GalleryModel">
+            <Border Width="272"
+                    Height="153"
+                    Margin="5"
+                    CornerRadius="5"
+                    ClipToBounds="True"
+                    Background="{DynamicResource ControlFillColorDefaultBrush}">
+              <Grid RowDefinitions="*,60" ColumnDefinitions="*,45">
+                <Image Grid.RowSpan="2" Grid.ColumnSpan="2" conv:ImageLoader.Source="{Binding Image}" Stretch="UniformToFill" />
+                <Border Grid.RowSpan="2" Grid.ColumnSpan="2">
+                  <Border.Background>
+                    <LinearGradientBrush StartPoint="50%,25%" EndPoint="50%,100%">
+                      <GradientStop Offset="0" Color="#00000000" />
+                      <GradientStop Offset="1" Color="{DynamicResource SystemAltHighColor}" />
+                    </LinearGradientBrush>
+                  </Border.Background>
+                </Border>
+                <Panel Grid.RowSpan="2" Grid.ColumnSpan="2" IsVisible="{Binding IsDownloading}">
+                  <Border Background="#66000000" />
+                  <TextBlock Margin="2.5" HorizontalAlignment="Right" VerticalAlignment="Top" FontSize="10" FontWeight="Medium" Text="{Binding DownloadingProgressText}" />
+                </Panel>
+                <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="7">
+                  <TextBlock Margin="0,0,30,0" MaxLines="1" TextTrimming="CharacterEllipsis" Text="{Binding LivelyInfo.Title}" />
+                  <TextBlock Margin="0,0,30,0" Classes="caption" MaxLines="2" TextTrimming="CharacterEllipsis" Text="{Binding LivelyInfo.Desc}" />
+                </StackPanel>
+                <!-- Unsubscribed -->
+                <Panel Grid.Row="1" Grid.Column="1" IsVisible="{Binding IsInstalled, Converter={x:Static BoolConverters.Not}}">
+                  <Button Classes="transparent"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          HorizontalContentAlignment="Center"
+                          Command="{Binding #Root.((vm:GalleryViewModel)DataContext).DownloadCommand}"
+                          CommandParameter="{Binding}"
+                          IsVisible="{Binding IsDownloading, Converter={x:Static BoolConverters.Not}}">
+                    <PathIcon Width="16" Height="16" Data="{DynamicResource IconDownload}" />
+                  </Button>
+                  <Button Classes="transparent"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          HorizontalContentAlignment="Center"
+                          Command="{Binding #Root.((vm:GalleryViewModel)DataContext).CancelCommand}"
+                          CommandParameter="{Binding}"
+                          IsVisible="{Binding IsDownloading}">
+                    <StackPanel Spacing="4" Width="30">
+                      <PathIcon Width="10" Height="10" Data="{DynamicResource IconClose}" />
+                      <ProgressBar Height="4"
+                                   MinWidth="30"
+                                   Maximum="100"
+                                   Value="{Binding DownloadingProgress}"
+                                   IsIndeterminate="{Binding DownloadingProgress, Converter={StaticResource ProgressRingIsIndeterminateConverter}}" />
+                    </StackPanel>
+                  </Button>
+                </Panel>
+                <!-- Subscribed -->
+                <Panel Grid.Row="1" Grid.Column="1" IsVisible="{Binding IsInstalled}">
+                  <PathIcon Width="16" Height="16" Data="{DynamicResource IconCheck}" IsVisible="{Binding IsDownloading, Converter={x:Static BoolConverters.Not}}" />
+                </Panel>
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+      <TextBlock Grid.Column="1" Margin="0,0,15,0" VerticalAlignment="Center" Text="{Binding Wallpapers.Count}" />
+      <StackPanel x:Name="MoreMessage" HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal" Spacing="5" IsVisible="False">
+        <TextBlock Classes="body" Text="{loc:Str TextEndOfItems/Text}" VerticalAlignment="Center" />
+        <Image Width="25" Height="25" Margin="5,-10,0,0" conv:ImageLoader.Source="avares://Lively.UI.Avalonia/Assets/icons8-cat-back-view-64.png" />
+      </StackPanel>
+    </Grid>
+  </Grid>
+</UserControl>

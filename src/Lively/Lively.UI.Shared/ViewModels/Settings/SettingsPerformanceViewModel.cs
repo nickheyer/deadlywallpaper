@@ -5,6 +5,7 @@ using Lively.Common.Services;
 using Lively.Grpc.Client;
 using Lively.Models;
 using Lively.Models.Enums;
+using Lively.UI.Shared.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -19,17 +20,20 @@ namespace Lively.UI.Shared.ViewModels
         private readonly IUserSettingsClient userSettings;
         private readonly IDispatcherService dispatcher;
         private readonly IApplicationsRulesFactory appRuleFactory;
+        private readonly IPlatformUiFeatures platform;
 
         public SettingsPerformanceViewModel(
             IUserSettingsClient userSettings,
             IDialogService dialogService,
             IDispatcherService dispatcher,
-            IApplicationsRulesFactory appRuleFactory)
+            IApplicationsRulesFactory appRuleFactory,
+            IPlatformUiFeatures platform)
         {
             this.userSettings = userSettings;
             this.dialogService = dialogService;
             this.dispatcher = dispatcher;
             this.appRuleFactory = appRuleFactory;
+            this.platform = platform;
 
             SelectedAppFullScreenIndex = (int)userSettings.Settings.AppFullscreenPause;
             SelectedAppFocusIndex = (int)userSettings.Settings.AppFocusPause;
@@ -44,6 +48,11 @@ namespace Lively.UI.Shared.ViewModels
 
         [ObservableProperty]
         private bool isSelectedAppFocus;
+
+        /// <summary>
+        /// Whether the platform can detect a remote desktop session; the rule is hidden otherwise.
+        /// </summary>
+        public bool IsRemoteDesktopPauseSupported => platform.SupportsRemoteDesktopPause;
 
         private int _selectedAppFullScreenIndex;
         public int SelectedAppFullScreenIndex

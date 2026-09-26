@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             x:Class="Lively.UI.Avalonia.Views.HelpView"
+             MinWidth="450">
+  <StackPanel>
+    <controls:SettingsCard Header="{loc:Str Website/Header}"
+                           Description="{loc:Str Website/Description}"
+                           HeaderIcon="{DynamicResource IconGlobe}"
+                           ActionIcon="{DynamicResource IconExternalLink}"
+                           Click="WebsiteCard_Click"
+                           IsClickEnabled="True" />
+    <controls:SettingsCard Header="{loc:Str Documentation/Header}"
+                           Description="{loc:Str Documentation/Description}"
+                           HeaderIcon="{DynamicResource IconBook}"
+                           ActionIcon="{DynamicResource IconExternalLink}"
+                           Click="DocumentationCard_Click"
+                           IsClickEnabled="True" />
+    <controls:SettingsCard Header="{loc:Str Community/Header}"
+                           Description="{loc:Str Community/Description}"
+                           HeaderIcon="{DynamicResource IconPeople}"
+                           ActionIcon="{DynamicResource IconExternalLink}"
+                           Click="CommunityCard_Click"
+                           IsClickEnabled="True" />
+    <controls:SettingsCard Header="{loc:Str SourceCode/Header}"
+                           Description="{loc:Str SourceCode/Description}"
+                           HeaderIcon="{DynamicResource IconCode}"
+                           ActionIcon="{DynamicResource IconExternalLink}"
+                           Click="SourceCodeCard_Click"
+                           IsClickEnabled="True" />
+    <controls:SettingsCard Header="{loc:Str ReportBug/Header}"
+                           Description="{loc:Str ReportBug/Description}"
+                           HeaderIcon="{DynamicResource IconBug}"
+                           ActionIcon="{DynamicResource IconExternalLink}"
+                           Click="ReportBugCard_Click"
+                           IsClickEnabled="True" />
+  </StackPanel>
+</UserControl>

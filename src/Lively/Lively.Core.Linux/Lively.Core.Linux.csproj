@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>Lively.Core.Linux</RootNamespace>
+    <AssemblyName>Lively.Core.Linux</AssemblyName>
+    <AssemblyVersion>2.2.1.0</AssemblyVersion>
+    <RollForward>Major</RollForward>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <SatelliteResourceLanguages></SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="GrpcDotNetNamedPipes" Version="3.1.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.8" />
+    <PackageReference Include="NLog" Version="6.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.8.1" />
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+    <PackageReference Include="Tmds.DBus" Version="0.21.2" />
+    <PackageReference Include="CommandLineParser" Version="2.9.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lively.Common\Lively.Common.csproj" />
+    <ProjectReference Include="..\Lively.Common.Linux\Lively.Common.Linux.csproj" />
+    <ProjectReference Include="..\Lively.Common.Services\Lively.Common.Services.csproj" />
+    <ProjectReference Include="..\Lively.Core.Common\Lively.Core.Common.csproj" />
+    <ProjectReference Include="..\Lively.Grpc.Common\Lively.Grpc.Common.csproj" />
+    <ProjectReference Include="..\Lively.Models\Lively.Models.csproj" />
+  </ItemGroup>
+
+  <!-- The localized strings are shared with the Windows core: the resx files are linked, not copied. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\Lively\Properties\Resources.resx" Link="Properties\Resources.resx" LogicalName="Lively.Core.Linux.Properties.Resources.resources" />
+    <EmbeddedResource Include="..\Lively\Properties\Resources.*.resx" Exclude="..\Lively\Properties\Resources.resx" Link="Properties\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Nlog.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\tray-icon.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\Lively\Assets\Plugins\Mpv\LivelyProperties.json" Link="Assets\Plugins\Mpv\LivelyProperties.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\Lively\Assets\Plugins\Mpv\LivelyProperties.loc.json" Link="Assets\Plugins\Mpv\LivelyProperties.loc.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

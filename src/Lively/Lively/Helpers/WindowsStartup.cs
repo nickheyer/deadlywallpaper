@@ -1,4 +1,4 @@
-﻿using Lively.Common.Helpers;
+using Lively.Common.Helpers;
 using System;
 using System.IO;
 using System.Reflection;
@@ -30,7 +30,7 @@ namespace Lively.Helpers
         /// Adds startup entry in registry under application name "livelywpf", current user ONLY. (Does not require admin rights).
         /// </summary>
         /// <param name="isStartWithWindows">Add or delete entry.</param>
-        private static void SetStartupRegistry(bool isStartWithWindows = false)
+        internal static void SetStartupRegistry(bool isStartWithWindows = false)
         {
             Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
             Assembly curAssembly = Assembly.GetExecutingAssembly();
@@ -52,7 +52,7 @@ namespace Lively.Helpers
         }
 
         //ref: https://docs.microsoft.com/en-us/uwp/api/windows.applicationmodel.startuptask?view=winrt-19041
-        private async static Task<StartupTaskState> SetStartupTask(bool isStartWithWindows = false)
+        internal async static Task<StartupTaskState> SetStartupTask(bool isStartWithWindows = false)
         {
             // Pass the task ID you specified in the appxmanifest file
             StartupTask startupTask = await StartupTask.GetAsync("AppStartup");

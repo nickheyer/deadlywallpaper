@@ -9,11 +9,12 @@
     <Import_RootNamespace>Lively.UI.Shared</Import_RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)Collections\FilteredCollectionView.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Collections\IncrementalCollection.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Factories\AppThemeFactory.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Factories\AudioDeviceFactory.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Factories\IAudioDeviceFactory.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Factories\IAppThemeFactory.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Helpers\WebViewUtil.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Services\IPlatformUiFeatures.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ViewModels\AboutViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ViewModels\AddWallpaperCreateViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ViewModels\AddWallpaperDataViewModel.cs" />

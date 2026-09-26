@@ -1,0 +1,64 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.AddWallpaperView"
+             x:DataType="vm:AddWallpaperViewModel">
+  <Grid RowDefinitions="200,Auto">
+    <Panel Grid.Row="0" MinWidth="500" Background="Transparent">
+      <Rectangle Margin="1"
+                 RadiusX="5"
+                 RadiusY="5"
+                 Stroke="{DynamicResource TextFillColorSecondaryBrush}"
+                 StrokeDashArray="3"
+                 StrokeThickness="2" />
+      <StackPanel x:Name="AddPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="15">
+        <PathIcon Width="45" Height="45" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Data="{DynamicResource IconDownload}" />
+        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{loc:Str DragDropFile/Text}" />
+      </StackPanel>
+      <StackPanel x:Name="AddPanelDrop" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="15" IsVisible="False">
+        <PathIcon Width="45" Height="45" Foreground="{DynamicResource AccentFillColorDefaultBrush}" Data="{DynamicResource IconDownload}" />
+        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{loc:Str AddWallpaperDrop/Text}" />
+      </StackPanel>
+      <controls:InfoBar Margin="5"
+                        VerticalAlignment="Top"
+                        Message="{loc:Str RunningAsAdminWarning/Message}"
+                        IsClosable="False"
+                        IsOpen="{Binding IsElevated}"
+                        Severity="Warning" />
+    </Panel>
+
+    <StackPanel Grid.Row="1">
+      <controls:SettingsCard Header="{loc:Str AddWallpaperFileBrowse/Header}"
+                             Description="{loc:Str AddWallpaperFileBrowse/Description}"
+                             HeaderIcon="{DynamicResource IconFolder}"
+                             Margin="0,10,0,0"
+                             Command="{Binding BrowseFileCommand}"
+                             IsClickEnabled="True" />
+      <controls:SettingsExpander Header="{loc:Str EnterUrl/Header}"
+                                 Description="{loc:Str EnterUrl/Description}"
+                                 HeaderIcon="{DynamicResource IconLink}"
+                                 MinWidth="500"
+                                 IsExpanded="True">
+        <controls:SettingsExpander.Items>
+          <controls:SettingsCard ContentAlignment="Left">
+            <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="4">
+              <TextBox Width="350" Text="{Binding WebUrlText, Mode=TwoWay}" />
+              <Button Classes="transparent" Command="{Binding BrowseWebCommand}">
+                <PathIcon Width="16" Height="16" Data="{DynamicResource IconArrowLeft}" RenderTransform="rotate(180deg)" />
+              </Button>
+            </StackPanel>
+          </controls:SettingsCard>
+        </controls:SettingsExpander.Items>
+      </controls:SettingsExpander>
+      <controls:SettingsCard Header="{loc:Str AddWallpaperAdvanced/Header}"
+                             Description="{loc:Str AddWallpaperAdvanced/Description}"
+                             HeaderIcon="{DynamicResource IconTune}"
+                             ActionIcon="{DynamicResource IconChevronRight}"
+                             Margin="0,2.5,0,0"
+                             Command="{Binding CreateWallpaperCommand}"
+                             IsClickEnabled="True" />
+    </StackPanel>
+  </Grid>
+</UserControl>

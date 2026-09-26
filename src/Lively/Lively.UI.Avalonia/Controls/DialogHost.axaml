@@ -1,0 +1,12 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Lively.UI.Avalonia.Controls.DialogHost"
+             IsVisible="False"
+             Focusable="True">
+  <Panel Background="#80000000" PointerPressed="Backdrop_PointerPressed">
+    <ContentPresenter x:Name="Presenter"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Margin="24" />
+  </Panel>
+</UserControl>

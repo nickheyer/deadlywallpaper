@@ -1,9 +1,9 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.WinUI.Collections;
 using Lively.Common.Services;
 using Lively.Gallery.Client;
 using Lively.Models;
+using Lively.UI.Shared.Collections;
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -16,7 +16,7 @@ namespace Lively.UI.Shared.ViewModels
         [ObservableProperty]
         private ObservableCollection<GalleryModel> wallpapers = new();
         [ObservableProperty]
-        private AdvancedCollectionView wallpapersFiltered;
+        private FilteredCollectionView<GalleryModel> wallpapersFiltered;
 
         private readonly GalleryClient galleryClient;
         private readonly GalleryViewModel galleryVm;
@@ -39,8 +39,8 @@ namespace Lively.UI.Shared.ViewModels
             if (!galleryClient.IsLoggedIn)
                 return;
 
-            WallpapersFiltered = new AdvancedCollectionView(Wallpapers, true);
-            WallpapersFiltered.SortDescriptions.Add(new SortDescription("IsInstalled", SortDirection.Ascending));
+            WallpapersFiltered = new FilteredCollectionView<GalleryModel>(Wallpapers, true);
+            WallpapersFiltered.SortDescriptions.Add(new SortDescription(nameof(GalleryModel.IsInstalled), SortDirection.Ascending));
 
             galleryClient.LoggedIn += (s, id) =>
             {

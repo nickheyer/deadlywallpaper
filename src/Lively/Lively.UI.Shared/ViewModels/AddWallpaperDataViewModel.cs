@@ -24,12 +24,12 @@ namespace Lively.UI.Shared.ViewModels
             get => _model;
             set
             {
+                _model = value;
                 //use existing data for editing already imported wallpaper..
                 Title = value?.LivelyInfo.Title;
                 Desc = value?.LivelyInfo.Desc;
                 Url = value?.LivelyInfo.Contact;
                 Author = value?.LivelyInfo.Author;
-                _model = value;
             }
         }
 
@@ -99,6 +99,9 @@ namespace Lively.UI.Shared.ViewModels
 
         private async Task OperationCancelled()
         {
+            if (libraryVm is null)
+                throw new InvalidOperationException("No library is attached to this dialog; the wallpaper core owns the wallpaper folder.");
+
             await libraryVm.WallpaperDelete(Model);
         }
 

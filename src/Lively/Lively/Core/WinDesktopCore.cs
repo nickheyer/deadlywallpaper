@@ -1,4 +1,4 @@
-﻿using Lively.Common;
+using Lively.Common;
 using Lively.Common.Com;
 using Lively.Common.Exceptions;
 using Lively.Common.Extensions;
@@ -504,7 +504,7 @@ namespace Lively.Core
                 (targetDisplay.Bounds.Height),
                 (int)NativeMethods.SetWindowPosFlags.SWP_NOACTIVATE))
             {
-                Logger.Info(LogUtil.GetWin32Error("Failed to set perscreen wallpaper(1)"));
+                Logger.Info(LogUtilWindows.GetWin32Error("Failed to set perscreen wallpaper(1)"));
             }
 
             NativeMethods.MapWindowPoints(handle, workerW, ref prct, 2);
@@ -519,7 +519,7 @@ namespace Lively.Core
                 (targetDisplay.Bounds.Height),
                 (int)(NativeMethods.SetWindowPosFlags.SWP_NOACTIVATE | NativeMethods.SetWindowPosFlags.SWP_NOZORDER)))
             {
-                Logger.Info(LogUtil.GetWin32Error("Failed to set perscreen wallpaper(2)"));
+                Logger.Info(LogUtilWindows.GetWin32Error("Failed to set perscreen wallpaper(2)"));
             }
             RefreshDesktop();
             return success;
@@ -544,7 +544,7 @@ namespace Lively.Core
                                             prct.Bottom - prct.Top,
                                             (int)(NativeMethods.SetWindowPosFlags.SWP_NOACTIVATE | NativeMethods.SetWindowPosFlags.SWP_NOZORDER)))
             {
-                Logger.Info(LogUtil.GetWin32Error("Failed to set span wallpaper"));
+                Logger.Info(LogUtilWindows.GetWin32Error("Failed to set span wallpaper"));
             }
             RefreshDesktop();
             return success;
@@ -756,7 +756,7 @@ namespace Lively.Core
                         screenArea.Height,
                         (int)(NativeMethods.SetWindowPosFlags.SWP_NOACTIVATE | NativeMethods.SetWindowPosFlags.SWP_NOZORDER)))
                     {
-                        Logger.Info(LogUtil.GetWin32Error("Failed to update wallpaper rect."));
+                        Logger.Info(LogUtilWindows.GetWin32Error("Failed to update wallpaper rect."));
                     }
                 }
             }
@@ -781,7 +781,7 @@ namespace Lively.Core
                             (screen.Bounds.Height),
                             (int)(NativeMethods.SetWindowPosFlags.SWP_NOACTIVATE | NativeMethods.SetWindowPosFlags.SWP_NOZORDER)))
                         {
-                            Logger.Info(LogUtil.GetWin32Error("Failed to update wallpaper rect."));
+                            Logger.Info(LogUtilWindows.GetWin32Error("Failed to update wallpaper rect."));
                         }
                     }
                 }
@@ -1220,10 +1220,10 @@ namespace Lively.Core
             var display = displayManager.GetDisplayMonitorFromPoint(new System.Drawing.Point(x, y));
             var pos = userSettings.Settings.WallpaperArrangement switch
             {
-                WallpaperArrangement.per => InputUtil.ToMouseDisplayLocal(x, y, display.Bounds),
-                WallpaperArrangement.span => InputUtil.ToMouseSpanLocal(x, y, displayManager.VirtualScreenBounds),
-                WallpaperArrangement.duplicate => InputUtil.ToMouseDisplayLocal(x, y, display.Bounds),
-                _ => InputUtil.ToMouseDisplayLocal(x, y, display.Bounds),
+                WallpaperArrangement.per => InputMath.ToMouseDisplayLocal(x, y, display.Bounds),
+                WallpaperArrangement.span => InputMath.ToMouseSpanLocal(x, y, displayManager.VirtualScreenBounds),
+                WallpaperArrangement.duplicate => InputMath.ToMouseDisplayLocal(x, y, display.Bounds),
+                _ => InputMath.ToMouseDisplayLocal(x, y, display.Bounds),
             };
 
             foreach (var wallpaper in Wallpapers)

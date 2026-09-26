@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.PatreonSupportersView"
+             x:DataType="vm:PatreonSupportersViewModel">
+  <Grid RowDefinitions="*,Auto" MinWidth="600">
+    <!-- Supporters page as text -->
+    <Border Grid.Row="0"
+            Height="500"
+            Background="{DynamicResource ApplicationPageBackgroundThemeBrush}"
+            CornerRadius="5"
+            IsVisible="{Binding IsWebView2Available}">
+      <Panel>
+        <ScrollViewer IsVisible="{Binding SupportersFetchError, Converter={x:Static StringConverters.IsNullOrEmpty}}">
+          <SelectableTextBlock x:Name="SupportersText" Classes="body" Margin="12" />
+        </ScrollViewer>
+        <ProgressBar x:Name="SupportersProgress" VerticalAlignment="Top" IsIndeterminate="True" />
+        <PathIcon Width="200"
+                  Height="200"
+                  Foreground="DarkRed"
+                  Data="{DynamicResource IconError}"
+                  IsVisible="{Binding SupportersFetchError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <controls:InfoBar VerticalAlignment="Top"
+                          IsClosable="False"
+                          IsOpen="{Binding SupportersFetchError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                          Severity="Error">
+          <StackPanel Margin="10" Spacing="5">
+            <ScrollViewer MaxHeight="300">
+              <TextBlock Text="{Binding SupportersFetchError}" TextWrapping="Wrap" />
+            </ScrollViewer>
+            <HyperlinkButton NavigateUri="https://github.com/rocksdanister/lively/wiki/Common-Problems"
+                             ToolTip.Tip="https://github.com/rocksdanister/lively/wiki/Common-Problems"
+                             Content="{loc:Str TextLearnMore/Text}" />
+          </StackPanel>
+        </controls:InfoBar>
+      </Panel>
+    </Border>
+    <!-- Web runtime missing -->
+    <Border Grid.Row="0"
+            Height="500"
+            CornerRadius="5"
+            ClipToBounds="True"
+            IsVisible="{Binding IsWebView2Available, Converter={x:Static BoolConverters.Not}}">
+      <Panel>
+        <Image conv:ImageLoader.Source="avares://Lively.UI.Avalonia/Assets/patreon-page-preview.jpg" Stretch="UniformToFill" Effect="blur(12)" />
+        <controls:InfoBar Title="{loc:Str WebViewRequired/Title}"
+                          Message="{loc:Str WebViewRequired/Message}"
+                          VerticalAlignment="Top"
+                          IsClosable="False"
+                          Severity="Warning">
+          <controls:InfoBar.ActionButton>
+            <Button Content="{loc:Str TitleDownload/Content}" Command="{Binding InstallWebView2Command}" />
+          </controls:InfoBar.ActionButton>
+          <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWebView2Installing}" />
+        </controls:InfoBar>
+      </Panel>
+    </Border>
+    <TextBlock Grid.Row="1"
+               Classes="body"
+               Margin="0,5,0,0"
+               HorizontalAlignment="Center"
+               Opacity="0.75"
+               Text="{loc:Str TextPatreonMembersThankYou/Text}" />
+  </Grid>
+</UserControl>

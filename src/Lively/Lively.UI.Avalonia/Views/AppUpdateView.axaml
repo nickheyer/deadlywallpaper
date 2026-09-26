@@ -1,0 +1,120 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.AppUpdateView"
+             x:DataType="vm:AppUpdateViewModel">
+  <Panel>
+    <!-- Changelog -->
+    <Panel IsVisible="{Binding IsWebView2Available}">
+      <ScrollViewer Margin="10,10,10,110"
+                    IsVisible="{Binding UpdateChangelogError, Converter={x:Static StringConverters.IsNullOrEmpty}}">
+        <SelectableTextBlock x:Name="ChangelogText" Classes="body" Margin="10" />
+      </ScrollViewer>
+      <!-- Changelog loading -->
+      <StackPanel x:Name="ChangelogProgress" VerticalAlignment="Top" Spacing="4">
+        <ProgressBar IsIndeterminate="True" />
+        <TextBlock Classes="caption" Margin="10,0" Text="{loc:Str TextChangelogLoading}" />
+      </StackPanel>
+      <!-- Changelog error -->
+      <PathIcon Width="200"
+                Height="200"
+                Foreground="DarkRed"
+                Data="{DynamicResource IconError}"
+                IsVisible="{Binding UpdateChangelogError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      <controls:InfoBar VerticalAlignment="Top"
+                        IsClosable="False"
+                        IsOpen="{Binding UpdateChangelogError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                        Severity="Error">
+        <StackPanel Margin="10" Spacing="5">
+          <ScrollViewer MaxHeight="300">
+            <TextBlock Text="{Binding UpdateChangelogError}" TextWrapping="Wrap" />
+          </ScrollViewer>
+          <HyperlinkButton NavigateUri="https://github.com/rocksdanister/lively/wiki/Common-Problems"
+                           ToolTip.Tip="https://github.com/rocksdanister/lively/wiki/Common-Problems"
+                           Content="{loc:Str TextLearnMore/Text}" />
+        </StackPanel>
+      </controls:InfoBar>
+    </Panel>
+    <!-- Web runtime missing -->
+    <Panel IsVisible="{Binding IsWebView2Available, Converter={x:Static BoolConverters.Not}}">
+      <Image conv:ImageLoader.Source="avares://Lively.UI.Avalonia/Assets/changelog-page-preview.jpg" Stretch="UniformToFill" Effect="blur(12)" />
+      <controls:InfoBar Title="{loc:Str WebViewRequired/Title}"
+                        Message="{loc:Str WebViewRequired/Message}"
+                        VerticalAlignment="Top"
+                        IsClosable="False"
+                        Severity="Warning">
+        <controls:InfoBar.ActionButton>
+          <Button Content="{loc:Str TitleDownload/Content}" Command="{Binding InstallWebView2Command}" />
+        </controls:InfoBar.ActionButton>
+        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWebView2Installing}" />
+      </controls:InfoBar>
+    </Panel>
+    <!-- Bottom gradient effect -->
+    <Border IsHitTestVisible="False">
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,300%">
+          <GradientStop Offset="0" Color="#00000000" />
+          <GradientStop Offset="1" Color="{DynamicResource SystemAltMediumHighColor}" />
+        </LinearGradientBrush>
+      </Border.Background>
+    </Border>
+    <!-- Update controls -->
+    <Panel Width="550" Margin="0,0,0,10" VerticalAlignment="Bottom">
+      <controls:SettingsCard Background="{DynamicResource ApplicationPageBackgroundThemeBrush}"
+                             BorderBrush="#33F2F2F2"
+                             BorderThickness="0.5"
+                             CornerRadius="5"
+                             Header="{Binding AppVersionText}"
+                             HeaderIcon="{Binding UpdateStatusSeverity, Converter={StaticResource StringToInfoBarSeverityIconConverter}}">
+        <controls:SettingsCard.Description>
+          <StackPanel IsVisible="{Binding IsWinStore, Converter={x:Static BoolConverters.Not}}">
+            <TextBlock Classes="body" Text="{Binding UpdateStatusText}" />
+            <TextBlock Opacity="0.75" Text="{Binding UpdateDateText}" />
+          </StackPanel>
+        </controls:SettingsCard.Description>
+        <Panel>
+          <Panel VerticalAlignment="Center" IsVisible="{Binding IsWinStore, Converter={x:Static BoolConverters.Not}}">
+            <Panel IsVisible="{Binding IsUpdateAvailable}">
+              <!-- Download -->
+              <Button Classes="accent"
+                      MinWidth="100"
+                      HorizontalAlignment="Right"
+                      Command="{Binding DownloadUpdateCommand}"
+                      Content="{loc:Str TextDownload/Content}"
+                      IsVisible="{Binding IsUpdateDownloaded, Converter={x:Static BoolConverters.Not}}" />
+              <!-- Install -->
+              <Button Classes="accent"
+                      MinWidth="100"
+                      HorizontalAlignment="Right"
+                      Command="{Binding InstallUpdateCommand}"
+                      Content="{loc:Str TextInstall/Content}"
+                      IsVisible="{Binding IsUpdateDownloaded}" />
+            </Panel>
+            <!-- Check for update -->
+            <Button MinWidth="100"
+                    HorizontalAlignment="Right"
+                    Command="{Binding CheckUpdateCommand}"
+                    Content="{loc:Str TextUpdateCheck/Content}"
+                    IsVisible="{Binding IsUpdateAvailable, Converter={x:Static BoolConverters.Not}}" />
+          </Panel>
+          <!-- Check for update (store) -->
+          <Button MinWidth="100"
+                  HorizontalAlignment="Right"
+                  VerticalAlignment="Center"
+                  Command="{Binding OpenStorePageCommand}"
+                  Content="{loc:Str TextUpdateCheck/Content}"
+                  IsVisible="{Binding IsWinStore}" />
+        </Panel>
+      </controls:SettingsCard>
+      <ProgressBar Margin="2.5,0,2.5,-1"
+                   VerticalAlignment="Bottom"
+                   Maximum="100"
+                   IsIndeterminate="{Binding IsUpdateChecking}"
+                   IsVisible="{Binding IsUpdateDownloaded, Converter={x:Static BoolConverters.Not}}"
+                   Value="{Binding CurrentProgress}" />
+    </Panel>
+  </Panel>
+</UserControl>

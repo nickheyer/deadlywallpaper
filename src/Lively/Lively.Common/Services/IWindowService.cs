@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+using Lively.Models;
+using System.Threading.Tasks;
 
 namespace Lively.Common.Services
 {
@@ -9,5 +10,9 @@ namespace Lively.Common.Services
         void ShowDiagnosticWindow();
         void ShowGridOverlay(bool isVisible);
         Task<bool> ShowWallpaperDialogWindowAsync(object wallpaper);
+        void ShowWallpaperPreviewWindow(LibraryModel model);
+        void ShowSplashWindow();
+        void CloseSplashWindow();
+        void ShowErrorMessageBox(string message, string title);
     }
 }

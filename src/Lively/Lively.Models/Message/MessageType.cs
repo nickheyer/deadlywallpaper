@@ -22,5 +22,9 @@
         lp_cpicker,
         lp_chekbox,
         lp_dropdown_scaler,
+        /// <summary>
+        /// Audio spectrum frame pushed by the core to wallpapers that asked for audio (Linux hosts).
+        /// </summary>
+        lsp_audio,
     }
 }

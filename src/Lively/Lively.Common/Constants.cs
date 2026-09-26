@@ -1,4 +1,3 @@
-﻿using Lively.Common.Helpers;
 using Lively.Models.Enums;
 using System;
 using System.IO;
@@ -71,6 +70,14 @@ namespace Lively.Common
             public static string UniqueAppName { get; } = "LIVELY:DESKTOPWALLPAPERSYSTEM";
             public static string PipeServerName { get; } = UniqueAppName + Environment.UserName; //backward compatibility < v1.9
             public static string GrpcPipeServerName { get; } = "Grpc_" + PipeServerName;
+            /// <summary>
+            /// Name of the single-instance mutex. On Unix .NET scopes plain names to the POSIX session,
+            /// which differs between a terminal and the desktop launcher, so the Global prefix is required there.
+            /// </summary>
+            public static string MutexName { get; } =
+                System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)
+                    ? UniqueAppName
+                    : @"Global\" + UniqueAppName;
         }
         
         public static class ApplicationType

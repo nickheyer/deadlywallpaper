@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lively plugin test page</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden;
+    background: linear-gradient(135deg, #ff3b30 0%, #ffcc00 30%, #34c759 60%, #007aff 100%); }
+  #status { position: absolute; left: 16px; top: 16px; color: white; font: 24px sans-serif;
+    text-shadow: 0 0 6px black; white-space: pre; }
+  canvas { position: absolute; right: 16px; bottom: 16px; }
+</style>
+</head>
+<body>
+<div id="status">loading</div>
+<canvas id="c" width="240" height="240"></canvas>
+<script>
+  // Every Lively bridge function logs its call; the plugin forwards console output
+  // as msg_console (Category 2), which is what the test asserts on.
+  var lines = [];
+  function show(text) {
+    lines.push(text);
+    if (lines.length > 12) lines.shift();
+    document.getElementById("status").textContent = lines.join("\n");
+    console.log(text);
+  }
+  function livelyPropertyListener(name, value) {
+    show("livelyPropertyListener " + JSON.stringify([name, value]));
+  }
+  function livelyWallpaperPlaybackChanged(data) {
+    show("playback " + (typeof data) + " " + data);
+  }
+  function livelySystemInformation(data) {
+    show("sysinfo " + (typeof data) + " " + data);
+  }
+  function livelyCurrentTrack(data) {
+    show("nowplaying " + (typeof data) + " " + data);
+  }
+  function livelyAudioListener(array) {
+    show("audio " + (Array.isArray(array) ? "array" : typeof array) + " " + array.length + " " + array[0]);
+  }
+
+  var ticks = 0;
+  setInterval(function () { ticks++; console.log("tick " + ticks); }, 250);
+
+  var ctx = document.getElementById("c").getContext("2d");
+  var angle = 0;
+  function draw() {
+    angle += 0.05;
+    ctx.clearRect(0, 0, 240, 240);
+    ctx.fillStyle = "hsl(" + ((angle * 40) % 360) + ", 90%, 50%)";
+    ctx.beginPath();
+    ctx.arc(120 + 80 * Math.cos(angle), 120 + 80 * Math.sin(angle), 40, 0, Math.PI * 2);
+    ctx.fill();
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  window.addEventListener("load", function () { show("lively test page loaded"); });
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-﻿using Lively.Common.Helpers;
+using Lively.Common.Helpers;
 using Lively.Common.Services;
 using Lively.Core;
 using Lively.Core.Display;
@@ -11,7 +11,7 @@ using System.IO;
 
 namespace Lively.Factories
 {
-    public class WallpaperPluginFactory : IWallpaperPluginFactory
+    public class WallpaperPluginFactory : IWallpaperPluginFactory, IDwmThumbnailWallpaperFactory
     {
         private readonly IWebView2UserDataFactory webView2UserDataFactory;
         private readonly IDisplayManager displayManager;

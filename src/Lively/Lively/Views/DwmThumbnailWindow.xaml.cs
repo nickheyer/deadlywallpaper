@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows;
@@ -41,7 +41,7 @@ namespace Lively.Views
                        rectSrc.Height,
                        0x0040))
             {
-                Logger.Error(LogUtil.GetWin32Error("Window resize fail"));
+                Logger.Error(LogUtilWindows.GetWin32Error("Window resize fail"));
             }
 
             if (dwmThumbnail.TryShow())

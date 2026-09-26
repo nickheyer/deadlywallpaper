@@ -1,0 +1,138 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:models="using:Lively.Models"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.Settings.SettingsPerformanceView"
+             x:DataType="vm:SettingsPerformanceViewModel">
+  <UserControl.Resources>
+    <ControlTheme x:Key="PauseChoice" TargetType="controls:Segmented" BasedOn="{StaticResource {x:Type controls:Segmented}}">
+      <Setter Property="MinWidth" Value="90" />
+    </ControlTheme>
+  </UserControl.Resources>
+  <ScrollViewer>
+    <StackPanel Margin="10,25,10,5" Spacing="{StaticResource SettingGroupControlSpacing}">
+      <!-- Wallpaper Playback -->
+      <StackPanel>
+        <TextBlock Classes="groupHeader" Text="{loc:Str WallpaperPlaybackGroup/Text}" />
+        <controls:SettingsCard Header="{loc:Str AppFullScreen/Header}" Description="{loc:Str AppFullScreen/Description}" HeaderIcon="{DynamicResource IconWindow}">
+          <controls:Segmented Theme="{StaticResource PauseChoice}" SelectedIndex="{Binding SelectedAppFullScreenIndex, Mode=TwoWay}">
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformancePause/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPause}" />
+            </controls:SegmentedItem>
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformanceNone/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPlay}" />
+            </controls:SegmentedItem>
+          </controls:Segmented>
+        </controls:SettingsCard>
+        <controls:SettingsCard Header="{loc:Str AppFocus/Header}" Description="{loc:Str AppFocus/Description}" HeaderIcon="{DynamicResource IconWindow}" IsEnabled="{Binding IsSelectedAppFocus}">
+          <controls:Segmented Theme="{StaticResource PauseChoice}" SelectedIndex="{Binding SelectedAppFocusIndex, Mode=TwoWay}">
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformancePause/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPause}" />
+            </controls:SegmentedItem>
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformanceNone/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPlay}" />
+            </controls:SegmentedItem>
+          </controls:Segmented>
+        </controls:SettingsCard>
+      </StackPanel>
+
+      <!-- Laptop Wallpaper Playback -->
+      <StackPanel>
+        <TextBlock Classes="groupHeader" Text="{loc:Str LaptopWallpaperPlaybackGroup/Text}" />
+        <controls:SettingsCard Header="{loc:Str BatteryPower/Header}" Description="{loc:Str BatteryPower/Description}" HeaderIcon="{DynamicResource IconBattery}">
+          <controls:Segmented Theme="{StaticResource PauseChoice}" SelectedIndex="{Binding SelectedBatteryPowerIndex, Mode=TwoWay}">
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformancePause/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPause}" />
+            </controls:SegmentedItem>
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformanceNone/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPlay}" />
+            </controls:SegmentedItem>
+          </controls:Segmented>
+        </controls:SettingsCard>
+        <controls:SettingsCard Header="{loc:Str PowerSavingModePower/Header}" Description="{loc:Str PowerSavingModePower/Description}" HeaderIcon="{DynamicResource IconLeaf}">
+          <controls:Segmented Theme="{StaticResource PauseChoice}" SelectedIndex="{Binding SelectedPowerSaveModeIndex, Mode=TwoWay}">
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformancePause/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPause}" />
+            </controls:SegmentedItem>
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformanceNone/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPlay}" />
+            </controls:SegmentedItem>
+          </controls:Segmented>
+        </controls:SettingsCard>
+      </StackPanel>
+
+      <!-- System -->
+      <StackPanel>
+        <TextBlock Classes="groupHeader" Text="{loc:Str System/Text}" />
+        <controls:SettingsCard Header="{loc:Str RemoteDesktopPower/Header}" Description="{loc:Str RemoteDesktopPower/Description}" HeaderIcon="{DynamicResource IconRemote}" IsVisible="{Binding IsRemoteDesktopPauseSupported}">
+          <controls:Segmented Theme="{StaticResource PauseChoice}" SelectedIndex="{Binding SelectedRemoteDestopPowerIndex, Mode=TwoWay}">
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformancePause/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPause}" />
+            </controls:SegmentedItem>
+            <controls:SegmentedItem ToolTip.Tip="{loc:Str TextPerformanceNone/Content}">
+              <PathIcon Width="16" Height="16" Data="{DynamicResource IconPlay}" />
+            </controls:SegmentedItem>
+          </controls:Segmented>
+        </controls:SettingsCard>
+        <controls:SettingsCard Header="{loc:Str DisplayPauseRule/Header}" Description="{loc:Str DisplayPauseRule/Description}" HeaderIcon="{DynamicResource IconDisplayPause}">
+          <ComboBox MinWidth="{StaticResource SettingActionControlMinWidth}" SelectedIndex="{Binding SelectedDisplayPauseRuleIndex, Mode=TwoWay}">
+            <ComboBoxItem Content="{loc:Str DisplayPauseRulePerScreen/Content}" />
+            <ComboBoxItem Content="{loc:Str DisplayPauseRuleAllScreen/Content}" />
+          </ComboBox>
+        </controls:SettingsCard>
+        <controls:SettingsCard Header="{loc:Str PauseAlgorithm/Header}" Description="{loc:Str PauseAlgorithm/Description}" HeaderIcon="{DynamicResource IconPause}">
+          <ComboBox MinWidth="{StaticResource SettingActionControlMinWidth}" SelectedIndex="{Binding SelectedPauseAlgorithmIndex, Mode=TwoWay}">
+            <ComboBoxItem Content="{loc:Str PauseAlgorithmTypeForegroundProcess/Content}" />
+            <ComboBoxItem Content="{loc:Str PauseAlgorithmTypeAllProcess/Content}" />
+            <ComboBoxItem Content="{loc:Str PauseAlgorithmTypeExclusiveMode/Content}" />
+            <ComboBoxItem Content="Grid" />
+          </ComboBox>
+        </controls:SettingsCard>
+        <controls:InfoBar Title="?" IsClosable="False" IsIconVisible="False" Severity="Informational">
+          <controls:InfoBar.ActionButton>
+            <HyperlinkButton NavigateUri="https://github.com/rocksdanister/lively/wiki/Performance"
+                             ToolTip.Tip="https://github.com/rocksdanister/lively/wiki/Performance"
+                             Content="{loc:Str TextLearnMore/Text}" />
+          </controls:InfoBar.ActionButton>
+        </controls:InfoBar>
+      </StackPanel>
+
+      <!-- Application -->
+      <StackPanel>
+        <TextBlock Classes="groupHeader" Text="{loc:Str Application/Text}" />
+        <controls:SettingsExpander Header="{loc:Str AppRules/Header}" Description="{loc:Str AppRules/Description}" HeaderIcon="{DynamicResource IconFilter}" IsExpanded="False">
+          <controls:SettingsExpander.Items>
+            <controls:SettingsCard ContentAlignment="Left">
+              <Grid RowDefinitions="*,Auto">
+                <ListBox Grid.Row="0"
+                         Classes="rows"
+                         MinWidth="500"
+                         MinHeight="100"
+                         MaxHeight="200"
+                         ItemsSource="{Binding AppRules}"
+                         SelectedItem="{Binding SelectedAppRuleItem, Mode=TwoWay}"
+                         SelectionMode="Single">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:ApplicationRulesModel">
+                      <TextBlock Margin="0,5,0,5" Text="{Binding AppName}" />
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+                <StackPanel Grid.Row="1" Margin="0,5,0,0" HorizontalAlignment="Left" Orientation="Horizontal" Spacing="5">
+                  <Button Command="{Binding AddAppRuleCommand}">
+                    <PathIcon Width="12" Height="12" Data="{DynamicResource IconAdd}" />
+                  </Button>
+                  <Button Command="{Binding RemoveAppRuleCommand}">
+                    <PathIcon Width="12" Height="12" Data="{DynamicResource IconMinus}" />
+                  </Button>
+                </StackPanel>
+              </Grid>
+            </controls:SettingsCard>
+          </controls:SettingsExpander.Items>
+        </controls:SettingsExpander>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -1,4 +1,4 @@
-﻿using CommandLine;
+using CommandLine;
 using GrpcDotNetNamedPipes;
 using Lively.Commandline;
 using Lively.Common;
@@ -105,7 +105,7 @@ namespace Lively
             }
 
             SetupUnhandledExceptionLogging();
-            Logger.Info(LogUtil.GetHardwareInfo());
+            Logger.Info(LogUtilWindows.GetHardwareInfo());
 
             //App() -> OnStartup() -> App.Startup event.
             _serviceProvider = ConfigureServices();
@@ -232,9 +232,15 @@ namespace Lively
                 .AddSingleton<ISystray, Systray>()
                 .AddSingleton<IAppUpdaterService, GithubUpdaterService>()
                 .AddSingleton<ITransparentTbService, TranslucentTBService>()
+                .AddSingleton<ITaskbarThemeService, TaskbarThemeService>()
+                .AddSingleton<IDispatcherService, WpfDispatcherService>()
+                .AddSingleton<IAppLifetimeService, WpfAppLifetimeService>()
+                .AddSingleton<IAppThemeService, WpfAppThemeService>()
+                .AddSingleton<IStartupService, WindowsStartupService>()
+                .AddSingleton<IPlatformInfo, WindowsPlatformInfo>()
                 .AddSingleton<RawInputMsgWindow>()
                 .AddSingleton<WndProcMsgWindow>()
-                .AddSingleton<WinDesktopCoreServer>()
+                .AddSingleton<DesktopCoreServer>()
                 .AddSingleton<DisplayManagerServer>()
                 .AddSingleton<UserSettingsServer>()
                 .AddSingleton<CommandsServer>()
@@ -245,8 +251,10 @@ namespace Lively
                 .AddTransient<AppInitializer>()
                 .AddTransient<LibraryPreviewViewModel>()
                 .AddTransient<DiagnosticViewModel>()
+                .AddTransient<IThumbnailService, WindowsThumbnailService>()
                 .AddTransient<IWallpaperLibraryFactory, WallpaperLibraryFactory>()
                 .AddTransient<IWallpaperPluginFactory, WallpaperPluginFactory>()
+                .AddTransient<IDwmThumbnailWallpaperFactory, WallpaperPluginFactory>()
                 .AddTransient<ILivelyPropertyFactory, LivelyPropertyFactory>()
                 .AddTransient<IWebView2UserDataFactory, WebView2UserDataFactory>()
                 //.AddTransient<IScreenRecorder, ScreenRecorderlibScreen>()
@@ -273,7 +281,7 @@ namespace Lively
         private NamedPipeServer ConfigureGrpcServer()
         {
             var server = new NamedPipeServer(Constants.SingleInstance.GrpcPipeServerName);
-            DesktopService.BindService(server.ServiceBinder, Services.GetRequiredService<WinDesktopCoreServer>());
+            DesktopService.BindService(server.ServiceBinder, Services.GetRequiredService<DesktopCoreServer>());
             Grpc.Common.Proto.Settings.SettingsService.BindService(server.ServiceBinder, Services.GetRequiredService<UserSettingsServer>());
             DisplayService.BindService(server.ServiceBinder, Services.GetRequiredService<DisplayManagerServer>());
             CommandsService.BindService(server.ServiceBinder, Services.GetRequiredService<CommandsServer>());

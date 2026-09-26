@@ -8,6 +8,7 @@ using Lively.Grpc.Client;
 using Lively.ML.DepthEstimate;
 using Lively.Models.Enums;
 using Lively.UI.Shared.Factories;
+using Lively.UI.Shared.Services;
 using Lively.UI.Shared.ViewModels;
 using Lively.UI.WinUI.Services;
 using Lively.UI.WinUI.Views.LivelyProperty;
@@ -148,7 +149,7 @@ namespace Lively.UI.WinUI
                 .AddSingleton<GalleryClient>((e) => new GalleryClient(e.GetRequiredService<IHttpClientFactory>(), "http://api.livelywallpaper.net/api/",
                     "https://accounts.google.com/o/oauth2/auth/oauthchooseaccount?client_id=923081992071-qg27j4uhasb3r4lasb9cb19nbhvgbb34.apps.googleusercontent.com&redirect_uri=http://127.0.0.1:43821/signin-oidc&scope=email%20openid%20profile&response_type=code&state=asdafwswdwefwsdg&flowName=GeneralOAuthFlow",
                     "https://github.com/login/oauth/authorize?client_id=bbfd46fbb54895ecee74&redirect_uri=http://127.0.0.1:43821/signin-oidc-github&scope=user:email",
-                    new JsonTokenStore()))
+                    new JsonTokenStore(new DpapiTokenProtector())))
                 .AddSingleton<LibraryViewModel>() //Storing and tracking library items.
                 .AddSingleton<GalleryViewModel>()
                 .AddSingleton<GallerySubscriptionViewModel>()
@@ -184,10 +185,12 @@ namespace Lively.UI.WinUI
                 .AddTransient<IApplicationsFactory, ApplicationsFactory>()
                 .AddTransient<IApplicationsRulesFactory, ApplicationsRulesFactory>()
                 .AddTransient<IWallpaperLibraryFactory, WallpaperLibraryFactory>()
+                .AddTransient<IThumbnailService, WindowsThumbnailService>()
                 .AddTransient<IAppThemeFactory, AppThemeFactory>()
                 .AddTransient<IDownloadService, HttpDownloadService>()
                 .AddTransient<IMediaFormatConverter, MediaFormatConverter>()
                 .AddTransient<IAudioDeviceFactory, AudioDeviceFactory>()
+                .AddTransient<IPlatformUiFeatures, WindowsPlatformUiFeatures>()
                 //https://docs.microsoft.com/en-us/dotnet/architecture/microservices/implement-resilient-applications/use-httpclientfactory-to-implement-resilient-http-requests
                 .AddHttpClient()
                 .BuildServiceProvider();

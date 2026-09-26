@@ -1,0 +1,10 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.ChooseDisplayView"
+             x:DataType="vm:ChooseDisplayViewModel">
+  <Border Width="490" Height="360" Background="{DynamicResource ApplicationPageBackgroundThemeBrush}" CornerRadius="5">
+    <controls:DisplaySelector Displays="{Binding ScreenItems}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}" />
+  </Border>
+</UserControl>

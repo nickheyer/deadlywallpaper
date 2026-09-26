@@ -1,0 +1,29 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.LibraryAboutView"
+             x:DataType="vm:LibraryAboutViewModel">
+  <ScrollViewer HorizontalAlignment="Left" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+    <StackPanel MaxWidth="475" Margin="0,0,10,0">
+      <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
+      <TextBlock Classes="secondary" Margin="0,5,0,0" Text="{Binding Desc}" TextWrapping="Wrap" />
+      <TextBlock Margin="0,5,0,0" Text="{loc:Str WallpaperType/Text}" />
+      <TextBlock Classes="secondary" Margin="0,5,0,0" Text="{Binding Type, Converter={StaticResource WallpaperTypeEnumToStringConverter}}" TextWrapping="Wrap" />
+      <TextBlock Margin="0,5,0,0" Text="{loc:Str Author/Text}" />
+      <TextBlock Classes="secondary" Margin="0,5,0,0" Text="{Binding Author}" TextWrapping="Wrap" />
+      <StackPanel IsVisible="{Binding IsInstalled}">
+        <TextBlock Margin="0,5,0,0" Text="{loc:Str WallpaperInstallSize/Text}" />
+        <TextBlock Classes="secondary" Margin="0,5,0,0" Text="{Binding DirectorySize}" TextWrapping="Wrap" />
+      </StackPanel>
+      <StackPanel Margin="0,5,0,0" IsVisible="{Binding Contact, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+        <TextBlock Text="{loc:Str WallpaperSource/Text}" />
+        <HyperlinkButton HorizontalContentAlignment="Left"
+                         NavigateUri="{Binding SrcWebsite}"
+                         ToolTip.Tip="{Binding Contact}">
+          <TextBlock Classes="body" MaxLines="1" TextTrimming="CharacterEllipsis" Text="{Binding Contact}" />
+        </HyperlinkButton>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

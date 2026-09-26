@@ -1,8 +1,8 @@
-﻿using Lively.Common.Helpers;
+using Lively.Common.Helpers;
 using Lively.Common.Helpers.Pinvoke;
 using Lively.Common.Services;
 using Lively.Core.Display;
-using Lively.Helpers.Hardware;
+using Lively.Common.Helpers.Hardware;
 using Lively.Models;
 using Lively.Models.Enums;
 using Microsoft.Win32;

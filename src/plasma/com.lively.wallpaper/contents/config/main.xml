@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd" >
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <entry name="Source" type="String">
+      <label>Absolute file path or URL of the wallpaper</label>
+      <default></default>
+    </entry>
+    <entry name="Kind" type="String">
+      <label>Wallpaper kind: video, gif, picture, web, url, videostream or none</label>
+      <default>none</default>
+    </entry>
+    <entry name="CoreSocket" type="String">
+      <label>WebSocket URL of the Lively core (ws://127.0.0.1:port)</label>
+      <default></default>
+    </entry>
+    <entry name="Instance" type="String">
+      <label>Instance id, echoed in the WebSocket path /wallpaper/&lt;instance&gt;</label>
+      <default></default>
+    </entry>
+    <entry name="Scaler" type="String">
+      <label>Scaling mode: none, fill, uniform or uniformFill</label>
+      <default>uniformFill</default>
+    </entry>
+    <entry name="Volume" type="Int">
+      <label>Initial volume 0-100</label>
+      <default>0</default>
+    </entry>
+    <entry name="Interactive" type="Bool">
+      <label>Whether the web view receives pointer input</label>
+      <default>false</default>
+    </entry>
+    <entry name="SpanX" type="Int">
+      <label>Span mode: x of this desktop's slice inside the virtual screen</label>
+      <default>0</default>
+    </entry>
+    <entry name="SpanY" type="Int">
+      <label>Span mode: y of this desktop's slice inside the virtual screen</label>
+      <default>0</default>
+    </entry>
+    <entry name="SpanWidth" type="Int">
+      <label>Span mode: width of this desktop's slice inside the virtual screen</label>
+      <default>0</default>
+    </entry>
+    <entry name="SpanHeight" type="Int">
+      <label>Span mode: height of this desktop's slice inside the virtual screen</label>
+      <default>0</default>
+    </entry>
+    <entry name="SpanVirtualWidth" type="Int">
+      <label>Span mode: width of the virtual screen the wallpaper is stretched over (0 disables span mode)</label>
+      <default>0</default>
+    </entry>
+    <entry name="SpanVirtualHeight" type="Int">
+      <label>Span mode: height of the virtual screen the wallpaper is stretched over (0 disables span mode)</label>
+      <default>0</default>
+    </entry>
+    <entry name="FillColor" type="Color">
+      <label>Color shown behind the wallpaper and when Kind is none</label>
+      <default>#000000</default>
+    </entry>
+  </group>
+</kcfg>

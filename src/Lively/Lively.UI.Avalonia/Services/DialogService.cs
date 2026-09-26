@@ -1,0 +1,505 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Lively.Common;
+using Lively.Common.Services;
+using Lively.Models;
+using Lively.Models.Enums;
+using Lively.Models.Gallery.API;
+using Lively.UI.Avalonia.Controls;
+using Lively.UI.Avalonia.Views;
+using Lively.UI.Avalonia.Views.ControlPanel;
+using Lively.UI.Avalonia.Views.Gallery;
+using Lively.UI.Avalonia.Views.LivelyProperty;
+using Lively.UI.Avalonia.Views.Settings;
+using Lively.UI.Shared.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+namespace Lively.UI.Avalonia.Services
+{
+    /// <summary>
+    /// Shows the application's dialogs in the main window's <see cref="DialogHost"/>; the host queues requests so
+    /// one dialog is visible at a time, like the WinUI ShowAsyncQueue extension.
+    /// </summary>
+    public class DialogService : IDialogService
+    {
+        public bool IsWorking { get; private set; }
+
+        private readonly IResourceService i18n;
+        private readonly IMainNavigator navigator;
+        private readonly IServiceScopeFactory scopeFactory;
+
+        public DialogService(IResourceService i18n, IMainNavigator navigator, IServiceScopeFactory scopeFactory)
+        {
+            this.i18n = i18n;
+            this.navigator = navigator;
+            this.scopeFactory = scopeFactory;
+        }
+
+        public async Task<DisplayMonitor> ShowDisplayChooseDialogAsync()
+        {
+            var vm = App.Services.GetRequiredService<ChooseDisplayViewModel>();
+            var dialog = new ContentDialog
+            {
+                Title = i18n.GetString("DescriptionScreenLayout"),
+                DialogContent = new ChooseDisplayView(vm),
+                PrimaryButtonText = i18n.GetString("Cancel/Content"),
+            };
+            vm.OnRequestClose += (_, _) => dialog.Hide();
+            await dialog.ShowAsync();
+            vm.OnWindowClosing(this, EventArgs.Empty);
+            return vm.SelectedItem?.Screen;
+        }
+
+        public async Task<ApplicationModel> ShowApplicationPickerDialogAsync()
+        {
+            var vm = App.Services.GetRequiredService<FindMoreAppsViewModel>();
+            var result = await ShowDialogAsync(new FindMoreAppsView(vm),
+                                          i18n.GetString("TitleChooseApplication/Text"),
+                                          i18n.GetString("TextAdd"),
+                                          i18n.GetString("Cancel/Content"));
+            return result == DialogResult.primary ? vm.SelectedItem : null;
+        }
+
+        public async Task ShowDialogAsync(string message, string title, string primaryBtnText)
+        {
+            await new ContentDialog
+            {
+                Title = title,
+                DialogContent = CreateTextContent(message),
+                PrimaryButtonText = primaryBtnText,
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync();
+        }
+
+        public async Task<DialogResult> ShowDialogAsync(object content,
+            string title,
+            string primaryBtnText,
+            string secondaryBtnText,
+            bool isDefaultPrimary = true)
+        {
+            var result = await new ContentDialog
+            {
+                Title = title,
+                DialogContent = content is string text ? CreateTextContent(text) : content,
+                PrimaryButtonText = primaryBtnText,
+                SecondaryButtonText = secondaryBtnText,
+                DefaultButton = isDefaultPrimary ? ContentDialogButton.Primary : ContentDialogButton.Secondary,
+            }.ShowAsync();
+
+            return result switch
+            {
+                ContentDialogResult.None => DialogResult.none,
+                ContentDialogResult.Primary => DialogResult.primary,
+                ContentDialogResult.Secondary => DialogResult.seconday,
+                _ => DialogResult.none,
+            };
+        }
+
+        public async Task<string> ShowTextInputDialogAsync(string title, string placeholderText)
+        {
+            var tb = new TextBox
+            {
+                Height = 75,
+                Padding = new Thickness(10),
+                TextWrapping = TextWrapping.Wrap,
+                AcceptsReturn = true,
+                Watermark = placeholderText
+            };
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                DialogContent = tb,
+                PrimaryButtonText = i18n.GetString("TextOK"),
+            };
+            await dialog.ShowAsync();
+            return tb.Text ?? string.Empty;
+        }
+
+        public async Task ShowThemeDialogAsync()
+        {
+            await new ContentDialog
+            {
+                Title = i18n.GetString("AppTheme/Header"),
+                DialogContent = new AppThemeView(),
+                PrimaryButtonText = i18n.GetString("TextOK"),
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync();
+        }
+
+        public async Task ShowCustomiseWallpaperDialogAsync(LibraryModel obj)
+        {
+            try
+            {
+                IsWorking = true;
+
+                var vm = App.Services.GetRequiredService<CustomiseWallpaperViewModel>();
+                var dialog = new ContentDialog
+                {
+                    Title = obj.Title.Length > 35 ? obj.Title.Substring(0, 35) + "..." : obj.Title,
+                    DialogContent = new LivelyPropertiesView(vm) { MinWidth = 325 },
+                    PrimaryButtonText = i18n.GetString("TextOK"),
+                    DefaultButton = ContentDialogButton.Primary,
+                };
+                dialog.Closing += (_, _) => vm.OnClose();
+                vm.Load(obj);
+                await dialog.ShowAsync();
+            }
+            finally
+            {
+                IsWorking = false;
+            }
+        }
+
+        public async Task<LibraryModel> ShowDepthWallpaperDialogAsync(string imagePath)
+        {
+            var vm = App.Services.GetRequiredService<DepthEstimateWallpaperViewModel>();
+            vm.SelectedImage = imagePath;
+            var depthDialog = new ContentDialog
+            {
+                Title = i18n.GetString("TitleDepthWallpaper/Content"),
+                DialogContent = new DepthEstimateWallpaperView(vm),
+                PrimaryButtonText = i18n.GetString("TextContinue/Content"),
+                SecondaryButtonText = i18n.GetString("Cancel/Content"),
+                DefaultButton = ContentDialogButton.Primary,
+                SecondaryButtonCommand = vm.CancelCommand,
+                PrimaryButtonCommand = vm.RunCommand,
+                IsPrimaryButtonEnabled = vm.IsModelExists,
+            };
+            vm.OnRequestClose += (_, _) => depthDialog.Hide();
+            depthDialog.Closing += (_, e) =>
+            {
+                // Continue starts the estimation; the dialog closes through OnRequestClose once the wallpaper exists.
+                if (e.Result == ContentDialogResult.Primary)
+                    e.Cancel = true;
+            };
+            vm.RunCommand.CanExecuteChanged += (_, _) => depthDialog.IsPrimaryButtonEnabled = !vm.IsRunning;
+            vm.CancelCommand.CanExecuteChanged += (_, _) => depthDialog.IsSecondaryButtonEnabled = !vm.IsRunning;
+            await depthDialog.ShowAsync();
+            return vm.NewWallpaper;
+        }
+
+        public async Task<(WallpaperAddType wallpaperType, List<string> wallpapers)> ShowAddWallpaperDialogAsync()
+        {
+            (WallpaperAddType, List<string>) result = (WallpaperAddType.none, null);
+            var addVm = App.Services.GetRequiredService<AddWallpaperViewModel>();
+            var addDialog = new ContentDialog
+            {
+                Title = i18n.GetString("AddWallpaper/Label"),
+                DialogContent = new AddWallpaperView(addVm),
+                PrimaryButtonText = i18n.GetString("TextOK"),
+                DefaultButton = ContentDialogButton.Primary,
+            };
+
+            addVm.OnRequestAddUrl += (_, e) =>
+            {
+                result = (WallpaperAddType.url, new List<string> { e });
+                addDialog.Hide();
+            };
+            addVm.OnRequestAddFile += (_, e) =>
+            {
+                result = (WallpaperAddType.files, e);
+                addDialog.Hide();
+            };
+            addVm.OnRequestOpenCreate += (_, _) =>
+            {
+                result = (WallpaperAddType.create, null);
+                addDialog.Hide();
+            };
+            await addDialog.ShowAsync();
+            return result;
+        }
+
+        public async Task<WallpaperCreateType?> ShowWallpaperCreateDialogAsync(string filePath)
+        {
+            if (filePath is null)
+                return await InnerShowWallpaperCreateDialog(null);
+
+            // Only pictures have creation options.
+            var filter = FileTypes.GetFileType(filePath);
+            if (filter != WallpaperType.picture)
+                return WallpaperCreateType.none;
+
+            return await InnerShowWallpaperCreateDialog(filter);
+        }
+
+        public async Task<WallpaperCreateType?> ShowWallpaperCreateDialogAsync()
+        {
+            return await InnerShowWallpaperCreateDialog(null);
+        }
+
+        private async Task<WallpaperCreateType?> InnerShowWallpaperCreateDialog(WallpaperType? filter)
+        {
+            var vm = App.Services.GetRequiredService<AddWallpaperCreateViewModel>();
+            var dlg = new ContentDialog
+            {
+                Title = i18n.GetString("TitleCreateWallpaper/Content"),
+                DialogContent = new AddWallpaperCreateView(vm),
+                SecondaryButtonText = i18n.GetString("Cancel/Content"),
+            };
+            vm.WallpaperCategoriesFiltered.Filter = _ => true; //reset
+            if (filter is not null)
+                vm.WallpaperCategoriesFiltered.Filter = x => x.TypeSupported == filter;
+            else
+                vm.WallpaperCategoriesFiltered.Filter = x => x.CreateType != WallpaperCreateType.none;
+            vm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(vm.SelectedItem) && vm.SelectedItem != null)
+                    dlg.Hide();
+            };
+            var result = await dlg.ShowAsync();
+            return result != ContentDialogResult.Secondary && vm.SelectedItem != null ? vm.SelectedItem.CreateType : null;
+        }
+
+        public async Task ShowAboutDialogAsync()
+        {
+            await new ContentDialog
+            {
+                Title = i18n.GetString("About/Label"),
+                DialogContent = new AboutView(),
+                PrimaryButtonText = i18n.GetString("TextOK"),
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync();
+        }
+
+        public async Task ShowPatreonSupportersDialogAsync()
+        {
+            var page = new PatreonSupportersView();
+            var dlg = new ContentDialog
+            {
+                Title = i18n.GetString("TitlePatreon/Text"),
+                DialogContent = page,
+                PrimaryButtonText = i18n.GetString("TextBecomePatreonMember/Content"),
+                SecondaryButtonText = i18n.GetString("Cancel/Content"),
+                DefaultButton = ContentDialogButton.Primary,
+                MinWidth = 640,
+            };
+
+            if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+                LinkUtil.OpenBrowser("https://rocksdanister.github.io/lively/coffee/");
+
+            page.OnClose();
+        }
+
+        public async Task ShowControlPanelDialogAsync()
+        {
+            var isDialogVisible = true;
+            using var scope = scopeFactory.CreateScope();
+            var viewModel = scope.ServiceProvider.GetRequiredService<ControlPanelViewModel>();
+            var dialogNavigator = scope.ServiceProvider.GetRequiredService<IDialogNavigator>();
+
+            var dialog = new ContentDialog
+            {
+                Title = i18n.GetString("DescriptionScreenLayout"),
+                DialogContent = new ControlPanelView(viewModel, dialogNavigator),
+                PrimaryButtonText = i18n.GetString("TextOK"),
+                DefaultButton = ContentDialogButton.Primary,
+            };
+            dialog.Closed += OnDialogClose;
+            viewModel.PropertyChanged += PropertyChanged;
+            await dialog.ShowAsync();
+
+            async void PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName == nameof(viewModel.IsHideDialog))
+                {
+                    if (viewModel.IsHideDialog)
+                    {
+                        isDialogVisible = false;
+                        dialog.Hide();
+                    }
+                    else
+                    {
+                        isDialogVisible = true;
+                        // Re-open the dialog
+                        await dialog.ShowAsync();
+                    }
+                }
+                else if (e.PropertyName == nameof(viewModel.IsShowScreensaverSettings))
+                {
+                    dialog.Hide();
+                    navigator.NavigateTo(ContentPageType.settingsScreensaver);
+                }
+            }
+
+            void OnDialogClose(object sender, ContentDialogResult result)
+            {
+                if (isDialogVisible)
+                    OnWindowClose();
+            }
+
+            void OnWindowClose()
+            {
+                viewModel.OnWindowClosing(this, EventArgs.Empty);
+                viewModel.PropertyChanged -= PropertyChanged;
+                dialog.Closed -= OnDialogClose;
+            }
+        }
+
+        public async Task ShowHelpDialogAsync()
+        {
+            await new ContentDialog
+            {
+                Title = i18n.GetString("Help/Label"),
+                DialogContent = new HelpView(),
+                PrimaryButtonText = i18n.GetString("TextOK"),
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync();
+        }
+
+        public async Task ShowShareWallpaperDialogAsync(LibraryModel obj)
+        {
+            var vm = App.Services.GetRequiredService<ShareWallpaperViewModel>();
+            vm.Model = obj;
+            await new ContentDialog
+            {
+                Title = i18n.GetString("TitleShareWallpaper/Text"),
+                DialogContent = new ShareWallpaperView(vm),
+                PrimaryButtonText = i18n.GetString("TextOK"),
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync();
+        }
+
+        public async Task ShowAboutWallpaperDialogAsync(LibraryModel obj)
+        {
+            await new ContentDialog
+            {
+                Title = i18n.GetString("About/Label"),
+                DialogContent = new LibraryAboutView(new LibraryAboutViewModel(obj)),
+                PrimaryButtonText = i18n.GetString("TextOK"),
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync();
+        }
+
+        public async Task<bool> ShowDeleteWallpaperDialogAsync(LibraryModel obj)
+        {
+            return await new ContentDialog
+            {
+                Title = obj.LivelyInfo.IsAbsolutePath ?
+                    i18n.GetString("DescriptionDeleteConfirmationLibrary") : i18n.GetString("DescriptionDeleteConfirmation"),
+                DialogContent = new LibraryAboutView(new LibraryAboutViewModel(obj)),
+                PrimaryButtonText = i18n.GetString("TextYes"),
+                SecondaryButtonText = i18n.GetString("TextNo"),
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync() == ContentDialogResult.Primary;
+        }
+
+        public async Task ShowReportWallpaperDialogAsync(LibraryModel obj)
+        {
+            await new ContentDialog
+            {
+                Title = i18n.GetString("TitleReportWallpaper/Text"),
+                DialogContent = new ReportWallpaperView(new ReportWallpaperViewModel(obj)),
+                PrimaryButtonText = i18n.GetString("Send/Content"),
+                SecondaryButtonText = i18n.GetString("Cancel/Content"),
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync();
+        }
+
+        public async Task<IEnumerable<GalleryModel>> ShowGalleryRestoreWallpaperDialogAsync(IEnumerable<WallpaperDto> wallpapers)
+        {
+            if (!wallpapers.Any())
+                return null;
+
+            var vm = App.Services.GetRequiredService<RestoreWallpaperViewModel>();
+            foreach (var item in wallpapers)
+                vm.Wallpapers.Add(new GalleryModel(item, false) { IsSelected = true });
+
+            var result = await ShowDialogAsync(
+                new RestoreWallpaperView(vm),
+                i18n.GetString("TitleWelcomeback/Text"),
+                i18n.GetString("TextDownloadNow/Content"),
+                i18n.GetString("TextMaybeLater/Content"));
+
+            return result == DialogResult.primary ? vm.SelectedItems : null;
+        }
+
+        public async Task ShowGalleryEditProfileDialogAsync()
+        {
+            await new ContentDialog
+            {
+                Title = i18n.GetString("TextAccount"),
+                DialogContent = new ManageAccountView(),
+                PrimaryButtonText = i18n.GetString("TextOK"),
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync();
+        }
+
+        public async Task ShowWaitDialogAsync(object content, int seconds)
+        {
+            var dlg = new ContentDialog
+            {
+                Title = i18n.GetString("PleaseWait/Text"),
+                DialogContent = content is string text ? CreateTextContent(text) : content,
+                PrimaryButtonText = $"{seconds}s",
+                IsPrimaryButtonEnabled = false,
+                DefaultButton = ContentDialogButton.Primary,
+            };
+            dlg.Opened += async (_, _) =>
+            {
+                for (int i = seconds; i > 0; i--)
+                {
+                    dlg.PrimaryButtonText = $"{i}s";
+                    await Task.Delay(1000);
+                }
+                dlg.PrimaryButtonText = i18n.GetString("TextOK");
+                dlg.IsPrimaryButtonEnabled = true;
+            };
+            await dlg.ShowAsync();
+        }
+
+        public async Task<bool> ShowWallpaperProjectDirectoryDialogAsync(string folderPath)
+        {
+            var folderView = new FolderView { FolderPath = folderPath };
+            var dlg = new ContentDialog
+            {
+                Title = i18n.GetString("DescriptionConfirmProjectDirectory/Text"),
+                DialogContent = folderView,
+                PrimaryButtonText = i18n.GetString("TextYes"),
+                SecondaryButtonText = i18n.GetString("TextNo"),
+                DefaultButton = ContentDialogButton.Primary,
+            };
+            return folderView.Data.Count == 1 || await dlg.ShowAsync() == ContentDialogResult.Primary;
+        }
+
+        public async Task<bool> ShowConfirmationDialogAsync(string message)
+        {
+            return await new ContentDialog
+            {
+                Title = i18n.GetString("PleaseWait/Text"),
+                DialogContent = CreateTextContent(message),
+                PrimaryButtonText = i18n.GetString("TextYes"),
+                SecondaryButtonText = i18n.GetString("TextNo"),
+                DefaultButton = ContentDialogButton.Primary,
+            }.ShowAsync() == ContentDialogResult.Primary;
+        }
+
+        public async Task<bool> ShowCancellableProgressDialogAsync(string message)
+        {
+            return await new ContentDialog
+            {
+                Title = message,
+                DialogContent = new ProgressBar { IsIndeterminate = true, MinWidth = 300 },
+                PrimaryButtonText = i18n.GetString("Cancel/Content"),
+            }.ShowAsync() == ContentDialogResult.Primary;
+        }
+
+        private static Control CreateTextContent(string message)
+        {
+            return new ScrollViewer
+            {
+                MaxHeight = 400,
+                Content = new TextBlock
+                {
+                    Text = message,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 520,
+                }
+            };
+        }
+    }
+}

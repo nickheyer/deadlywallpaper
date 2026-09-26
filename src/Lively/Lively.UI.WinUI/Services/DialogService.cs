@@ -48,7 +48,7 @@ namespace Lively.UI.WinUI.Services
             };
             vm.OnRequestClose += (_, _) => dialog.Hide();
             await dialog.ShowAsyncQueue();
-            vm.OnWindowClosing(this, new RoutedEventArgs());
+            vm.OnWindowClosing(this, EventArgs.Empty);
             return vm.SelectedItem?.Screen;
         }
 

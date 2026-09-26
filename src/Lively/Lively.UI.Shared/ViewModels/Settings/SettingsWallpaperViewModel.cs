@@ -2,14 +2,13 @@
 using CommunityToolkit.Mvvm.Input;
 using Lively.Common;
 using Lively.Common.Factories;
-using Lively.Common.Helpers.Shell;
 using Lively.Common.Helpers.Storage;
 using Lively.Common.Services;
 using Lively.Grpc.Client;
 using Lively.Models;
 using Lively.Models.Enums;
 using Lively.UI.Shared.Factories;
-using Lively.UI.Shared.Helpers;
+using Lively.UI.Shared.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -25,7 +24,7 @@ namespace Lively.UI.Shared.ViewModels
         private readonly IDesktopCoreClient desktopCore;
         private readonly IDialogService dialogService;
         private readonly IDispatcherService dispatcher;
-        private readonly IDownloadService downloader;
+        private readonly IPlatformUiFeatures platform;
         private readonly IResourceService i18n;
         private readonly IAudioDeviceFactory audioDeviceFactory;
         private readonly IApplicationsRulesFactory appRuleFactory;
@@ -36,7 +35,7 @@ namespace Lively.UI.Shared.ViewModels
             IDialogService dialogService,
             IDispatcherService dispatcher,
             ICommandsClient commandsClient,
-            IDownloadService downloader,
+            IPlatformUiFeatures platform,
             IResourceService i18n,
             IAudioDeviceFactory audioDeviceFactory,
             IApplicationsRulesFactory appRuleFactory)
@@ -49,7 +48,9 @@ namespace Lively.UI.Shared.ViewModels
             this.commandsClient = commandsClient;
             this.audioDeviceFactory = audioDeviceFactory;
             this.dispatcher = dispatcher;
-            this.downloader = downloader;
+            this.platform = platform;
+            IsDesktopIconToggleSupported = platform.SupportsDesktopIconToggle;
+            IsPlayerSelectionSupported = platform.SupportsPlayerSelection;
 
             AppMusicExclusionRules = new ObservableCollection<AppMusicExclusionRuleModel>(GetAppMusicExclusionRule());
             IsDesktopAutoWallpaper = userSettings.Settings.DesktopAutoWallpaper;
@@ -129,15 +130,23 @@ namespace Lively.UI.Shared.ViewModels
                     userSettings.Settings.InputForward = newSetting;
                     UpdateSettingsConfigFile();
 
-                    if (newSetting == InputForwardMode.mousekeyboard)
-                        DesktopUtil.SetDesktopIconVisibility(false);
-                    else if (previousSetting == InputForwardMode.mousekeyboard)
-                        DesktopUtil.SetDesktopIconVisibility(true);
+                    if (platform.SupportsDesktopIconToggle)
+                    {
+                        if (newSetting == InputForwardMode.mousekeyboard)
+                            platform.SetDesktopIconVisibility(false);
+                        else if (previousSetting == InputForwardMode.mousekeyboard)
+                            platform.SetDesktopIconVisibility(true);
+                    }
                 }
-                IsDesktopIconsHidden = userSettings.Settings.InputForward == InputForwardMode.mousekeyboard;
+                IsDesktopIconsHidden = platform.SupportsDesktopIconToggle && userSettings.Settings.InputForward == InputForwardMode.mousekeyboard;
                 SetProperty(ref _selectedWallpaperInputMode, value);
             }
         }
+
+        /// <summary>
+        /// False when the platform cannot hide the desktop icons while keyboard input is forwarded.
+        /// </summary>
+        public bool IsDesktopIconToggleSupported { get; }
 
         [ObservableProperty]
         private bool isDesktopIconsHidden;
@@ -242,7 +251,7 @@ namespace Lively.UI.Shared.ViewModels
             set
             {
                 IsSelectedWebBrowserAvailable = IsWebPlayerAvailable((LivelyWebBrowser)value);
-                IsWebView2Required = !WebViewUtil.IsWebView2Available() && IsSelectedWebBrowserAvailable && ((LivelyWebBrowser)value) == LivelyWebBrowser.webview2;
+                IsWebView2Required = !platform.IsWebViewRuntimeAvailable && IsSelectedWebBrowserAvailable && ((LivelyWebBrowser)value) == LivelyWebBrowser.webview2;
                 if (userSettings.Settings.WebBrowser != (LivelyWebBrowser)value && IsSelectedWebBrowserAvailable)
                 {
                     userSettings.Settings.WebBrowser = (LivelyWebBrowser)value;
@@ -266,7 +275,7 @@ namespace Lively.UI.Shared.ViewModels
             {
                 IsWebView2Installing = true;
 
-                if (await WebViewUtil.InstallWebView2(downloader))
+                if (await platform.TryInstallWebViewRuntimeAsync())
                 {
                     // Restart wallpaper
                     _ = WallpaperRestart([WallpaperType.web, WallpaperType.webaudio, WallpaperType.url, WallpaperType.videostream]);
@@ -275,7 +284,7 @@ namespace Lively.UI.Shared.ViewModels
                 }
                 else
                 {
-                    LinkUtil.OpenBrowser(WebViewUtil.DownloadUrl);
+                    LinkUtil.OpenBrowser(platform.WebViewRuntimeDownloadUrl);
                 }
             }
             finally
@@ -330,20 +339,12 @@ namespace Lively.UI.Shared.ViewModels
             }
         }
 
-        public bool IsStreamSupported
-        {
-            get
-            {
-                try
-                {
-                    return File.Exists(Path.Combine(desktopCore.BaseDirectory, "plugins", "mpv", "youtube-dl.exe"));
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-        }
+        /// <summary>
+        /// False when the platform ships a single player per media kind; the plugin pickers are then hidden.
+        /// </summary>
+        public bool IsPlayerSelectionSupported { get; }
+
+        public bool IsStreamSupported => platform.IsStreamDownloaderAvailable;
 
         private int _selectedWallpaperStreamQualityIndex;
         public int SelectedWallpaperStreamQualityIndex
@@ -502,41 +503,11 @@ namespace Lively.UI.Shared.ViewModels
             _ = dispatcher.TryEnqueue(userSettings.Save<SettingsModel>);
         }
 
-        private bool IsVideoPlayerAvailable(LivelyMediaPlayer mp)
-        {
-            return mp switch
-            {
-                LivelyMediaPlayer.libvlc => false, //depreciated
-                LivelyMediaPlayer.libmpv => false, //depreciated
-                LivelyMediaPlayer.wmf => File.Exists(Path.Combine(desktopCore.BaseDirectory, Constants.PlayerPartialPaths.WmfPath)),
-                LivelyMediaPlayer.libvlcExt => false,
-                LivelyMediaPlayer.libmpvExt => false,
-                LivelyMediaPlayer.mpv => File.Exists(Path.Combine(desktopCore.BaseDirectory, Constants.PlayerPartialPaths.MpvPath)),
-                LivelyMediaPlayer.vlc => File.Exists(Path.Combine(desktopCore.BaseDirectory, Constants.PlayerPartialPaths.VlcPath)),
-                _ => false,
-            };
-        }
+        private bool IsVideoPlayerAvailable(LivelyMediaPlayer mp) => platform.IsPlayerAvailable(mp);
 
-        private bool IsGifPlayerAvailable(LivelyGifPlayer gp)
-        {
-            return gp switch
-            {
-                LivelyGifPlayer.win10Img => false, //xaml island
-                LivelyGifPlayer.libmpvExt => false,
-                LivelyGifPlayer.mpv => File.Exists(Path.Combine(desktopCore.BaseDirectory, Constants.PlayerPartialPaths.MpvPath)),
-                _ => false,
-            };
-        }
+        private bool IsGifPlayerAvailable(LivelyGifPlayer gp) => platform.IsGifPlayerAvailable(gp);
 
-        private bool IsWebPlayerAvailable(LivelyWebBrowser wp)
-        {
-            return wp switch
-            {
-                LivelyWebBrowser.cef => File.Exists(Path.Combine(desktopCore.BaseDirectory, Constants.PlayerPartialPaths.CefSharpPath)),
-                LivelyWebBrowser.webview2 => File.Exists(Path.Combine(desktopCore.BaseDirectory, Constants.PlayerPartialPaths.WebView2Path)),
-                _ => false,
-            };
-        }
+        private bool IsWebPlayerAvailable(LivelyWebBrowser wp) => platform.IsWebBrowserAvailable(wp);
 
         private async Task WallpaperRestart(WallpaperType[] type)
         {

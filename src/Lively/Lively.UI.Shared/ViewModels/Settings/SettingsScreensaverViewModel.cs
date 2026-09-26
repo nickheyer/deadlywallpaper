@@ -1,10 +1,9 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Lively.Common.Helpers;
 using Lively.Common.Services;
 using Lively.Grpc.Client;
 using Lively.Models;
-using System.Diagnostics;
+using Lively.UI.Shared.Services;
 
 namespace Lively.UI.Shared.ViewModels
 {
@@ -12,17 +11,25 @@ namespace Lively.UI.Shared.ViewModels
     {
         private readonly IUserSettingsClient userSettings;
         private readonly IDispatcherService dispatcher;
+        private readonly IPlatformUiFeatures platform;
 
-        public SettingsScreensaverViewModel(IUserSettingsClient userSettings, IDispatcherService dispatcher)
+        public SettingsScreensaverViewModel(IUserSettingsClient userSettings, IDispatcherService dispatcher, IPlatformUiFeatures platform)
         {
             this.userSettings = userSettings;
             this.dispatcher = dispatcher;
+            this.platform = platform;
 
             IsFadeIn = userSettings.Settings.ScreensaverFadeIn;
             IsLockOnResume = userSettings.Settings.ScreensaverLockOnResume;
             Volume = userSettings.Settings.ScreensaverGlobalVolume;
-            IsScreensaverPluginNotify = !ScreensaverUtil.IsScreensaverSelected("Lively");
+            IsScreensaverSupported = platform.SupportsScreensaver;
+            IsScreensaverPluginNotify = platform.SupportsScreensaver && !platform.IsScreensaverRegistered();
         }
+
+        /// <summary>
+        /// False when the platform cannot run Lively as the system screensaver; the system settings card is hidden.
+        /// </summary>
+        public bool IsScreensaverSupported { get; }
 
         [ObservableProperty]
         private bool isScreensaverPluginNotify;
@@ -75,17 +82,10 @@ namespace Lively.UI.Shared.ViewModels
         [RelayCommand]
         private void OpenWindowsSettings()
         {
-            try
-            {
-                // Ref: https://help.ivanti.com/res/help/en_us/iwc/2021/help/Content/20030.htm
-                Process.Start(new ProcessStartInfo()
-                {
-                    FileName = "rundll32.exe",
-                    Arguments = "shell32.dll,Control_RunDLL desk.cpl,,1",
-                    UseShellExecute = true
-                });
-            }
-            catch { /* Nothing to do */ }
+            if (!platform.SupportsScreensaver)
+                return;
+
+            platform.OpenSystemScreensaverSettings();
         }
 
         private void UpdateSettingsConfigFile()

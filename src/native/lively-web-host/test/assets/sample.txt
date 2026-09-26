@@ -1,0 +1,1 @@
+sample asset used by the folderDropdown test control

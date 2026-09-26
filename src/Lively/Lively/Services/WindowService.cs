@@ -1,11 +1,14 @@
-﻿using Lively.Common.Services;
+using Lively.Common.Services;
 using Lively.Core;
 using Lively.Core.Display;
 using Lively.Extensions;
+using Lively.Models;
 using Lively.Views;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace Lively.Services
 {
@@ -15,15 +18,18 @@ namespace Lively.Services
 
         private readonly IDisplayManager displayManager;
         private readonly IRunnerService runner;
+        private readonly IUserSettingsService userSettings;
         private readonly List<WindowCoverageDebugOverlay> gridOverlays = [];
         private bool isGridOverlayVisible;
         private DebugLog debugLogWindow;
         private DiagnosticMenu diagnosticWindow;
+        private SplashWindow splashWindow;
 
-        public WindowService(IRunnerService runner, IDisplayManager displayManager)
+        public WindowService(IRunnerService runner, IDisplayManager displayManager, IUserSettingsService userSettings)
         {
             this.runner = runner;
             this.displayManager = displayManager;
+            this.userSettings = userSettings;
         }
 
         public void ShowLogWindow()
@@ -83,6 +89,43 @@ namespace Lively.Services
                 }
             });
             return success ?? false;
+        }
+
+        public void ShowWallpaperPreviewWindow(LibraryModel model)
+        {
+            _ = Application.Current.Dispatcher.Invoke(DispatcherPriority.Normal, new ThreadStart(delegate
+            {
+                var preview = new WallpaperPreview(model, userSettings.Settings.SelectedDisplay, userSettings.Settings.WallpaperArrangement) {
+                    // Default incase UI not running.
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                };
+                preview.Show();
+                // Center preview relative to UI.
+                if (runner.IsVisibleUI)
+                    preview.CenterToWindow(runner.HwndUI);
+                // Re-activate incase launching wallpaper loses focus.
+                preview.Activate();
+            }));
+        }
+
+        public void ShowSplashWindow()
+        {
+            if (splashWindow != null)
+                return;
+
+            splashWindow = new SplashWindow(0, 500);
+            splashWindow.Show();
+        }
+
+        public void CloseSplashWindow()
+        {
+            splashWindow?.Close();
+            splashWindow = null;
+        }
+
+        public void ShowErrorMessageBox(string message, string title)
+        {
+            MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Error);
         }
 
         private void ShowGridOverlayInternal()

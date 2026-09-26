@@ -1,15 +1,12 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.WinUI.Collections;
 using Lively.Common.Factories;
-using Lively.Common.Helpers;
 using Lively.Common.Services;
 using Lively.Models;
 using Lively.Models.Enums;
-using System;
-using System.Collections.Generic;
+using Lively.UI.Shared.Collections;
+using Lively.UI.Shared.Services;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -18,6 +15,7 @@ namespace Lively.UI.Shared.ViewModels
     public partial class FindMoreAppsViewModel : ObservableObject
     {
         private readonly IApplicationsFactory appFactory;
+        private readonly IPlatformUiFeatures platform;
         private readonly IFileService fileService;
         private readonly IResourceService i18n;
 
@@ -25,29 +23,25 @@ namespace Lively.UI.Shared.ViewModels
         private ObservableCollection<ApplicationModel> applications = [];
 
         [ObservableProperty]
-        private AdvancedCollectionView applicationsFiltered;
+        private FilteredCollectionView<ApplicationModel> applicationsFiltered;
 
         [ObservableProperty]
         private ApplicationModel selectedItem;
 
-        public FindMoreAppsViewModel(IApplicationsFactory appFactory, IFileService fileService, IResourceService i18n)
+        public FindMoreAppsViewModel(IApplicationsFactory appFactory, IPlatformUiFeatures platform, IFileService fileService, IResourceService i18n)
         {
             this.appFactory = appFactory;
+            this.platform = platform;
             this.fileService = fileService;
             this.i18n = i18n;
 
-            ApplicationsFiltered = new AdvancedCollectionView(Applications, true);
-            ApplicationsFiltered.SortDescriptions.Add(new SortDescription("AppName", SortDirection.Ascending));
+            ApplicationsFiltered = new FilteredCollectionView<ApplicationModel>(Applications, true);
+            ApplicationsFiltered.SortDescriptions.Add(new SortDescription(nameof(ApplicationModel.AppName), SortDirection.Ascending));
 
             using (ApplicationsFiltered.DeferRefresh())
             {
-                foreach (var process in Process.GetProcesses())
+                foreach (var app in platform.GetRunningApplications())
                 {
-                    var hwnd = process.MainWindowHandle;
-                    if (hwnd == IntPtr.Zero || WindowUtil.IsUWPApp(hwnd) || !WindowUtil.IsVisibleTopLevelWindows(hwnd))
-                        continue;
-
-                    var app = appFactory.CreateApp(hwnd);
                     if (app is not null)
                         Applications.Add(app);
                 }
@@ -60,7 +54,7 @@ namespace Lively.UI.Shared.ViewModels
 
         private async Task BrowseApp()
         {
-            var files = await fileService.PickFileAsync([(i18n.GetString(WallpaperType.app), [".exe"])]);
+            var files = await fileService.PickFileAsync([(i18n.GetString(WallpaperType.app), platform.ApplicationFileExtensions)]);
             if (files.Any())
             {
                 var app = appFactory.CreateApp(files[0]);

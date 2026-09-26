@@ -11,7 +11,7 @@ using Lively.Models.Enums;
 using Lively.Models.Services;
 using Lively.Models.UserControls;
 using Lively.UI.Shared.Factories;
-using Lively.UI.Shared.Helpers;
+using Lively.UI.Shared.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -38,7 +38,7 @@ namespace Lively.UI.Shared.ViewModels
         private readonly IFileService fileService;
         private readonly IResourceService i18n;
         private readonly IMainNavigator navigator;
-        private readonly IDownloadService downloader;
+        private readonly IPlatformUiFeatures platform;
         private readonly ICommandsClient commandsClient;
 
         private CancellationTokenSource wallpaperImportCts;
@@ -50,7 +50,7 @@ namespace Lively.UI.Shared.ViewModels
                              ICommandsClient commandsClient,
                              IAppThemeFactory themeFactory,
                              GalleryClient galleryClient,
-                             IDownloadService downloader,
+                             IPlatformUiFeatures platform,
                              IDialogService dialogService,
                              IAppUpdaterClient appUpdater,
                              IFileService fileService,
@@ -68,7 +68,7 @@ namespace Lively.UI.Shared.ViewModels
             this.dispatcher = dispatcher;
             this.fileService = fileService;
             this.appUpdater = appUpdater;
-            this.downloader = downloader;
+            this.platform = platform;
             this.libraryVm = libraryVm;
             this.navigator = navigator;
             this.i18n = i18n;
@@ -167,10 +167,10 @@ namespace Lively.UI.Shared.ViewModels
             {
                 IsWebView2Installing = true;
 
-                if (await WebViewUtil.InstallWebView2(downloader))
+                if (await platform.TryInstallWebViewRuntimeAsync())
                     _ = commandsClient.RestartUI("--appUpdate true");
                 else
-                    LinkUtil.OpenBrowser(WebViewUtil.DownloadUrl);
+                    LinkUtil.OpenBrowser(platform.WebViewRuntimeDownloadUrl);
             }
             finally
             {
@@ -578,7 +578,8 @@ namespace Lively.UI.Shared.ViewModels
 
         private MainNavigationItem[] GetPages()
         {
-            return [
+            var pages = new List<MainNavigationItem>
+            {
                 new() { Name = GetPageName(ContentPageType.library), Glyph = "\uE8A9", PageType = ContentPageType.library},
                 new() { Name = GetPageName(ContentPageType.gallery), Glyph = "\uE719", PageType = ContentPageType.gallery },
                 new()
@@ -592,9 +593,12 @@ namespace Lively.UI.Shared.ViewModels
                 new() { Name = GetPageName(ContentPageType.settingsGeneral), PageType = ContentPageType.settingsGeneral },
                 new() { Name = GetPageName(ContentPageType.settingsPerformance), PageType = ContentPageType.settingsPerformance },
                 new() { Name = GetPageName(ContentPageType.settingsWallpaper), PageType = ContentPageType.settingsWallpaper },
-                new() { Name = GetPageName(ContentPageType.settingsScreensaver), PageType = ContentPageType.settingsScreensaver },
-                new() { Name = GetPageName(ContentPageType.settingsSystem), PageType = ContentPageType.settingsSystem }
-            ];
+            };
+            // The screensaver page only exists where Lively can be the system screensaver.
+            if (platform.SupportsScreensaver)
+                pages.Add(new() { Name = GetPageName(ContentPageType.settingsScreensaver), PageType = ContentPageType.settingsScreensaver });
+            pages.Add(new() { Name = GetPageName(ContentPageType.settingsSystem), PageType = ContentPageType.settingsSystem });
+            return pages.ToArray();
         }
 
         private string GetSearchPlaceholderText() => i18n.GetString("SearchBox/PlaceholderText");

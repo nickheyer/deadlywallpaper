@@ -1,12 +1,11 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lively.Common;
-using Lively.Common.Helpers;
 using Lively.Common.Services;
 using Lively.Grpc.Client;
 using Lively.Models.Enums;
 using Lively.Models.Services;
-using Lively.UI.Shared.Helpers;
+using Lively.UI.Shared.Services;
 using System;
 using System.IO;
 using System.Threading;
@@ -25,6 +24,7 @@ namespace Lively.UI.Shared.ViewModels
         private readonly IDialogService dialogService;
         private readonly ICommandsClient commandsClient;
         private readonly IDispatcherService dispatcher;
+        private readonly IPlatformUiFeatures platform;
 
         private CancellationTokenSource downloadCts;
 
@@ -34,6 +34,7 @@ namespace Lively.UI.Shared.ViewModels
             ICommandsClient commandsClient,
             IDispatcherService dispatcher,
             IDialogService dialogService,
+            IPlatformUiFeatures platform,
             IResourceService i18n)
         {
             this.appUpdater = appUpdater;
@@ -42,6 +43,7 @@ namespace Lively.UI.Shared.ViewModels
             this.dialogService = dialogService;
             this.commandsClient = commandsClient;
             this.dispatcher = dispatcher;
+            this.platform = platform;
             this.i18n = i18n;
 
             UpdateState(appUpdater.Status, appUpdater.LastCheckTime, appUpdater.LastCheckVersion);
@@ -54,11 +56,17 @@ namespace Lively.UI.Shared.ViewModels
            
         }
 
-        public bool IsWinStore => PackageUtil.IsRunningAsPackaged;
+        public bool IsWinStore => platform.IsPackaged;
 
         public bool IsBetaBuild => Constants.ApplicationType.IsTestBuild;
 
-        public bool IsWebView2Available => WebViewUtil.IsWebView2Available();
+        public bool IsWebView2Available => platform.IsWebViewRuntimeAvailable;
+
+        /// <summary>
+        /// Release notes of the last checked version as reported by the core (GitHub release body, markdown).
+        /// </summary>
+        [ObservableProperty]
+        private string changelogText;
 
         public string AppVersionText
         {
@@ -172,10 +180,10 @@ namespace Lively.UI.Shared.ViewModels
             {
                 IsWebView2Installing = true;
 
-                if (await WebViewUtil.InstallWebView2(downloader))
+                if (await platform.TryInstallWebViewRuntimeAsync())
                     _ = commandsClient.RestartUI("--appUpdate true");
                 else
-                    LinkUtil.OpenBrowser(WebViewUtil.DownloadUrl);
+                    LinkUtil.OpenBrowser(platform.WebViewRuntimeDownloadUrl);
             }
             finally
             {
@@ -238,6 +246,7 @@ namespace Lively.UI.Shared.ViewModels
                     break;
             }
             UpdateStatus = status;
+            ChangelogText = appUpdater.LastCheckChangelog;
             UpdateDateText = status == AppUpdateStatus.notchecked ? $"{i18n.GetString("TextLastChecked")}: ---" : $"{i18n.GetString("TextLastChecked")}: {date}";
         }
 

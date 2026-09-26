@@ -1,0 +1,34 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:models="using:Lively.Models.UserControls"
+             x:Class="Lively.UI.Avalonia.Controls.FolderView"
+             x:Name="Root">
+  <Border Background="{DynamicResource ControlFillColorDefaultBrush}"
+          BorderBrush="{DynamicResource TextControlBorderBrush}"
+          BorderThickness="1"
+          CornerRadius="5">
+    <TreeView Height="400"
+              MinWidth="375"
+              MaxWidth="375"
+              Margin="0,12,0,0"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Top"
+              ItemsSource="{Binding #Root.Data}">
+      <TreeView.ItemTemplate>
+        <TreeDataTemplate x:DataType="models:ExplorerItem" ItemsSource="{Binding Children}">
+          <StackPanel Orientation="Horizontal" Spacing="10" ToolTip.Tip="{Binding Name}">
+            <Image Width="20"
+                   conv:ImageLoader.Source="avares://Lively.UI.Avalonia/Assets/folder.png"
+                   IsVisible="{Binding Type, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Folder}" />
+            <PathIcon Width="16"
+                      Height="16"
+                      Data="{DynamicResource IconFile}"
+                      IsVisible="{Binding Type, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=File}" />
+            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+          </StackPanel>
+        </TreeDataTemplate>
+      </TreeView.ItemTemplate>
+    </TreeView>
+  </Border>
+</UserControl>

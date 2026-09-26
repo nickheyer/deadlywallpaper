@@ -1,0 +1,43 @@
+{
+  "speed": {
+    "type": "slider",
+    "text": "Animation speed",
+    "min": 1,
+    "max": 100,
+    "value": 10,
+    "step": 1
+  },
+  "showGrid": {
+    "type": "checkbox",
+    "text": "Show grid",
+    "value": true
+  },
+  "accent": {
+    "type": "color",
+    "text": "Accent colour",
+    "value": "#ff8800"
+  },
+  "caption": {
+    "type": "textbox",
+    "text": "Caption",
+    "value": "lively-web-host"
+  },
+  "shape": {
+    "type": "dropdown",
+    "text": "Shape",
+    "value": 1,
+    "items": ["circle", "square", "triangle"]
+  },
+  "asset": {
+    "type": "folderDropdown",
+    "text": "Asset",
+    "value": "sample.txt",
+    "folder": "assets",
+    "filter": "*.txt"
+  },
+  "resetButton": {
+    "type": "button",
+    "text": "Reset",
+    "value": "Reset"
+  }
+}

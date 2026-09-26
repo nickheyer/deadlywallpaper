@@ -2,12 +2,12 @@
 using CommunityToolkit.Mvvm.Input;
 using Lively.Common;
 using Lively.Common.Factories;
-using Lively.Common.Helpers;
 using Lively.Common.Helpers.Storage;
 using Lively.Common.Services;
 using Lively.Grpc.Client;
 using Lively.Models;
 using Lively.Models.Enums;
+using Lively.UI.Shared.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -34,6 +34,7 @@ namespace Lively.UI.Shared.ViewModels
             IDisplayManagerClient displayManager,
             IWallpaperLibraryFactory wallpaperLibraryFactory,
             IDispatcherService dispatcher,
+            IPlatformUiFeatures platform,
             LibraryViewModel libraryVm)
         {
             this.wallpaperLibraryFactory = wallpaperLibraryFactory;
@@ -47,12 +48,18 @@ namespace Lively.UI.Shared.ViewModels
             SelectedScreensaverTypeIndex = (int)userSettings.Settings.ScreensaverType;
             SelectedDisplay = userSettings.Settings.SelectedDisplay;
             screenSaverLayout = GetScreensaverConfigFile();
-            IsScreensaverPluginNotify = !ScreensaverUtil.IsScreensaverSelected("Lively") && userSettings.Settings.IsScreensaverPluginNotify;
+            IsScreensaverSupported = platform.SupportsScreensaver;
+            IsScreensaverPluginNotify = platform.SupportsScreensaver && !platform.IsScreensaverRegistered() && userSettings.Settings.IsScreensaverPluginNotify;
             UpdateLayout();
 
             // This event is also fired when monitor configuration changed.
             desktopCore.WallpaperChanged += DesktopCore_WallpaperChanged;
         }
+
+        /// <summary>
+        /// False when the platform cannot run Lively as the system screensaver; the layout controls are disabled.
+        /// </summary>
+        public bool IsScreensaverSupported { get; }
 
         [ObservableProperty]
         private bool isHideDialog;

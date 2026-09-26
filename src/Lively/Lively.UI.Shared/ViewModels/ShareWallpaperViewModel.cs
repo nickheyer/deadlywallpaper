@@ -1,20 +1,12 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lively.Common;
-using Lively.Common.Helpers.Files;
 using Lively.Common.Services;
 using Lively.Gallery.Client;
 using Lively.Models;
-using Lively.UI.WinUI.Extensions;
-using Microsoft.Extensions.DependencyInjection;
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
-using Windows.Storage.Pickers;
 
 namespace Lively.UI.Shared.ViewModels
 {
@@ -70,7 +62,7 @@ namespace Lively.UI.Shared.ViewModels
                 if (file != null)
                 {
                     await libraryVm.WallpaperExport(Model, file);
-                    FileUtil.OpenFolder(file);
+                    await fileService.OpenFolderAsync(file);
                 }
             }
             catch (Exception)

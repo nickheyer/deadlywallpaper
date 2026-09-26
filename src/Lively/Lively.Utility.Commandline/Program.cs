@@ -24,7 +24,7 @@ namespace Lively.Utility.Commandline
                  errs => HandleParseError(errs));
 
 
-            if (!AppLifeCycleUtil.IsAppMutexRunning(SingleInstance.UniqueAppName))
+            if (!AppLifeCycleUtil.IsAppMutexRunning(SingleInstance.MutexName))
             {
                 Console.WriteLine("\nWARNING: Lively core is currently not running!");
             }

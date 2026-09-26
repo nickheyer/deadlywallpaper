@@ -1,0 +1,93 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:models="using:Lively.Models.UserControls"
+             x:Class="Lively.UI.Avalonia.Controls.FolderDropdown"
+             x:Name="Root">
+  <Grid ColumnDefinitions="*,Auto">
+    <DropDownButton Grid.Column="0"
+                    Margin="0,0,5,0"
+                    Padding="5"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left">
+      <DropDownButton.Content>
+        <Grid ColumnDefinitions="Auto,*">
+          <Border Grid.Column="0"
+                  Width="40"
+                  Height="25"
+                  Margin="0,0,5,0"
+                  Background="{DynamicResource ControlFillColorDefaultBrush}"
+                  BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                  BorderThickness="1"
+                  CornerRadius="5"
+                  ClipToBounds="True"
+                  IsVisible="{Binding #Root.SelectedFile, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <Image conv:ImageLoader.Source="{Binding #Root.SelectedFile.ImagePath}" Stretch="UniformToFill" />
+          </Border>
+          <TextBlock Grid.Column="1"
+                     VerticalAlignment="Center"
+                     MinWidth="150"
+                     Text="{Binding #Root.SelectedFile.FileName}"
+                     TextTrimming="CharacterEllipsis"
+                     ToolTip.Tip="{Binding #Root.SelectedFile.FileName}"
+                     IsVisible="{Binding #Root.SelectedFile, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          <TextBlock Grid.Column="1"
+                     VerticalAlignment="Center"
+                     MinWidth="150"
+                     Text="{loc:Str TextNoFileSelected}"
+                     IsVisible="{Binding #Root.SelectedFile, Converter={x:Static ObjectConverters.IsNull}}" />
+        </Grid>
+      </DropDownButton.Content>
+      <DropDownButton.Flyout>
+        <Flyout Placement="Bottom">
+          <!-- ListBox instead of ComboBox: a ComboBox raises SelectionChanged while closing when an item above the selection was deleted. -->
+          <ListBox Height="350"
+                   MinWidth="340"
+                   ItemsSource="{Binding #Root.Files}"
+                   SelectedItem="{Binding #Root.SelectedFile, Mode=TwoWay}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="models:FolderDropdownUserControlModel">
+                <Grid ColumnDefinitions="Auto,200,Auto" ToolTip.Tip="{Binding FileName}">
+                  <!-- File preview -->
+                  <Border Grid.Column="0"
+                          Width="75"
+                          Height="50"
+                          Margin="0,0,5,0"
+                          Background="{DynamicResource ControlFillColorDefaultBrush}"
+                          BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                          BorderThickness="1"
+                          CornerRadius="5"
+                          ClipToBounds="True">
+                    <Image conv:ImageLoader.Source="{Binding ImagePath}" Stretch="UniformToFill" />
+                  </Border>
+                  <!-- File title -->
+                  <TextBlock Grid.Column="1"
+                             Margin="0,0,5,0"
+                             VerticalAlignment="Center"
+                             Text="{Binding FileName}"
+                             TextTrimming="CharacterEllipsis" />
+                  <!-- File delete -->
+                  <Button Grid.Column="2"
+                          VerticalAlignment="Stretch"
+                          Background="#258B0000"
+                          Click="Delete_Button_Click"
+                          ToolTip.Tip="{loc:Str DeleteWallpaper/Text}">
+                    <PathIcon Width="14" Height="14" Data="{DynamicResource IconDelete}" />
+                  </Button>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Flyout>
+      </DropDownButton.Flyout>
+    </DropDownButton>
+    <!-- Add file -->
+    <Button Grid.Column="1"
+            VerticalAlignment="Stretch"
+            Command="{Binding #Root.OpenFileCommand}"
+            ToolTip.Tip="{loc:Str TextOpen/Content}">
+      <PathIcon Width="14" Height="14" Data="{DynamicResource IconAddFile}" />
+    </Button>
+  </Grid>
+</UserControl>

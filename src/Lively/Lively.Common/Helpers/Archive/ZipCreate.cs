@@ -31,7 +31,7 @@ namespace Lively.Common.Helpers.Archive
                 for (int i = 0; i < folders.Count; i++)
                 {
                     var folder = folders[i];
-                    int folderOffset = folder.Length + (folder.EndsWith("\\") ? 0 : 1);
+                    int folderOffset = folder.Length + (folder.EndsWith(Path.DirectorySeparatorChar.ToString()) ? 0 : 1);
                     var files = Directory.GetFiles(folder, "*.*", SearchOption.AllDirectories);
                     for (int j = 0; j < files.Length; j++)
                     {
@@ -110,7 +110,7 @@ namespace Lively.Common.Helpers.Archive
                 for (int i = 0; i < fileData.Count; i++)
                 {
                     var item = fileData[i];
-                    int folderOffset = item.ParentDirectory.Length + (item.ParentDirectory.EndsWith("\\") ? 0 : 1);
+                    int folderOffset = item.ParentDirectory.Length + (item.ParentDirectory.EndsWith(Path.DirectorySeparatorChar.ToString()) ? 0 : 1);
                     for (int j = 0; j < item.Files.Count; j++)
                     {
                         var file = item.Files[j];

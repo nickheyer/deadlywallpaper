@@ -1,0 +1,111 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:models="using:Lively.Models"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.Settings.SettingsGeneralView"
+             x:DataType="vm:SettingsGeneralViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="10,25,10,5" Spacing="{StaticResource SettingGroupControlSpacing}">
+      <!-- Appearance and Behaviour -->
+      <StackPanel>
+        <TextBlock Classes="groupHeader" Text="{loc:Str AppearanceBehaviour/Text}" />
+        <controls:SettingsCard Header="{loc:Str Startup/Header}" Description="{loc:Str Startup/Description}" HeaderIcon="{DynamicResource IconPower}">
+          <ToggleSwitch IsChecked="{Binding IsStartup, Mode=TwoWay}" />
+        </controls:SettingsCard>
+        <controls:SettingsCard Header="{loc:Str HideSysTray/Header}" Description="{loc:Str HideSysTray/Description}" HeaderIcon="{DynamicResource IconTray}">
+          <ToggleSwitch IsChecked="{Binding IsSysTrayIconVisible, Mode=TwoWay}" />
+        </controls:SettingsCard>
+        <controls:SettingsCard Header="{loc:Str UIMode/Header}" Description="{loc:Str UIMode/Description}" HeaderIcon="{DynamicResource IconWindow}">
+          <ToggleSwitch IsChecked="{Binding IsReducedMotion, Mode=TwoWay, Converter={x:Static BoolConverters.Not}}" />
+        </controls:SettingsCard>
+        <controls:SettingsCard Header="{loc:Str AppTheme/Header}"
+                               HeaderIcon="{DynamicResource IconTheme}"
+                               ActionIcon="{DynamicResource IconChevronRight}"
+                               Command="{Binding ThemeBackgroundCommand}"
+                               IsClickEnabled="True" />
+        <controls:SettingsCard Header="{loc:Str Language/Header}" Description="{loc:Str Language/Description}" HeaderIcon="{DynamicResource IconGlobe}">
+          <ComboBox MinWidth="{StaticResource SettingActionControlMinWidth}"
+                    ItemsSource="{Binding Languages}"
+                    SelectedItem="{Binding SelectedLanguage, Mode=TwoWay}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="models:LanguageModel">
+                <TextBlock Text="{Binding DisplayName}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </controls:SettingsCard>
+        <controls:InfoBar Title="{loc:Str TextHelpTranslate/Title}" IsClosable="False" Severity="Informational">
+          <controls:InfoBar.ActionButton>
+            <HyperlinkButton NavigateUri="https://rocksdanister.github.io/lively/translation"
+                             ToolTip.Tip="https://rocksdanister.github.io/lively/translation"
+                             Content="{loc:Str TextLearnMore/Text}" />
+          </controls:InfoBar.ActionButton>
+        </controls:InfoBar>
+      </StackPanel>
+
+      <!-- Audio -->
+      <StackPanel>
+        <TextBlock Classes="groupHeader" Text="{loc:Str AudioGroup/Text}" />
+        <controls:SettingsCard Header="{loc:Str Audio/Header}"
+                               Description="{loc:Str Audio/Description}"
+                               HeaderIcon="{Binding GlobalWallpaperVolume, Converter={StaticResource AudioVolumeGlyphConverter}}">
+          <Slider MinWidth="{StaticResource SettingActionControlMinWidth}" Minimum="0" Maximum="100" Value="{Binding GlobalWallpaperVolume, Mode=TwoWay}" />
+        </controls:SettingsCard>
+        <controls:SettingsExpander Header="{loc:Str DisplayAudioPauseRule/Header}"
+                                   Description="{loc:Str DisplayAudioPauseRule/Description}"
+                                   HeaderIcon="{DynamicResource IconMonitor}"
+                                   IsExpanded="{Binding IsAudioOutputScreenSelection}">
+          <ComboBox MinWidth="{StaticResource SettingActionControlMinWidth}" SelectedIndex="{Binding SelectedDisplayAudioOutputIndex, Mode=TwoWay}">
+            <ComboBoxItem Content="{loc:Str DisplayPauseRulePerScreen/Content}" />
+            <ComboBoxItem Content="{loc:Str DisplayPauseRuleAllScreen/Content}" />
+          </ComboBox>
+          <controls:SettingsExpander.Items>
+            <controls:SettingsCard ContentAlignment="Left">
+              <controls:DisplaySelector Width="450"
+                                        Height="150"
+                                        Displays="{Binding AudioOutputscreens}"
+                                        IsEnabled="{Binding IsAudioOutputScreenSelection}"
+                                        SelectedItem="{Binding SelectedAudioOutputScreen, Mode=TwoWay}" />
+            </controls:SettingsCard>
+          </controls:SettingsExpander.Items>
+        </controls:SettingsExpander>
+        <controls:SettingsCard ContentAlignment="Left">
+          <CheckBox Content="{loc:Str AudioFocused/Content}" IsChecked="{Binding IsAudioOnlyOnDesktop, Mode=TwoWay}" />
+        </controls:SettingsCard>
+      </StackPanel>
+
+      <!-- Wallpaper Directory -->
+      <StackPanel>
+        <TextBlock Classes="groupHeader" Text="{loc:Str WallpaperDirGroup/Text}" />
+        <controls:SettingsExpander Header="{loc:Str WallpaperDir/Header}"
+                                   Description="{loc:Str WallpaperDir/Description}"
+                                   HeaderIcon="{DynamicResource IconFolder}"
+                                   IsExpanded="False">
+          <ProgressBar IsIndeterminate="True" Width="120" IsVisible="{Binding WallpaperDirectoryChangeOngoing}" />
+          <controls:SettingsExpander.Items>
+            <controls:SettingsCard ContentAlignment="Left">
+              <StackPanel Orientation="Horizontal">
+                <Button MinWidth="450"
+                        MinHeight="35"
+                        HorizontalContentAlignment="Left"
+                        Command="{Binding OpenWallpaperDirectoryCommand}"
+                        Content="{Binding WallpaperDirectory}" />
+                <Button MinWidth="45"
+                        MinHeight="35"
+                        Margin="5,0,0,0"
+                        Command="{Binding WallpaperDirectoryChangeCommand}">
+                  <PathIcon Width="16" Height="16" Data="{DynamicResource IconNewFolder}" />
+                </Button>
+              </StackPanel>
+            </controls:SettingsCard>
+            <controls:SettingsCard ContentAlignment="Left">
+              <CheckBox Content="{loc:Str WallpaperDirMoveExisting/Content}" IsChecked="{Binding MoveExistingWallpaperNewDir, Mode=TwoWay}" />
+            </controls:SettingsCard>
+          </controls:SettingsExpander.Items>
+        </controls:SettingsExpander>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

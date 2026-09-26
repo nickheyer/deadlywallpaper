@@ -129,6 +129,10 @@
       <Project>{FCC8AE2F-3B96-4BC3-ADCA-7A785F4821C6}</Project>
       <Name>Lively.Common</Name>
     </ProjectReference>
+    <ProjectReference Include="..\Lively.Common.Windows\Lively.Common.Windows.csproj">
+      <Project>{B0EFCD23-9F29-4ED9-9C30-1CBACD835C9C}</Project>
+      <Name>Lively.Common.Windows</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Lively.Models\Lively.Models.csproj">
       <Project>{1e3d9d5b-a1fd-4915-95f5-9a52d87fcdec}</Project>
       <Name>Lively.Models</Name>

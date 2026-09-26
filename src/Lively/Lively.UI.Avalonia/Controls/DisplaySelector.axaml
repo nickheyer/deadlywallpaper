@@ -1,0 +1,74 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:models="using:Lively.Models"
+             x:Class="Lively.UI.Avalonia.Controls.DisplaySelector"
+             x:Name="Root"
+             ClipToBounds="True">
+  <controls:DisplayCanvas x:Name="Canvas" ItemsSource="{Binding #Root.Displays}">
+    <controls:DisplayCanvas.ItemsPanel>
+      <ItemsPanelTemplate>
+        <Canvas />
+      </ItemsPanelTemplate>
+    </controls:DisplayCanvas.ItemsPanel>
+    <controls:DisplayCanvas.ItemTemplate>
+      <DataTemplate x:DataType="models:ScreenLayoutModel">
+        <Border Classes="displayTile"
+                Classes.selectable="{Binding $parent[controls:DisplaySelector].IsSelectable}"
+                Width="{Binding NormalizedBounds.Width}"
+                Height="{Binding NormalizedBounds.Height}"
+                PointerPressed="Tile_PointerPressed">
+          <ToolTip.Tip>
+            <StackPanel Spacing="5">
+              <TextBlock Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}">
+                <Run Text="{Binding Screen.DisplayName}" />
+                <Run Text="(" />
+                <Run Text="{Binding Screen.Bounds.Width}" />
+                <Run Text="x" />
+                <Run Text="{Binding Screen.Bounds.Height}" />
+                <Run Text=")" />
+              </TextBlock>
+              <Rectangle Height="1" Fill="#50808080" />
+              <TextBlock Text="{Binding Screen.DeviceId}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+          </ToolTip.Tip>
+          <Panel>
+            <!-- Wallpaper preview -->
+            <Image conv:ImageLoader.Source="{Binding ScreenImagePath}" Stretch="UniformToFill" />
+            <TextBlock Text="{Binding ScreenTitle}" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <!-- Improve label visibility -->
+            <Border>
+              <Border.Background>
+                <LinearGradientBrush StartPoint="0%,100%" EndPoint="0%,0%">
+                  <GradientStop Offset="0" Color="#00000000" />
+                  <GradientStop Offset="1" Color="{DynamicResource SystemAltMediumColor}" />
+                </LinearGradientBrush>
+              </Border.Background>
+            </Border>
+            <!-- Improve display visibility -->
+            <Border BorderBrush="{DynamicResource BaseMediumStrokeBrush}" BorderThickness="1" CornerRadius="5" Opacity="0.5" />
+            <!-- Selection -->
+            <Panel IsVisible="{Binding IsSelected}">
+              <Border BorderBrush="{DynamicResource AccentFillColorDefaultBrush}" BorderThickness="1" CornerRadius="5" />
+              <Border Opacity="0.75" CornerRadius="5">
+                <Border.Background>
+                  <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0" Color="#00000000" />
+                    <GradientStop Offset="1" Color="{DynamicResource SystemAccentColor}" />
+                  </LinearGradientBrush>
+                </Border.Background>
+              </Border>
+            </Panel>
+            <!-- Labels -->
+            <TextBlock Text="{Binding Screen.Index}" FontSize="18" Margin="5,0,0,0" />
+            <PathIcon Data="{DynamicResource IconStar}"
+                      Width="12" Height="12" Margin="5" Opacity="0.5"
+                      HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                      IsVisible="{Binding Screen.IsPrimary}" />
+          </Panel>
+        </Border>
+      </DataTemplate>
+    </controls:DisplayCanvas.ItemTemplate>
+  </controls:DisplayCanvas>
+</UserControl>

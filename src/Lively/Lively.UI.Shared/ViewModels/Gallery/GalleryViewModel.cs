@@ -1,10 +1,10 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.WinUI.Collections;
 using Lively.Common.Services;
 using Lively.Gallery.Client;
 using Lively.Models;
 using Lively.Models.Gallery.API;
+using Lively.UI.Shared.Collections;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -17,7 +17,7 @@ namespace Lively.UI.Shared.ViewModels
     public partial class GalleryViewModel : ObservableObject, IIncrementalSource<GalleryModel>
     {
         [ObservableProperty]
-        private IncrementalLoadingCollection<GalleryViewModel, GalleryModel> wallpapers;
+        private IncrementalCollection<GalleryViewModel, GalleryModel> wallpapers;
         private int currentPage = 0;
 
         private readonly GalleryClient galleryClient;
@@ -41,7 +41,7 @@ namespace Lively.UI.Shared.ViewModels
             if (!galleryClient.IsLoggedIn)
                 return;
 
-            Wallpapers = new IncrementalLoadingCollection<GalleryViewModel, GalleryModel>(this);
+            Wallpapers = new IncrementalCollection<GalleryViewModel, GalleryModel>(this);
 
             galleryClient.LoggedIn += (s, id) =>
             {

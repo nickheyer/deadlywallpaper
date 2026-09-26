@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Lively Wallpaper
+Comment=Animated desktop wallpapers
+Exec=@INSTALL_DIR@/lively-core --showApp true
+Icon=lively-wallpaper
+Terminal=false
+Categories=Utility;DesktopSettings;
+StartupNotify=false
+X-KDE-StartupNotify=false

@@ -1,0 +1,79 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:models="using:Lively.Models"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.AppThemeView"
+             x:DataType="vm:AppThemeViewModel"
+             x:Name="Root">
+  <StackPanel>
+    <ListBox Classes="rows"
+             MinWidth="500"
+             MinHeight="350"
+             MaxWidth="500"
+             MaxHeight="400"
+             Padding="0,5,0,0"
+             ItemsSource="{Binding Themes}"
+             SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="models:ThemeModel">
+          <Grid MinHeight="50" MaxHeight="50" ColumnDefinitions="50,*,Auto">
+            <Border Grid.Column="0" Margin="0,6,0,6" CornerRadius="5" ClipToBounds="True">
+              <Image conv:ImageLoader.Source="{Binding Preview}" Stretch="UniformToFill" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="10,5,5,5">
+              <TextBlock Classes="body" MaxLines="1" TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+              <TextBlock Classes="caption" Margin="0,2.5,0,0" MaxLines="1" TextTrimming="CharacterEllipsis" Text="{Binding Description}" />
+            </StackPanel>
+            <Button Grid.Column="2"
+                    Classes="transparent"
+                    MinWidth="50"
+                    MaxWidth="50"
+                    IsVisible="{Binding IsEditable}">
+              <PathIcon Width="14" Height="14" Data="{DynamicResource IconMore}" />
+              <Button.Flyout>
+                <MenuFlyout Placement="Bottom">
+                  <MenuItem Header="{loc:Str ShowOnDisk/Text}"
+                            Command="{Binding #Root.((vm:AppThemeViewModel)DataContext).OpenCommand}"
+                            CommandParameter="{Binding}">
+                    <MenuItem.Icon>
+                      <PathIcon Width="14" Height="14" Data="{DynamicResource IconFolder}" />
+                    </MenuItem.Icon>
+                  </MenuItem>
+                  <MenuItem Header="{loc:Str DeleteWallpaper/Text}"
+                            Command="{Binding #Root.((vm:AppThemeViewModel)DataContext).DeleteCommand}"
+                            CommandParameter="{Binding}">
+                    <MenuItem.Icon>
+                      <PathIcon Width="14" Height="14" Data="{DynamicResource IconDelete}" />
+                    </MenuItem.Icon>
+                  </MenuItem>
+                </MenuFlyout>
+              </Button.Flyout>
+            </Button>
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+    <Button MinWidth="150"
+            MinHeight="35"
+            Margin="0,2.5,0,0"
+            HorizontalAlignment="Stretch"
+            HorizontalContentAlignment="Center"
+            Command="{Binding BrowseCommand}"
+            Content="{loc:Str TextOpen/Content}" />
+    <controls:SettingsCard Header="{loc:Str AppThemeColor/Header}" HeaderIcon="{DynamicResource IconPalette}" Margin="0,5,0,0">
+      <controls:SettingsCard.Description>
+        <HyperlinkButton Content="{loc:Str WindowsSettingsColor/Content}"
+                         Command="{Binding OpenSystemColorSettingsCommand}"
+                         IsVisible="{Binding IsSystemColorSettingsSupported}" />
+      </controls:SettingsCard.Description>
+      <ComboBox MinWidth="{StaticResource SettingActionControlMinWidth}" SelectedIndex="{Binding SelectedAppThemeIndex, Mode=TwoWay}">
+        <ComboBoxItem Content="{loc:Str AppThemeSystem/Content}" />
+        <ComboBoxItem Content="{loc:Str AppThemeLight/Content}" />
+        <ComboBoxItem Content="{loc:Str AppThemeDark/Content}" />
+      </ComboBox>
+    </controls:SettingsCard>
+  </StackPanel>
+</UserControl>

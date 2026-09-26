@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.Settings.SettingsScreensaverView"
+             x:DataType="vm:SettingsScreensaverViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="10,25,10,5" Spacing="{StaticResource SettingGroupControlSpacing}">
+      <!-- Appearance and Behaviour -->
+      <StackPanel>
+        <TextBlock Classes="groupHeader" Text="{loc:Str AppearanceBehaviour/Text}" />
+        <controls:SettingsCard Header="{loc:Str ScreensaverLockOnResume/Header}" HeaderIcon="{DynamicResource IconLock}">
+          <ToggleSwitch IsChecked="{Binding IsLockOnResume, Mode=TwoWay}" />
+        </controls:SettingsCard>
+        <controls:SettingsCard Header="{loc:Str ScreensaverFadeIn/Header}" HeaderIcon="{DynamicResource IconSun}">
+          <ToggleSwitch IsChecked="{Binding IsFadeIn, Mode=TwoWay}" />
+        </controls:SettingsCard>
+      </StackPanel>
+
+      <!-- Audio -->
+      <StackPanel>
+        <TextBlock Classes="groupHeader" Text="{loc:Str AudioGroup/Text}" />
+        <controls:SettingsCard Header="{loc:Str Audio/Header}"
+                               Description="{loc:Str Audio/Description}"
+                               HeaderIcon="{Binding Volume, Converter={StaticResource AudioVolumeGlyphConverter}}">
+          <Slider MinWidth="{StaticResource SettingActionControlMinWidth}" Minimum="0" Maximum="100" Value="{Binding Volume, Mode=TwoWay}" />
+        </controls:SettingsCard>
+      </StackPanel>
+
+      <!-- System -->
+      <StackPanel IsVisible="{Binding IsScreensaverSupported}">
+        <TextBlock Classes="groupHeader" Text="{loc:Str System/Text}" />
+        <controls:SettingsCard Header="{loc:Str ScreensaverWindowsSettings/Header}"
+                               HeaderIcon="{DynamicResource IconScreensaver}"
+                               Command="{Binding OpenWindowsSettingsCommand}"
+                               IsClickEnabled="True" />
+        <controls:InfoBar Title="{loc:Str ScreensaverPlugin/Title}"
+                          IsClosable="False"
+                          Severity="Warning"
+                          IsVisible="{Binding IsScreensaverPluginNotify}">
+          <controls:InfoBar.ActionButton>
+            <HyperlinkButton NavigateUri="https://github.com/rocksdanister/lively/wiki/Screen-Saver"
+                             ToolTip.Tip="https://github.com/rocksdanister/lively/wiki/Screen-Saver"
+                             Content="{loc:Str ScreensaverPluginMessage/Text}" />
+          </controls:InfoBar.ActionButton>
+        </controls:InfoBar>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

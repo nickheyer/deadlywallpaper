@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             x:Class="Lively.UI.Avalonia.Views.Gallery.GalleryView">
+  <Grid ColumnDefinitions="Auto,*">
+    <Grid x:Name="NavigationRail" Grid.Column="0" RowDefinitions="*,Auto" Width="52">
+      <ListBox x:Name="MenuList" Grid.Row="0" Classes="rail" SelectionChanged="Menu_SelectionChanged">
+        <ListBoxItem Tag="featured" IsEnabled="False" ToolTip.Tip="{loc:Str GalleryPageHome/Content}">
+          <PathIcon Width="16" Height="16" Data="{DynamicResource IconHome}" />
+        </ListBoxItem>
+        <ListBoxItem Tag="library" ToolTip.Tip="{loc:Str GalleryPageCollection/Content}">
+          <PathIcon Width="16" Height="16" Data="{DynamicResource IconLibrary}" />
+        </ListBoxItem>
+      </ListBox>
+      <ListBox x:Name="FooterList" Grid.Row="1" Classes="rail" SelectionChanged="Menu_SelectionChanged">
+        <ListBoxItem Tag="subscription" ToolTip.Tip="{loc:Str GalleryPageManage/Content}">
+          <PathIcon Width="16" Height="16" Data="{DynamicResource IconManage}" />
+        </ListBoxItem>
+        <ListBoxItem Tag="profile" ToolTip.Tip="{loc:Str GalleryPageProfile/Content}">
+          <PathIcon Width="16" Height="16" Data="{DynamicResource IconContact}" />
+        </ListBoxItem>
+      </ListBox>
+    </Grid>
+    <ContentControl x:Name="ContentFrame" Grid.Column="1" />
+  </Grid>
+</UserControl>

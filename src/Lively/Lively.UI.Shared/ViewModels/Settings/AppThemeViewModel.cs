@@ -7,6 +7,7 @@ using Lively.Grpc.Client;
 using Lively.Models;
 using Lively.Models.Enums;
 using Lively.UI.Shared.Factories;
+using Lively.UI.Shared.Services;
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -24,19 +25,22 @@ namespace Lively.UI.Shared.ViewModels
         private readonly MainViewModel mainVm;
         private readonly IFileService fileService;
         private readonly IDispatcherService dispatcher;
+        private readonly IPlatformUiFeatures platform;
 
         public AppThemeViewModel(IUserSettingsClient userSettings,
             IAppThemeFactory themeFactory,
             MainViewModel mainVm,
             IFileService fileService,
             IResourceService i18n,
-            IDispatcherService dispatcher)
+            IDispatcherService dispatcher,
+            IPlatformUiFeatures platform)
         {
             this.userSettings = userSettings;
             this.themeFactory = themeFactory;
             this.mainVm = mainVm;
             this.fileService = fileService;
             this.dispatcher = dispatcher;
+            this.platform = platform;
             this.i18n = i18n;
 
             //Defaults
@@ -114,6 +118,20 @@ namespace Lively.UI.Shared.ViewModels
                     UpdateSettingsConfigFile();
                 }
             }
+        }
+
+        /// <summary>
+        /// False when the platform has no system page for the accent colour; the link under the theme picker is hidden.
+        /// </summary>
+        public bool IsSystemColorSettingsSupported => platform.SupportsSystemColorSettings;
+
+        [RelayCommand]
+        private void OpenSystemColorSettings()
+        {
+            if (!platform.SupportsSystemColorSettings)
+                return;
+
+            platform.OpenSystemColorSettings();
         }
 
         private RelayCommand _browseCommand;

@@ -1,0 +1,44 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.ShareWallpaperView"
+             x:DataType="vm:ShareWallpaperViewModel">
+  <StackPanel Spacing="4">
+    <Border Classes="card" MaxWidth="410" Padding="10,5,0,0">
+      <Grid ColumnDefinitions="160,*">
+        <Border Grid.Column="0" Width="144" Height="81" Margin="0,5,0,10" HorizontalAlignment="Left" CornerRadius="5" ClipToBounds="True">
+          <Image conv:ImageLoader.Source="{Binding Model.ImagePath}" Stretch="UniformToFill" />
+        </Border>
+        <StackPanel Grid.Column="1" Margin="0,5,5,0">
+          <TextBlock Classes="body" MaxLines="1" TextTrimming="CharacterEllipsis" Text="{Binding Model.Title}" />
+          <TextBlock Classes="caption" MaxLines="3" TextTrimming="CharacterEllipsis" Text="{Binding Model.Desc}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border Classes="card" MinHeight="100" Padding="10">
+      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal" Spacing="5">
+        <Button Width="125" Height="75" Command="{Binding ExportFileCommand}">
+          <StackPanel Spacing="6" HorizontalAlignment="Center">
+            <PathIcon Width="16" Height="16" Data="{DynamicResource IconDisk}" />
+            <TextBlock Text="{loc:Str ExportWallpaperZip/Text}" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Button>
+        <Button Width="125" Height="75" Command="{Binding GalleryFileUploadCommand}">
+          <StackPanel Spacing="6" HorizontalAlignment="Center">
+            <PathIcon Width="16" Height="16" Data="{DynamicResource IconGallery}" />
+            <TextBlock Text="{loc:Str ExportWallpaperGallery/Text}" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Button>
+        <Button Width="125" Height="75" Command="{Binding CopyLinkCommand}">
+          <StackPanel Spacing="6" HorizontalAlignment="Center">
+            <PathIcon Width="16" Height="16" Data="{DynamicResource IconLink}" />
+            <TextBlock Text="{loc:Str ExportWallpaperLink/Text}" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Button>
+      </StackPanel>
+    </Border>
+  </StackPanel>
+</UserControl>

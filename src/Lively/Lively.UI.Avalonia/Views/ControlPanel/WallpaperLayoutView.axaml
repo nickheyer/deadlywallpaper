@@ -1,0 +1,55 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.ControlPanel.WallpaperLayoutView"
+             x:DataType="vm:WallpaperLayoutViewModel">
+  <Grid RowDefinitions="*,Auto">
+    <Border Grid.Row="0" Background="{DynamicResource ApplicationPageBackgroundThemeBrush}" CornerRadius="5">
+      <Grid RowDefinitions="*,Auto">
+        <controls:DisplaySelector Grid.Row="0"
+                                  Displays="{Binding ScreenItems}"
+                                  Layout="{Binding SelectedWallpaperLayout}"
+                                  SelectedItem="{Binding SelectedItem, Mode=TwoWay}" />
+        <StackPanel Grid.Row="1" Margin="5" HorizontalAlignment="Center" Orientation="Horizontal" Spacing="5">
+          <Button Command="{Binding CustomiseWallpaperCommand}" ToolTip.Tip="{loc:Str TitleCustomise/Content}">
+            <PathIcon Width="16" Height="16" Data="{DynamicResource IconTune}" />
+          </Button>
+          <Button Command="{Binding CloseWallpaperCommand}" ToolTip.Tip="{loc:Str CloseWallpapers/Label}">
+            <PathIcon Width="16" Height="16" Data="{DynamicResource IconClose}" />
+          </Button>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <controls:SettingsExpander Grid.Row="1"
+                               Margin="0,5,0,0"
+                               Header="{loc:Str WallpaperLayout/Header}"
+                               Description="{loc:Str WallpaperLayout/Description}"
+                               HeaderIcon="{DynamicResource IconMonitor}"
+                               IsExpanded="True">
+      <controls:SettingsExpander.Items>
+        <controls:SettingsCard ContentAlignment="Left">
+          <controls:Segmented SelectedIndex="{Binding SelectedWallpaperLayoutIndex, Mode=TwoWay}">
+            <controls:SegmentedItem>
+              <TextBlock>
+                <Run Text="{loc:Str WallpaperLayoutPerScreen/Text}" />
+                <Run Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" Text="{Binding SelectedItem.Screen.Index, Converter={StaticResource StringFormatConverter}, ConverterParameter='({0})'}" />
+              </TextBlock>
+            </controls:SegmentedItem>
+            <controls:SegmentedItem>
+              <TextBlock Text="{loc:Str WallpaperLayoutSpan/Text}" />
+            </controls:SegmentedItem>
+            <controls:SegmentedItem>
+              <TextBlock Text="{loc:Str WallpaperLayoutDuplicate/Text}" />
+            </controls:SegmentedItem>
+          </controls:Segmented>
+        </controls:SettingsCard>
+        <controls:SettingsCard ContentAlignment="Left">
+          <CheckBox Content="{loc:Str WallpaperLayoutScreenPicker/Content}" IsChecked="{Binding IsRememberSelectedScreen, Mode=TwoWay, Converter={x:Static BoolConverters.Not}}" />
+        </controls:SettingsCard>
+      </controls:SettingsExpander.Items>
+    </controls:SettingsExpander>
+  </Grid>
+</UserControl>

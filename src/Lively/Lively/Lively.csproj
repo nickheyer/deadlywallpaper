@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -63,7 +63,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Lively.Common\Lively.Common.csproj" />
     <ProjectReference Include="..\Lively.Common.Services\Lively.Common.Services.csproj" />
+    <ProjectReference Include="..\Lively.Common.Services.Windows\Lively.Common.Services.Windows.csproj" />
+    <ProjectReference Include="..\Lively.Common.Windows\Lively.Common.Windows.csproj" />
+    <ProjectReference Include="..\Lively.Core.Common\Lively.Core.Common.csproj" />
     <ProjectReference Include="..\Lively.Grpc.Common\Lively.Grpc.Common.csproj" />
     <ProjectReference Include="..\Lively.Models\Lively.Models.csproj" />
   </ItemGroup>

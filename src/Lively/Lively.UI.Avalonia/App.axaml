@@ -1,0 +1,32 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             x:Class="Lively.UI.Avalonia.App"
+             RequestedThemeVariant="Default">
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
+    <StyleInclude Source="avares://Lively.UI.Avalonia/Resources/AppStyles.axaml" />
+  </Application.Styles>
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lively.UI.Avalonia/Resources/ThemeBrushes.axaml" />
+        <ResourceInclude Source="avares://Lively.UI.Avalonia/Resources/Icons.axaml" />
+        <ResourceInclude Source="avares://Lively.UI.Avalonia/Controls/ControlThemes.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+      <x:Double x:Key="SettingActionControlMinWidth">240</x:Double>
+      <x:Double x:Key="SettingGroupControlSpacing">15</x:Double>
+      <FontFamily x:Key="CustomIconFonts">avares://Lively.UI.Avalonia/Assets/CustomIcons.ttf#CustomIcons</FontFamily>
+      <conv:AudioVolumeGlyphConverter x:Key="AudioVolumeGlyphConverter" />
+      <conv:FloatToBoolConverter x:Key="ProgressRingIsIndeterminateConverter" />
+      <conv:HexStringToColorConverter x:Key="HexColorConverter" />
+      <conv:StringToInfoBarSeverityIconConverter x:Key="StringToInfoBarSeverityIconConverter" />
+      <conv:WallpaperTypeEnumToStringConverter x:Key="WallpaperTypeEnumToStringConverter" />
+      <conv:UriToBitmapConverter x:Key="UriToBitmapConverter" />
+      <conv:PageTypeToIconConverter x:Key="PageTypeToIconConverter" />
+      <conv:StringFormatConverter x:Key="StringFormatConverter" />
+      <conv:EnumEqualsConverter x:Key="EnumEqualsConverter" />
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

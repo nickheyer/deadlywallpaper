@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:models="using:Lively.Models"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.Gallery.GallerySubscriptionView"
+             x:DataType="vm:GallerySubscriptionViewModel"
+             x:Name="Root">
+  <ScrollViewer Margin="5">
+    <ItemsControl ItemsSource="{Binding WallpapersFiltered}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="models:GalleryModel">
+          <Border Classes="card" MinHeight="80" MaxHeight="80" Margin="0,0,0,4">
+            <Grid ColumnDefinitions="150,*,Auto,Auto">
+              <Border Grid.Column="0" Margin="5" CornerRadius="5" ClipToBounds="True">
+                <Image conv:ImageLoader.Source="{Binding LivelyInfo.Thumbnail}" Stretch="UniformToFill" />
+              </Border>
+              <StackPanel Grid.Column="1" Margin="7">
+                <TextBlock Classes="body" Margin="0,0,30,0" MaxLines="1" TextTrimming="CharacterEllipsis" Text="{Binding LivelyInfo.Title}" />
+                <TextBlock Classes="caption" Margin="0,0,30,0" MaxLines="3" TextTrimming="CharacterEllipsis" Text="{Binding LivelyInfo.Desc}" />
+              </StackPanel>
+              <TextBlock Grid.Column="2" Classes="caption" VerticalAlignment="Center" Text="{Binding DownloadingProgressText}" IsVisible="{Binding IsDownloading}" />
+              <StackPanel Grid.Column="3" Margin="30,0,10,0" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="5">
+                <!-- Installed -->
+                <Button MinWidth="100"
+                        MaxWidth="100"
+                        HorizontalContentAlignment="Center"
+                        Foreground="#DD0000"
+                        Command="{Binding #Root.((vm:GallerySubscriptionViewModel)DataContext).DeleteCommand}"
+                        CommandParameter="{Binding}"
+                        IsVisible="{Binding IsInstalled}">
+                  <PathIcon Width="15" Height="15" Data="{DynamicResource IconDelete}" />
+                </Button>
+                <!-- Not installed -->
+                <Panel IsVisible="{Binding IsInstalled, Converter={x:Static BoolConverters.Not}}">
+                  <Button MinWidth="100"
+                          MaxWidth="100"
+                          HorizontalContentAlignment="Center"
+                          Command="{Binding #Root.((vm:GallerySubscriptionViewModel)DataContext).DownloadCommand}"
+                          CommandParameter="{Binding}"
+                          IsVisible="{Binding IsDownloading, Converter={x:Static BoolConverters.Not}}">
+                    <PathIcon Width="15" Height="15" Data="{DynamicResource IconDownload}" />
+                  </Button>
+                  <Button MinWidth="100"
+                          MaxWidth="100"
+                          HorizontalContentAlignment="Center"
+                          Command="{Binding #Root.((vm:GallerySubscriptionViewModel)DataContext).DeleteCommand}"
+                          CommandParameter="{Binding}"
+                          IsVisible="{Binding IsDownloading}">
+                    <StackPanel Spacing="4" Width="40">
+                      <PathIcon Width="8" Height="8" Data="{DynamicResource IconClose}" />
+                      <ProgressBar Height="4"
+                                   MinWidth="40"
+                                   Maximum="100"
+                                   Value="{Binding DownloadingProgress}"
+                                   IsIndeterminate="{Binding DownloadingProgress, Converter={StaticResource ProgressRingIsIndeterminateConverter}}" />
+                    </StackPanel>
+                  </Button>
+                </Panel>
+                <Button Classes="transparent" MinWidth="50" MaxWidth="50" HorizontalContentAlignment="Center">
+                  <PathIcon Width="14" Height="14" Data="{DynamicResource IconMore}" />
+                  <Button.Flyout>
+                    <MenuFlyout Placement="Bottom">
+                      <MenuItem Header="{loc:Str TextUnsubscribe}"
+                                Command="{Binding #Root.((vm:GallerySubscriptionViewModel)DataContext).UnsubscribeCommand}"
+                                CommandParameter="{Binding}" />
+                    </MenuFlyout>
+                  </Button.Flyout>
+                </Button>
+              </StackPanel>
+            </Grid>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </ScrollViewer>
+</UserControl>

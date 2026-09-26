@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:models="using:Lively.Models"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.Settings.FindMoreAppsView"
+             x:DataType="vm:FindMoreAppsViewModel">
+  <StackPanel>
+    <ListBox Classes="rows"
+             MinWidth="500"
+             MinHeight="350"
+             MaxWidth="500"
+             MaxHeight="400"
+             Padding="0,5,0,0"
+             ItemsSource="{Binding ApplicationsFiltered}"
+             SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="models:ApplicationModel">
+          <Grid MinHeight="50" MaxHeight="50" ColumnDefinitions="50,*">
+            <Image Grid.Column="0" Margin="5" conv:ImageLoader.Source="{Binding AppIcon}" Stretch="Uniform" />
+            <StackPanel Grid.Column="1" Margin="5">
+              <TextBlock Classes="body" MaxLines="1" TextTrimming="CharacterEllipsis" Text="{Binding AppName}" />
+              <TextBlock Classes="caption" Margin="0,2.5,0,0" MaxLines="1" TextTrimming="CharacterEllipsis" Text="{Binding AppPath}" ToolTip.Tip="{Binding AppPath}" />
+            </StackPanel>
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+    <Button MinWidth="150"
+            Margin="0,5,0,0"
+            HorizontalAlignment="Stretch"
+            HorizontalContentAlignment="Center"
+            Command="{Binding BrowseCommand}"
+            Content="{loc:Str TextOpen/Content}" />
+  </StackPanel>
+</UserControl>

@@ -1,0 +1,188 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:models="using:Lively.Models"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.LibraryView"
+             x:DataType="vm:LibraryViewModel"
+             x:Name="Root">
+  <UserControl.Resources>
+    <MenuFlyout x:Key="TileMenu" x:DataType="models:LibraryModel">
+      <MenuItem Header="{loc:Str AboutMenu/Text}"
+                Command="{Binding #Root.((vm:LibraryViewModel)DataContext).MoreInfoCommand}"
+                CommandParameter="{Binding}">
+        <MenuItem.Icon>
+          <PathIcon Width="14" Height="14" Data="{DynamicResource IconInfo}" />
+        </MenuItem.Icon>
+      </MenuItem>
+      <MenuItem Header="{loc:Str SetWallpaper/Text}"
+                Command="{Binding #Root.((vm:LibraryViewModel)DataContext).SetWallpaperCommand}"
+                CommandParameter="{Binding}">
+        <MenuItem.Icon>
+          <PathIcon Width="14" Height="14" Data="{DynamicResource IconImage}" />
+        </MenuItem.Icon>
+      </MenuItem>
+      <MenuItem Header="{loc:Str PreviewWallpaper/Text}"
+                Command="{Binding #Root.((vm:LibraryViewModel)DataContext).PreviewCommand}"
+                CommandParameter="{Binding}">
+        <MenuItem.Icon>
+          <PathIcon Width="14" Height="14" Data="{DynamicResource IconEye}" />
+        </MenuItem.Icon>
+      </MenuItem>
+      <MenuItem Header="{loc:Str Customise/Text}"
+                Command="{Binding #Root.((vm:LibraryViewModel)DataContext).CustomiseCommand}"
+                CommandParameter="{Binding}">
+        <MenuItem.Icon>
+          <PathIcon Width="14" Height="14" Data="{DynamicResource IconTune}" />
+        </MenuItem.Icon>
+      </MenuItem>
+      <MenuItem Header="{loc:Str ShowOnDisk/Text}"
+                Command="{Binding #Root.((vm:LibraryViewModel)DataContext).ShowOnDiskCommand}"
+                CommandParameter="{Binding}">
+        <MenuItem.Icon>
+          <PathIcon Width="14" Height="14" Data="{DynamicResource IconFolder}" />
+        </MenuItem.Icon>
+      </MenuItem>
+      <MenuItem Header="{loc:Str TextShare/Text}"
+                Command="{Binding #Root.((vm:LibraryViewModel)DataContext).ShareCommand}"
+                CommandParameter="{Binding}">
+        <MenuItem.Icon>
+          <PathIcon Width="14" Height="14" Data="{DynamicResource IconShare}" />
+        </MenuItem.Icon>
+      </MenuItem>
+      <MenuItem Header="{loc:Str DeleteWallpaper/Text}"
+                Command="{Binding #Root.((vm:LibraryViewModel)DataContext).DeleteCommand}"
+                CommandParameter="{Binding}">
+        <MenuItem.Icon>
+          <PathIcon Width="14" Height="14" Data="{DynamicResource IconDelete}" />
+        </MenuItem.Icon>
+      </MenuItem>
+      <MenuItem Header="{loc:Str EditWallpaper/Text}"
+                Command="{Binding #Root.((vm:LibraryViewModel)DataContext).EditCommand}"
+                CommandParameter="{Binding}">
+        <MenuItem.Icon>
+          <PathIcon Width="14" Height="14" Data="{DynamicResource IconEdit}" />
+        </MenuItem.Icon>
+      </MenuItem>
+    </MenuFlyout>
+  </UserControl.Resources>
+
+  <Panel>
+    <controls:WallpaperGrid x:Name="TileGrid"
+                            Classes="tiles"
+                            Margin="5"
+                            ItemsSource="{Binding LibraryItemsFiltered}"
+                            SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                            SelectionModeName="{Binding LibrarySelectionMode}"
+                            ItemClicked="TileGrid_ItemClicked">
+      <controls:WallpaperGrid.ItemTemplate>
+        <DataTemplate x:DataType="models:LibraryModel">
+          <Border Width="272"
+                  Height="153"
+                  CornerRadius="5"
+                  ClipToBounds="True"
+                  Background="{DynamicResource ControlFillColorDefaultBrush}"
+                  ContextFlyout="{StaticResource TileMenu}">
+            <Grid RowDefinitions="*,60" ColumnDefinitions="*,45">
+              <Image Grid.RowSpan="2"
+                     Grid.ColumnSpan="2"
+                     conv:ImageLoader.Source="{Binding ImagePath}"
+                     Stretch="UniformToFill" />
+              <Border Grid.RowSpan="2" Grid.ColumnSpan="2">
+                <Border.Background>
+                  <LinearGradientBrush StartPoint="50%,25%" EndPoint="50%,100%">
+                    <GradientStop Offset="0" Color="#00000000" />
+                    <GradientStop Offset="1" Color="{DynamicResource SystemAltHighColor}" />
+                  </LinearGradientBrush>
+                </Border.Background>
+              </Border>
+              <!-- Download in progress -->
+              <Panel Grid.RowSpan="2" Grid.ColumnSpan="2" IsVisible="{Binding IsDownloading}">
+                <Border Background="#66000000" />
+                <TextBlock Margin="2.5"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Top"
+                           FontSize="10"
+                           FontWeight="Medium"
+                           Text="{Binding DownloadingProgressText}" />
+              </Panel>
+              <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="7">
+                <TextBlock Margin="0,0,30,0"
+                           MaxLines="1"
+                           TextTrimming="CharacterEllipsis"
+                           Text="{Binding Title}" />
+                <TextBlock Margin="0,0,30,0"
+                           Classes="caption"
+                           MaxLines="2"
+                           TextTrimming="CharacterEllipsis"
+                           Text="{Binding Desc}" />
+              </StackPanel>
+              <PathIcon Grid.RowSpan="2"
+                        Grid.ColumnSpan="2"
+                        Margin="5"
+                        Width="12"
+                        Height="12"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Data="{DynamicResource IconGallery}"
+                        IsVisible="{Binding IsSubscribed}" />
+              <Panel Grid.Row="1" Grid.Column="1">
+                <Button Classes="transparent"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Flyout="{StaticResource TileMenu}"
+                        IsVisible="{Binding IsDownloading, Converter={x:Static BoolConverters.Not}}">
+                  <PathIcon Width="14" Height="14" Data="{DynamicResource IconMore}" />
+                </Button>
+                <Button Classes="transparent"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Command="{Binding #Root.((vm:LibraryViewModel)DataContext).CancelDownloadCommand}"
+                        CommandParameter="{Binding}"
+                        IsVisible="{Binding IsDownloading}">
+                  <StackPanel Spacing="4" Width="30">
+                    <PathIcon Width="10" Height="10" Data="{DynamicResource IconClose}" />
+                    <ProgressBar Height="4"
+                                 MinWidth="30"
+                                 Maximum="100"
+                                 Value="{Binding DownloadingProgress}"
+                                 IsIndeterminate="{Binding DownloadingProgress, Converter={StaticResource ProgressRingIsIndeterminateConverter}}" />
+                  </StackPanel>
+                </Button>
+              </Panel>
+            </Grid>
+          </Border>
+        </DataTemplate>
+      </controls:WallpaperGrid.ItemTemplate>
+    </controls:WallpaperGrid>
+
+    <!-- Drop target -->
+    <Border x:Name="AddFilePanel"
+            IsVisible="False"
+            IsHitTestVisible="False"
+            Background="{DynamicResource SolidBackgroundFillColorBaseBrush}"
+            Opacity="0.95">
+      <Panel>
+        <Rectangle Margin="25"
+                   RadiusX="5"
+                   RadiusY="5"
+                   Stroke="{DynamicResource TextFillColorSecondaryBrush}"
+                   StrokeDashArray="3"
+                   StrokeThickness="2" />
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+          <PathIcon Width="36" Height="36" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Data="{DynamicResource IconAdd}" />
+          <TextBlock FontSize="24" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{loc:Str AddWallpaperDrop/Text}" />
+        </StackPanel>
+      </Panel>
+    </Border>
+
+    <!-- Busy -->
+    <Border Background="{DynamicResource SmokeFillColorDefaultBrush}" IsVisible="{Binding IsBusy}">
+      <ProgressBar IsIndeterminate="True" Width="200" HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Border>
+  </Panel>
+</UserControl>

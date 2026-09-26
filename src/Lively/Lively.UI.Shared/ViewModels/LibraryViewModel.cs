@@ -1,6 +1,5 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.WinUI.Collections;
 using Lively.Common;
 using Lively.Common.Extensions;
 using Lively.Common.Factories;
@@ -13,6 +12,7 @@ using Lively.Gallery.Client;
 using Lively.Grpc.Client;
 using Lively.Models;
 using Lively.Models.Enums;
+using Lively.UI.Shared.Collections;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -78,8 +78,8 @@ namespace Lively.UI.Shared.ViewModels
                 Path.Combine(userSettings.Settings.WallpaperDir, Constants.CommonPartialPaths.WallpaperInstallTempDir)
             };
 
-            LibraryItemsFiltered = new AdvancedCollectionView(LibraryItems, false);
-            LibraryItemsFiltered.SortDescriptions.Add(new SortDescription("Title", SortDirection.Ascending));
+            LibraryItemsFiltered = new FilteredCollectionView<LibraryModel>(LibraryItems, false);
+            LibraryItemsFiltered.SortDescriptions.Add(new SortDescription(nameof(LibraryModel.Title), SortDirection.Ascending));
             using (LibraryItemsFiltered.DeferRefresh())
             {
                 foreach (var item in ScanWallpaperFolders(wallpaperScanFolders))
@@ -97,10 +97,32 @@ namespace Lively.UI.Shared.ViewModels
         }
 
         [ObservableProperty]
-        private AdvancedCollectionView libraryItemsFiltered;
+        private FilteredCollectionView<LibraryModel> libraryItemsFiltered;
 
         [ObservableProperty]
         private ObservableCollection<LibraryModel> libraryItems = new();
+
+        /// <summary>
+        /// Text typed in the library search box, applied to <see cref="LibraryItemsFiltered"/> as a title filter.
+        /// </summary>
+        [ObservableProperty]
+        private string searchText;
+
+        partial void OnSearchTextChanged(string value) => ApplySearch();
+
+        /// <summary>
+        /// Filters the library by <see cref="SearchText"/> (case-insensitive title match) and re-syncs the selection.
+        /// </summary>
+        public void ApplySearch()
+        {
+            var text = SearchText;
+            if (string.IsNullOrWhiteSpace(text))
+                LibraryItemsFiltered.Filter = _ => true;
+            else
+                LibraryItemsFiltered.Filter = x => x.Title.Contains(text, StringComparison.InvariantCultureIgnoreCase);
+
+            UpdateSelectedWallpaper();
+        }
 
         private LibraryModel _selectedItem;
         public LibraryModel SelectedItem
@@ -215,6 +237,130 @@ namespace Lively.UI.Shared.ViewModels
 
         [ObservableProperty]
         private bool isBusy;
+
+        #region tile actions
+
+        private static bool IsActionable(LibraryModel model) => model is not null && model.IsReadyToSet;
+
+        [RelayCommand]
+        private async Task Preview(LibraryModel model)
+        {
+            if (!IsActionable(model))
+                return;
+
+            await desktopCore.PreviewWallpaper(model.LivelyInfoFolderPath);
+        }
+
+        [RelayCommand]
+        private async Task ShowOnDisk(LibraryModel model)
+        {
+            if (!IsActionable(model))
+                return;
+
+            await WallpaperShowOnDisk(model);
+        }
+
+        [RelayCommand]
+        private async Task SetWallpaper(LibraryModel model)
+        {
+            if (!IsActionable(model))
+                return;
+
+            DisplayMonitor monitor;
+            if (userSettings.Settings.RememberSelectedScreen)
+                monitor = userSettings.Settings.SelectedDisplay;
+            else
+                monitor = displayManager.DisplayMonitors.Count == 1 || userSettings.Settings.WallpaperArrangement != WallpaperArrangement.per ?
+                   displayManager.DisplayMonitors.FirstOrDefault(x => x.IsPrimary) : await dialogService.ShowDisplayChooseDialogAsync();
+            if (monitor is null)
+                return;
+
+            await desktopCore.SetWallpaper(model, monitor);
+        }
+
+        /// <summary>
+        /// Exports the wallpaper as a Lively .zip package to a location chosen by the user.
+        /// </summary>
+        [RelayCommand]
+        private async Task Export(LibraryModel model)
+        {
+            if (!IsActionable(model))
+                return;
+
+            var file = await fileService.PickSaveFileAsync(model.Title, [("Compressed archive", [".zip"])]);
+            if (file is null)
+                return;
+
+            await WallpaperExport(model, file);
+            await fileService.OpenFolderAsync(file);
+        }
+
+        [RelayCommand]
+        private async Task Delete(LibraryModel model)
+        {
+            if (!IsActionable(model))
+                return;
+
+            if (await dialogService.ShowDeleteWallpaperDialogAsync(model))
+                await WallpaperDelete(model);
+        }
+
+        private static bool CanCustomise(LibraryModel model) => IsActionable(model) && model.LivelyPropertyPath != null;
+
+        [RelayCommand(CanExecute = nameof(CanCustomise))]
+        private async Task Customise(LibraryModel model)
+        {
+            await dialogService.ShowCustomiseWallpaperDialogAsync(model);
+        }
+
+        [RelayCommand]
+        private async Task Edit(LibraryModel model)
+        {
+            if (!IsActionable(model))
+                return;
+
+            // Show and confirm project structure for wallpapers that can be outside wallpaper directory and contain multiple files.
+            if (model.LivelyInfo.IsAbsolutePath
+                && model.LivelyInfo.Type.IsDirectoryProject()
+                && !await dialogService.ShowWallpaperProjectDirectoryDialogAsync(Path.GetDirectoryName(model.FilePath)))
+                return;
+
+            var success = await desktopCore.EditWallpaper(model.LivelyInfoFolderPath);
+            if (success)
+            {
+                RemoveWallpaper(model);
+                AddWallpaperFolder(model.LivelyInfoFolderPath);
+            }
+        }
+
+        [RelayCommand]
+        private async Task MoreInfo(LibraryModel model)
+        {
+            if (!IsActionable(model))
+                return;
+
+            await dialogService.ShowAboutWallpaperDialogAsync(model);
+        }
+
+        [RelayCommand]
+        private async Task Report(LibraryModel model)
+        {
+            if (!IsActionable(model))
+                return;
+
+            await dialogService.ShowReportWallpaperDialogAsync(model);
+        }
+
+        [RelayCommand]
+        private async Task Share(LibraryModel model)
+        {
+            if (!IsActionable(model))
+                return;
+
+            await dialogService.ShowShareWallpaperDialogAsync(model);
+        }
+
+        #endregion //tile actions
 
         private void DesktopCore_WallpaperChanged(object sender, EventArgs e)
         {

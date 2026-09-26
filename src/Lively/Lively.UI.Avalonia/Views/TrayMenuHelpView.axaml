@@ -1,0 +1,12 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             x:Class="Lively.UI.Avalonia.Views.TrayMenuHelpView">
+  <StackPanel MaxWidth="480">
+    <TextBlock TextWrapping="Wrap" Text="{loc:Str MinimizedTray/Text}" />
+    <Border Margin="0,10,0,0" CornerRadius="10" ClipToBounds="True">
+      <controls:AnimatedGifImage GifSource="avares://Lively.UI.Avalonia/Assets/tray-tutorial.gif" Stretch="Uniform" />
+    </Border>
+  </StackPanel>
+</UserControl>

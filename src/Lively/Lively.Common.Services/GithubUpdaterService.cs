@@ -1,4 +1,4 @@
-﻿using Lively.Common.Helpers;
+using Lively.Common.Helpers;
 using Lively.Models.Services;
 using System;
 using System.Diagnostics;
@@ -15,6 +15,7 @@ namespace Lively.Common.Services
         private readonly int fetchDelayRepeat = 12 * 60 * 60 * 1000; //12hr
         private readonly Timer retryTimer = new Timer();
         private static Architecture ProcessArch => RuntimeInformation.ProcessArchitecture;
+        private readonly IPlatformInfo platformInfo;
 
         //public
         public AppUpdateStatus Status { get; private set; } = AppUpdateStatus.notchecked;
@@ -26,8 +27,9 @@ namespace Lively.Common.Services
 
         public event EventHandler<AppUpdaterEventArgs> UpdateChecked;
 
-        public GithubUpdaterService()
+        public GithubUpdaterService(IPlatformInfo platformInfo)
         {
+            this.platformInfo = platformInfo;
             retryTimer.Elapsed += RetryTimer_Elapsed;
             //giving the retry delay is not reliable since it will reset if system sleeps/suspends.
             retryTimer.Interval = 5 * 60 * 1000;
@@ -65,7 +67,7 @@ namespace Lively.Common.Services
         public async Task<AppUpdateStatus> CheckUpdate(int fetchDelay)
         {
             // msix already has built-in updater Or skip on debugging.
-            if (PackageUtil.IsRunningAsPackaged || BuildInfoUtil.IsDebugBuild())
+            if (platformInfo.IsPackaged || BuildInfoUtil.IsDebugBuild())
                 return AppUpdateStatus.notchecked;
 
             try

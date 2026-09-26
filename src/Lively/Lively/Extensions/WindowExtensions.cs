@@ -1,4 +1,4 @@
-﻿using Lively.Common.Helpers;
+using Lively.Common.Helpers;
 using Lively.Common.Helpers.Pinvoke;
 using Lively.Core;
 using System;
@@ -57,7 +57,7 @@ namespace Lively.Extensions
 
             if (!NativeMethods.SetWindowPos(pgmHandle, 1, (int)reviewPanel.Left, (int)reviewPanel.Top, (int)reviewPanel.Width, (int)reviewPanel.Height, 0 | 0x0010))
             {
-                throw new Win32Exception(LogUtil.GetWin32Error("Failed to set parent (1)"));
+                throw new Win32Exception(LogUtilWindows.GetWin32Error("Failed to set parent (1)"));
             }
 
             //ScreentoClient is no longer used, this supports windows mirrored mode also, calculate new relative position of window w.r.t parent.
@@ -67,7 +67,7 @@ namespace Lively.Extensions
             //Position the wp window relative to the new parent window(workerw).
             if (!NativeMethods.SetWindowPos(pgmHandle, 1, prct.Left, prct.Top, (int)reviewPanel.Width, (int)reviewPanel.Height, 0 | 0x0010))
             {
-                throw new Win32Exception(LogUtil.GetWin32Error("Failed to set parent (2)"));
+                throw new Win32Exception(LogUtilWindows.GetWin32Error("Failed to set parent (2)"));
             }
         }
 

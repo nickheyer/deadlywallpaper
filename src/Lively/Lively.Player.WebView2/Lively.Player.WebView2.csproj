@@ -113,9 +113,17 @@
       <Project>{4ca97f56-6d6d-4ce6-af29-8eebd4beefeb}</Project>
       <Name>Lively.Common.Services</Name>
     </ProjectReference>
+    <ProjectReference Include="..\Lively.Common.Services.Windows\Lively.Common.Services.Windows.csproj">
+      <Project>{053d0245-cf78-4af5-a8f7-87fc6900db82}</Project>
+      <Name>Lively.Common.Services.Windows</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Lively.Common\Lively.Common.csproj">
       <Project>{fcc8ae2f-3b96-4bc3-adca-7a785f4821c6}</Project>
       <Name>Lively.Common</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Lively.Common.Windows\Lively.Common.Windows.csproj">
+      <Project>{b0efcd23-9f29-4ed9-9c30-1cbacd835c9c}</Project>
+      <Name>Lively.Common.Windows</Name>
     </ProjectReference>
     <ProjectReference Include="..\Lively.Models\Lively.Models.csproj">
       <Project>{1e3d9d5b-a1fd-4915-95f5-9a52d87fcdec}</Project>

@@ -6,6 +6,7 @@ using Lively.Common.Services;
 using Lively.Grpc.Client;
 using Lively.Models;
 using Lively.Models.Enums;
+using Lively.UI.Shared.Services;
 using System;
 using System.Globalization;
 using System.Threading;
@@ -23,16 +24,18 @@ namespace Lively.UI.Shared.ViewModels
         private readonly IAppUpdaterClient appUpdater;
         private readonly ICommandsClient commands;
         private readonly IResourceService i18n;
+        private readonly IPlatformUiFeatures platform;
 
         private bool isSwitchingChannel;
         private CancellationTokenSource? switchCts;
 
-        public SettingsSystemViewModel(IUserSettingsClient userSettings, 
+        public SettingsSystemViewModel(IUserSettingsClient userSettings,
             ICommandsClient commands,
             IDispatcherService dispatcher,
             IFileService fileService,
             IResourceService i18n,
             IAppUpdaterClient appUpdater,
+            IPlatformUiFeatures platform,
             IDialogService dialogService)
         {
             this.userSettings = userSettings;
@@ -41,12 +44,18 @@ namespace Lively.UI.Shared.ViewModels
             this.fileService = fileService;
             this.appUpdater = appUpdater;
             this.dialogService = dialogService;
+            this.platform = platform;
             this.i18n = i18n;
 
             SelectedTaskbarThemeIndex = (int)userSettings.Settings.SystemTaskbarTheme;
         }
 
-        public bool IsWinStore => PackageUtil.IsRunningAsPackaged;
+        public bool IsWinStore => platform.IsPackaged;
+
+        /// <summary>
+        /// False when the platform cannot restyle the system taskbar; the taskbar theme card is hidden.
+        /// </summary>
+        public bool IsTaskbarThemeSupported => platform.SupportsTaskbarTheme;
 
         public bool IsBetaBuild => Constants.ApplicationType.IsTestBuild;
 

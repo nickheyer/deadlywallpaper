@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:Lively.UI.Avalonia.Converters"
+             xmlns:loc="using:Lively.UI.Avalonia.Localization"
+             xmlns:vm="using:Lively.UI.Shared.ViewModels"
+             x:Class="Lively.UI.Avalonia.Views.Gallery.GalleryLoginView"
+             x:DataType="vm:GalleryLoginViewModel">
+  <Panel>
+    <Image conv:ImageLoader.Source="avares://Lively.UI.Avalonia/Assets/banner-lively-1080.jpg" Stretch="UniformToFill" />
+    <Border Background="{DynamicResource SystemControlBackgroundAltMediumBrush}" />
+
+    <!-- Closed -->
+    <StackPanel Margin="50" HorizontalAlignment="Center" VerticalAlignment="Top" Spacing="8"
+                IsVisible="{Binding IsOpen, Converter={x:Static BoolConverters.Not}}">
+      <Border Width="96" Height="96" CornerRadius="48" Background="{DynamicResource ControlFillColorDefaultBrush}" HorizontalAlignment="Center">
+        <PathIcon Width="48" Height="48" Data="{DynamicResource IconContact}" />
+      </Border>
+      <TextBlock HorizontalAlignment="Center" FontSize="24" FontWeight="SemiBold" Text="{loc:Str ComingSoon/Text}" />
+    </StackPanel>
+
+    <!-- Open -->
+    <StackPanel Margin="50" HorizontalAlignment="Center" VerticalAlignment="Top" Spacing="8" IsVisible="{Binding IsOpen}">
+      <Panel HorizontalAlignment="Center">
+        <Border Width="96" Height="96" CornerRadius="48" ClipToBounds="True" Background="{DynamicResource ControlFillColorDefaultBrush}">
+          <Panel>
+            <PathIcon Width="48" Height="48" Data="{DynamicResource IconContact}" IsVisible="{Binding Picture, Converter={x:Static ObjectConverters.IsNull}}" />
+            <Image conv:ImageLoader.UriSource="{Binding Picture}" Stretch="UniformToFill" />
+          </Panel>
+        </Border>
+        <ProgressBar Width="96" VerticalAlignment="Bottom" IsIndeterminate="True" IsVisible="{Binding IsProcessing}" />
+      </Panel>
+      <TextBlock HorizontalAlignment="Center" FontSize="24" FontWeight="SemiBold" Text="{Binding Message}" />
+      <StackPanel Margin="0,10,0,0" HorizontalAlignment="Center" Spacing="10" IsVisible="{Binding IsProcessing, Converter={x:Static BoolConverters.Not}}">
+        <Button Width="175" Height="35" Command="{Binding AuthGoogleCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="5">
+            <TextBlock FontFamily="{StaticResource CustomIconFonts}" FontSize="16" Text="&#xE90C;" VerticalAlignment="Center" />
+            <TextBlock VerticalAlignment="Center" Text="Google" />
+          </StackPanel>
+        </Button>
+        <Button Width="175" Height="35" Command="{Binding AuthGithubCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="5">
+            <TextBlock FontFamily="{StaticResource CustomIconFonts}" FontSize="16" Text="&#xE907;" VerticalAlignment="Center" />
+            <TextBlock VerticalAlignment="Center" Text="Github" />
+          </StackPanel>
+        </Button>
+      </StackPanel>
+    </StackPanel>
+
+    <HyperlinkButton Margin="10"
+                     HorizontalAlignment="Left"
+                     VerticalAlignment="Bottom"
+                     Opacity="0.5"
+                     NavigateUri="https://github.com/rocksdanister/lively/blob/core-separation/PRIVACY.md"
+                     Content="{loc:Str PrivacyPolicyLink/Content}" />
+  </Panel>
+</UserControl>

@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Lively.Common.Services;
 using Lively.Models.Enums;
 using Lively.Models.UserControls;
+using Lively.UI.Shared.Services;
 using System.Collections.ObjectModel;
 using System.Linq;
 
@@ -17,7 +18,8 @@ namespace Lively.UI.Shared.ViewModels
         public ControlPanelViewModel(WallpaperLayoutViewModel wallpaperVm,
             ScreensaverLayoutViewModel screensaverVm,
             IDialogNavigator dialogNavigator,
-            IResourceService i18n)
+            IResourceService i18n,
+            IPlatformUiFeatures platform)
         {
             this.WallpaperVm = wallpaperVm;
             this.ScreensaverVm = screensaverVm;
@@ -25,7 +27,8 @@ namespace Lively.UI.Shared.ViewModels
 
             MenuItems = [
                 new() { Name = i18n.GetString("TitleWallpaper/Content"), PageType = DialogPageType.controlPanelWallpaper},
-                new() { Name = i18n.GetString("TitleScreensaver/Content"), PageType = DialogPageType.controlPanelScreensaver },
+                // The screensaver page only exists where Lively can be the system screensaver.
+                new() { Name = i18n.GetString("TitleScreensaver/Content"), PageType = DialogPageType.controlPanelScreensaver, IsVisible = platform.SupportsScreensaver },
                 new() { Name = i18n.GetString("TitleCustomise/Content"), PageType = DialogPageType.controlPanelCustomise, IsVisible = false }
             ];
             // SelectedMenuItem set in View Loaded event.

@@ -1,28 +1,30 @@
-﻿using Lively.Gallery.Client.Interfaces;
+using Lively.Gallery.Client.Interfaces;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
 using static Lively.Common.Constants;
 using Lively.Common.Helpers.Storage;
+using Lively.Common.Services;
 using Lively.Models.Gallery.API;
-using Lively.Common.Helpers;
-using System.Diagnostics;
+using Newtonsoft.Json;
 
 namespace Lively.Gallery.Client
 {
     public class JsonTokenStore : ITokenStore
     {
+        private readonly ITokenProtector protector;
         private TokensModel _tokens;
+
+        public JsonTokenStore(ITokenProtector protector)
+        {
+            this.protector = protector;
+        }
 
         public void Clear()
         {
             _tokens = new();
             try
             {
-                EncryptUtil.Store(_tokens, CommonPaths.TokensPath);
+                Store(_tokens, CommonPaths.TokensPath);
             }
             catch { }
         }
@@ -33,7 +35,7 @@ namespace Lively.Gallery.Client
             {
                 try
                 {
-                    _tokens = EncryptUtil.Load<TokensModel>(CommonPaths.TokensPath);
+                    _tokens = Load<TokensModel>(CommonPaths.TokensPath);
                     //Debug.WriteLine($"Accesstoken:{_tokens?.AccessToken}");
                 }
                 catch { }
@@ -53,9 +55,15 @@ namespace Lively.Gallery.Client
      
             try
             {
-                EncryptUtil.Store(_tokens, CommonPaths.TokensPath);
+                Store(_tokens, CommonPaths.TokensPath);
             }
             catch { }
         }
+
+        private void Store<T>(T data, string filePath) =>
+            JsonStorage<byte[]>.StoreData(filePath, protector.Protect(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(data))));
+
+        private T Load<T>(string filePath) =>
+            JsonConvert.DeserializeObject<T>(Encoding.UTF8.GetString(protector.Unprotect(JsonStorage<byte[]>.LoadData(filePath))));
     }
 }

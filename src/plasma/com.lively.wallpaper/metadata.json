@@ -1,0 +1,24 @@
+{
+    "KPackageStructure": "Plasma/Wallpaper",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Dani John (rocksdanister)"
+            },
+            {
+                "Email": "nick@heyerconception.com",
+                "Name": "Nicholas Heyer"
+            }
+        ],
+        "Category": "",
+        "Description": "Live wallpapers (video, gif, picture, web page, URL, video stream) driven by the Lively Wallpaper application",
+        "Icon": "preferences-desktop-wallpaper",
+        "Id": "com.lively.wallpaper",
+        "License": "MIT",
+        "Name": "Lively Wallpaper",
+        "Version": "2.2.1",
+        "Website": "https://github.com/rocksdanister/lively"
+    },
+    "Keywords": "lively,wallpaper,video,live",
+    "X-KDE-ParentApp": "org.kde.plasmashell"
+}

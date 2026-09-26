@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:Lively.UI.Avalonia.Controls"
+             x:Class="Lively.UI.Avalonia.Controls.ContentDialog"
+             x:Name="Root"
+             MinWidth="320"
+             MaxWidth="{Binding #Root.MaxDialogWidth}"
+             MaxHeight="{Binding #Root.MaxDialogHeight}">
+  <Border Classes="dialogSurface"
+          Background="{DynamicResource SolidBackgroundFillColorBaseBrush}"
+          BorderBrush="{DynamicResource SurfaceStrokeColorDefaultBrush}"
+          BorderThickness="1"
+          CornerRadius="8"
+          Padding="24">
+    <Grid RowDefinitions="Auto,*,Auto">
+      <TextBlock Grid.Row="0"
+                 Text="{Binding #Root.Title}"
+                 IsVisible="{Binding #Root.Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                 FontSize="20"
+                 FontWeight="SemiBold"
+                 TextWrapping="Wrap"
+                 Margin="0,0,0,12" />
+      <ScrollViewer Grid.Row="1"
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto">
+        <ContentPresenter x:Name="DialogContentPresenter" Content="{Binding #Root.DialogContent}" />
+      </ScrollViewer>
+      <Grid Grid.Row="2"
+            x:Name="ButtonRow"
+            Margin="0,24,0,0"
+            ColumnDefinitions="*,8,*,8,*"
+            IsVisible="{Binding #Root.HasButtons}">
+        <Button x:Name="PrimaryButton"
+                Grid.Column="0"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Content="{Binding #Root.PrimaryButtonText}"
+                IsEnabled="{Binding #Root.IsPrimaryButtonEnabled}"
+                IsVisible="{Binding #Root.PrimaryButtonText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                Click="PrimaryButton_Click" />
+        <Button x:Name="SecondaryButton"
+                Grid.Column="2"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Content="{Binding #Root.SecondaryButtonText}"
+                IsEnabled="{Binding #Root.IsSecondaryButtonEnabled}"
+                IsVisible="{Binding #Root.SecondaryButtonText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                Click="SecondaryButton_Click" />
+        <Button x:Name="CloseButton"
+                Grid.Column="4"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Content="{Binding #Root.CloseButtonText}"
+                IsVisible="{Binding #Root.CloseButtonText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                Click="CloseButton_Click" />
+      </Grid>
+    </Grid>
+  </Border>
+</UserControl>

@@ -1,0 +1,78 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- WinUI 3 fill/stroke brushes used by the ported pages; the Avalonia Fluent theme only ships the SystemControl* set. -->
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="SolidBackgroundFillColorBaseBrush" Color="#FFF3F3F3" />
+      <SolidColorBrush x:Key="SolidBackgroundFillColorSecondaryBrush" Color="#FFEEEEEE" />
+      <SolidColorBrush x:Key="SurfaceStrokeColorDefaultBrush" Color="#66757575" />
+      <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="#B3FFFFFF" />
+      <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#80F6F6F6" />
+      <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#0F000000" />
+      <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="#80FFFFFF" />
+      <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#E4000000" />
+      <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#9E000000" />
+      <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#72000000" />
+      <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="#B3FFFFFF" />
+      <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="#80F9F9F9" />
+      <SolidColorBrush x:Key="ControlAltFillColorSecondaryBrush" Color="#0A000000" />
+      <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="#0F000000" />
+      <SolidColorBrush x:Key="SubtleFillColorSecondaryBrush" Color="#09000000" />
+      <SolidColorBrush x:Key="SubtleFillColorTertiaryBrush" Color="#06000000" />
+      <SolidColorBrush x:Key="SmokeFillColorDefaultBrush" Color="#4D000000" />
+      <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#FFC42B1C" />
+      <SolidColorBrush x:Key="SystemFillColorCautionBrush" Color="#FF9D5D00" />
+      <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="#FF0F7B0F" />
+      <SolidColorBrush x:Key="SystemFillColorAttentionBrush" Color="#FF005FB7" />
+      <SolidColorBrush x:Key="SystemFillColorCriticalBackgroundBrush" Color="#FFFDE7E9" />
+      <SolidColorBrush x:Key="SystemFillColorCautionBackgroundBrush" Color="#FFFFF4CE" />
+      <SolidColorBrush x:Key="SystemFillColorSuccessBackgroundBrush" Color="#FFDFF6DD" />
+      <SolidColorBrush x:Key="SystemFillColorAttentionBackgroundBrush" Color="#80F6F6F6" />
+      <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="{DynamicResource SystemAccentColorDark1}" />
+      <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="{DynamicResource SystemAccentColor}" />
+      <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="{DynamicResource SystemAccentColorDark1}" />
+      <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="#FFF9F9F9" />
+      <SolidColorBrush x:Key="GradientOverlayEndBrush" Color="#FFFFFFFF" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="SolidBackgroundFillColorBaseBrush" Color="#FF202020" />
+      <SolidColorBrush x:Key="SolidBackgroundFillColorSecondaryBrush" Color="#FF1C1C1C" />
+      <SolidColorBrush x:Key="SurfaceStrokeColorDefaultBrush" Color="#66757575" />
+      <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="#0DFFFFFF" />
+      <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#08FFFFFF" />
+      <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#19000000" />
+      <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="#4C3A3A3A" />
+      <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#C5FFFFFF" />
+      <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#87FFFFFF" />
+      <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="#0FFFFFFF" />
+      <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="#15FFFFFF" />
+      <SolidColorBrush x:Key="ControlAltFillColorSecondaryBrush" Color="#19000000" />
+      <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="#12FFFFFF" />
+      <SolidColorBrush x:Key="SubtleFillColorSecondaryBrush" Color="#0FFFFFFF" />
+      <SolidColorBrush x:Key="SubtleFillColorTertiaryBrush" Color="#0AFFFFFF" />
+      <SolidColorBrush x:Key="SmokeFillColorDefaultBrush" Color="#4D000000" />
+      <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#FFFF99A4" />
+      <SolidColorBrush x:Key="SystemFillColorCautionBrush" Color="#FFFCE100" />
+      <SolidColorBrush x:Key="SystemFillColorSuccessBrush" Color="#FF6CCB5F" />
+      <SolidColorBrush x:Key="SystemFillColorAttentionBrush" Color="#FF60CDFF" />
+      <SolidColorBrush x:Key="SystemFillColorCriticalBackgroundBrush" Color="#FF442726" />
+      <SolidColorBrush x:Key="SystemFillColorCautionBackgroundBrush" Color="#FF433519" />
+      <SolidColorBrush x:Key="SystemFillColorSuccessBackgroundBrush" Color="#FF393D1B" />
+      <SolidColorBrush x:Key="SystemFillColorAttentionBackgroundBrush" Color="#08FFFFFF" />
+      <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="{DynamicResource SystemAccentColorLight1}" />
+      <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="{DynamicResource SystemAccentColorLight1}" />
+      <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="{DynamicResource SystemAccentColor}" />
+      <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FF000000" />
+      <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="#FF272727" />
+      <SolidColorBrush x:Key="GradientOverlayEndBrush" Color="#FF000000" />
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+
+  <!-- Brushes over the Fluent base colours. A Color resource cannot be assigned to a brush property
+       (Avalonia does not convert Color to IBrush), so every brush use goes through one of these. -->
+  <SolidColorBrush x:Key="ChromeLowFillBrush" Color="{DynamicResource SystemChromeLowColor}" />
+  <SolidColorBrush x:Key="ChromeMediumLowFillBrush" Color="{DynamicResource SystemChromeMediumLowColor}" />
+  <SolidColorBrush x:Key="BaseMediumStrokeBrush" Color="{DynamicResource SystemBaseMediumColor}" />
+</ResourceDictionary>

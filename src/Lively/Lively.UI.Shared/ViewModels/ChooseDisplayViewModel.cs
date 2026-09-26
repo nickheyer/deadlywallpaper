@@ -1,8 +1,7 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using Lively.Common.Services;
 using Lively.Grpc.Client;
 using Lively.Models;
-using Microsoft.UI.Xaml;
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -47,7 +46,7 @@ namespace Lively.UI.Shared.ViewModels
             }
         }
 
-        public void OnWindowClosing(object sender, RoutedEventArgs e)
+        public void OnWindowClosing(object sender, EventArgs e)
             => desktopCore.WallpaperChanged -= SetupDesktop_WallpaperChanged;
 
         private void UpdateLayout()

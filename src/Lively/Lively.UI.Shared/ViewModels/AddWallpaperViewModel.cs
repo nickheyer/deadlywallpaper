@@ -1,15 +1,14 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lively.Common;
 using Lively.Common.Services;
 using Lively.Grpc.Client;
 using Lively.Models;
-using Lively.UI.WinUI.Helpers;
+using Lively.UI.Shared.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using UAC = UACHelper.UACHelper;
 
 namespace Lively.UI.Shared.ViewModels
 {
@@ -23,13 +22,13 @@ namespace Lively.UI.Shared.ViewModels
         private readonly IDispatcherService dispatcher;
         private readonly IFileService fileService;
 
-        public AddWallpaperViewModel(IUserSettingsClient userSettings, IDispatcherService dispatcher, IFileService fileService)
+        public AddWallpaperViewModel(IUserSettingsClient userSettings, IDispatcherService dispatcher, IFileService fileService, IPlatformUiFeatures platform)
         {
             this.userSettings = userSettings;
             this.dispatcher = dispatcher;
             this.fileService = fileService;
 
-            IsElevated = UAC.IsElevated;
+            IsElevated = platform.IsElevated;
             WebUrlText = userSettings.Settings.SavedURL;
         }
 
@@ -50,7 +49,7 @@ namespace Lively.UI.Shared.ViewModels
         public RelayCommand BrowseWebCommand => _browseWebCommand ??= new RelayCommand(WebBrowseAction);
 
         private RelayCommand _createWallpaperCommand;
-        public RelayCommand CreateWallpaperCommand => _createWallpaperCommand ??= 
+        public RelayCommand CreateWallpaperCommand => _createWallpaperCommand ??=
             new RelayCommand(()=> OnRequestOpenCreate?.Invoke(this, EventArgs.Empty));
 
         private void WebBrowseAction()
