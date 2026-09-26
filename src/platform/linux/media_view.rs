@@ -6,7 +6,8 @@ use crate::media::mpv::{Handle, RENDER_PARAM_WL_DISPLAY, RENDER_PARAM_X11_DISPLA
 use crate::media::player::{MediaContent, MediaSurface, Player, PlayerOptions, Vo, event_bridge};
 use crate::platform::ContentSpec;
 use crate::platform::linux::gl;
-use crate::platform::linux::{MsgSender, Slot, is_wayland, wl_display_ptr, x11_display_ptr};
+use crate::platform::linux::canvas::Slot;
+use crate::platform::linux::{MsgSender, is_wayland, wl_display_ptr, x11_display_ptr};
 use glib::SendWeakRef;
 use gtk::prelude::*;
 use std::cell::RefCell;

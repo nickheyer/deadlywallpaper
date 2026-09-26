@@ -9,7 +9,7 @@ use crate::audio::Capture;
 use crate::content::{Content, ContentEvent, ContentId, PointerEvent, PointerKind, Seek};
 use crate::error::{Error, Result, ctx};
 use crate::ipc::server::{Reply, Server};
-use crate::ipc::{ActiveInfo, Event, InfoPatch, Request, Response, Status};
+use crate::ipc::{ActiveInfo, Capabilities, Event, InfoPatch, Request, Response, Status};
 use crate::model::display;
 use crate::model::props::{MEDIA_DEFAULTS, Properties};
 use crate::model::wallpaper::PropertySource;
@@ -58,6 +58,7 @@ pub struct Engine {
     tray: Option<Tray>,
     audio: Option<Capture>,
     monitor_name: String,
+    capabilities: Capabilities,
     pending_shots: Vec<(ContentId, PathBuf, Reply)>,
 }
 
@@ -86,13 +87,16 @@ impl Engine {
             tray: None,
             audio: None,
             monitor_name: String::new(),
+            capabilities: Capabilities::default(),
             pending_shots: Vec::new(),
         };
         engine.rt.shell().sync_displays(&engine.displays)?;
-        engine.monitor_name = engine.rt.start_window_monitor(engine.settings.rules.interval_ms);
-        log::info!("session {} with window monitor '{}', {} display(s)", engine.rt.session(), engine.monitor_name, engine.displays.len());
+        engine.capabilities = engine.rt.shell().capabilities();
+        engine.monitor_name = engine.rt.start_window_monitor(engine.settings.rules.interval_ms, engine.settings.input.forward_mouse);
+        log::info!("session {} presented by {} with window monitor '{}', {} display(s)", engine.rt.session(), engine.capabilities.presenter, engine.monitor_name, engine.displays.len());
+        crate::scheme::watch(engine.rt.sender());
         if engine.settings.tray {
-            match Tray::new(engine.rt.sender(), false) {
+            match Tray::new(engine.rt.sender(), false, crate::scheme::prefers_dark()) {
                 Ok(t) => engine.tray = Some(t),
                 Err(e) => log::warn!("{e}"),
             }
@@ -115,10 +119,23 @@ impl Engine {
 
     /// Handle one message; `false` ends the daemon.
     pub fn handle(&mut self, msg: Msg) -> bool {
+        let keep = self.dispatch(msg);
+        self.rt.shell().settle();
+        keep
+    }
+
+    fn dispatch(&mut self, msg: Msg) -> bool {
         match msg {
             Msg::Request(req, reply) => return self.request(req, reply),
             Msg::Tick => self.tick(),
             Msg::Displays(list) => self.displays_changed(list),
+            Msg::DesktopChanged => self.desktop_changed(),
+            Msg::WallpaperDismissed { display } => self.wallpaper_dismissed(&display),
+            Msg::ColorScheme { dark } => {
+                if let Some(t) = &self.tray {
+                    t.set_dark(dark);
+                }
+            }
             Msg::Windows(snapshot) => {
                 self.windows = Some(snapshot);
                 self.evaluate();
@@ -147,8 +164,34 @@ impl Engine {
     fn shutdown(&mut self) -> bool {
         log::info!("shutting down");
         self.active.clear();
+        self.rt.shell().settle();
         self.audio = None;
+        self.tray = None;
         false
+    }
+
+    /// The desktop reassigned its wallpaper areas: re-map displays and rebuild what moved.
+    fn desktop_changed(&mut self) {
+        match self.rt.shell().sync_displays(&self.displays) {
+            Ok(true) => {
+                log::info!("desktop layout changed; restarting wallpapers");
+                self.active.clear();
+            }
+            Ok(false) => {}
+            Err(e) => self.report(&e),
+        }
+        self.reconcile();
+    }
+
+    /// The user picked another wallpaper in the desktop's own settings: respect it.
+    fn wallpaper_dismissed(&mut self, display: &str) {
+        let Some(d) = self.displays.iter().find(|d| d.id == display).cloned() else { return };
+        self.active.retain(|a| a.placement.display != d.id);
+        self.layout.clear_display(&d.id);
+        self.save_layout();
+        self.audio_sync();
+        self.broadcast(Event::Info { message: format!("{} switched to another wallpaper in the desktop settings", d.name) });
+        self.broadcast(Event::Playback);
     }
 
     fn broadcast(&self, ev: Event) {
@@ -608,6 +651,7 @@ impl Engine {
             platform: std::env::consts::OS.into(),
             session: self.rt.session(),
             window_monitor: self.monitor_name.clone(),
+            capabilities: self.capabilities.clone(),
             displays: self.displays.clone(),
             layout: self.layout.clone(),
             active: self
@@ -650,7 +694,7 @@ impl Engine {
         }
         if old.tray != s.tray {
             match (&self.tray, s.tray) {
-                (None, true) => self.tray = Tray::new(self.rt.sender(), self.user_paused).map_err(|e| log::warn!("{e}")).ok(),
+                (None, true) => self.tray = Tray::new(self.rt.sender(), self.user_paused, crate::scheme::prefers_dark()).map_err(|e| log::warn!("{e}")).ok(),
                 (Some(t), false) => {
                     t.set_visible(false);
                     self.tray = None;
@@ -665,6 +709,7 @@ impl Engine {
             for a in &mut self.active {
                 a.content.set_input_enabled(s.input.forward_mouse);
             }
+            self.rt.set_pointer_tracking(s.input.forward_mouse);
         }
         if old.audio_capture_device != s.audio_capture_device {
             self.audio = None;

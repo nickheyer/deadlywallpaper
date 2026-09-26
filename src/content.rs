@@ -16,10 +16,13 @@ pub enum ContentEvent {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(target_os = "linux", allow(dead_code, reason = "Linux delivers pointer input to wallpaper surfaces natively"))]
 pub enum PointerKind {
     Move,
+    /// Reported by the Windows and macOS pointer hooks; on Linux clicks reach wallpaper
+    /// surfaces from the display server directly, and KWin reports motion only.
+    #[cfg_attr(target_os = "linux", allow(dead_code, reason = "constructed by the Windows and macOS pointer hooks"))]
     Down,
+    #[cfg_attr(target_os = "linux", allow(dead_code, reason = "constructed by the Windows and macOS pointer hooks"))]
     Up,
 }
 

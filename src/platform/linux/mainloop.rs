@@ -3,7 +3,7 @@ use crate::error::{Error, Result};
 use crate::model::{Display, Kind};
 use crate::msg::Msg;
 use crate::paths::Paths;
-use crate::platform::linux::{displays, layer, media_view, monitor, program, session, shell::Shell, shell::Slot};
+use crate::platform::linux::{canvas, displays, is_wayland, layer, media_view, monitor, plasma, program, session, shell::Shell, shell::Slot};
 use crate::platform::{ContentSpec, MainLoopApi, MsgSenderApi, RuntimeApi};
 use crate::web::WebContent;
 use std::sync::Arc;
@@ -54,7 +54,8 @@ impl RuntimeApi for Runtime {
         // driver's explicit sync enabled the compositor rejects the mixed commits.
         // SAFETY: called before any other thread exists.
         unsafe { std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1") };
-        if layer::probe() == Some(false) {
+        let on_plasma = plasma::available();
+        if !on_plasma && layer::probe() == Some(false) {
             log::info!("compositor has no wlr-layer-shell; using the X11 backend through Xwayland");
             gdk::set_allowed_backends("x11");
         }
@@ -65,7 +66,8 @@ impl RuntimeApi for Runtime {
         let tx = MsgSender(tx);
         displays::watch(&display, tx.clone());
         session::watch(tx.clone());
-        let shell = Shell::new(&display)?;
+        let shell = if on_plasma { Shell::Plasma(plasma::Shell::new(paths, tx.clone())?) } else { Shell::Canvas(canvas::Shell::new(&display)?) };
+        log::info!("presenting wallpapers through {}", shell.presenter());
         let rt = Runtime { tx, display, shell, monitor: monitor::Monitor::None, interval: Arc::new(AtomicU64::new(500)), paths: paths.clone() };
         Ok((rt, MainLoop { rx }))
     }
@@ -83,12 +85,12 @@ impl RuntimeApi for Runtime {
     }
 
     fn session(&self) -> String {
-        if self.shell.is_wayland() { "wayland".into() } else { "x11".into() }
+        if is_wayland(&self.display) { "wayland".into() } else { "x11".into() }
     }
 
-    fn start_window_monitor(&mut self, interval_ms: u64) -> String {
+    fn start_window_monitor(&mut self, interval_ms: u64, track_pointer: bool) -> String {
         self.interval.store(interval_ms, Ordering::Relaxed);
-        self.monitor = monitor::start(self.tx.clone(), self.interval.clone(), self.shell.is_wayland(), &self.paths);
+        self.monitor = monitor::start(self.tx.clone(), self.interval.clone(), is_wayland(&self.display), &self.paths, track_pointer);
         self.monitor.name().to_string()
     }
 
@@ -96,18 +98,26 @@ impl RuntimeApi for Runtime {
         self.interval.store(interval_ms, Ordering::Relaxed);
     }
 
+    fn set_pointer_tracking(&mut self, track: bool) {
+        self.monitor.set_pointer_tracking(track);
+    }
+
     fn spawn_content(&mut self, spec: &ContentSpec<'_>, slot: &Slot) -> Result<Box<dyn Content>> {
         let kind = spec.wallpaper.kind();
-        match kind {
-            k if k.is_media() => media_view::spawn(spec, slot, self.tx.clone(), &self.display),
-            k if k.is_web() => {
-                let builder = crate::web::builder(spec, self.tx.clone())?;
-                let webview = builder.build_gtk(&slot.container).map_err(|e| Error::Web(format!("web view: {e}")))?;
-                tune_webkit(&webview);
-                Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone())))
-            }
-            Kind::Program => program::spawn(spec, slot, self.tx.clone(), !self.shell.is_wayland()),
-            _ => Err(Error::Unsupported(format!("{} wallpapers are not supported", kind.label()))),
+        match (&mut self.shell, slot) {
+            (Shell::Plasma(shell), Slot::Plasma(slot)) => plasma::content::spawn(spec, slot, self.tx.clone(), shell),
+            (Shell::Canvas(shell), Slot::Canvas(slot)) => match kind {
+                k if k.is_media() => media_view::spawn(spec, slot, self.tx.clone(), &self.display),
+                k if k.is_web() => {
+                    let builder = crate::web::builder(spec, self.tx.clone())?;
+                    let webview = builder.build_gtk(&slot.container).map_err(|e| Error::Web(format!("web view: {e}")))?;
+                    tune_webkit(&webview);
+                    Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone())))
+                }
+                Kind::Program => program::spawn(spec, slot, self.tx.clone(), !shell.is_wayland()),
+                _ => Err(Error::Unsupported(format!("{} wallpapers are not supported", kind.label()))),
+            },
+            _ => Err(Error::Platform("the wallpaper slot belongs to another presenter".into())),
         }
     }
 }

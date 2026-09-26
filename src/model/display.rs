@@ -7,7 +7,7 @@ pub struct Display {
     pub id: String,
     pub name: String,
     pub rect: Rect,
-    /// Area not covered by panels or docks.
+    /// Area outside panels and docks.
     pub workarea: Rect,
     pub scale: f64,
     pub primary: bool,

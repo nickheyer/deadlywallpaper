@@ -37,6 +37,23 @@ pub fn thumbnail(url: &str, dir: &Path) -> Result<String> {
         .ok_or_else(|| Error::Media("yt-dlp produced no thumbnail".into()))
 }
 
+/// Resolve a page URL to one directly playable media URL (video with audio in one stream),
+/// for players that cannot merge separate video and audio streams.
+#[cfg(target_os = "linux")]
+pub fn direct_url(url: &str, quality: crate::model::settings::StreamQuality) -> Result<String> {
+    let format = quality.single_stream_format();
+    let out = run(Command::new("yt-dlp").args(["--no-warnings", "--no-playlist", "-g", "-f", &format, url]), 40)?;
+    if !out.status.success() {
+        return Err(Error::Media(format!("yt-dlp: {}", String::from_utf8_lossy(&out.stderr).trim())));
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("http"))
+        .map(str::to_string)
+        .ok_or_else(|| Error::Media("yt-dlp found no playable stream".into()))
+}
+
 /// YouTube watch links play in the web view through the embed player when yt-dlp is missing.
 pub fn youtube_embed(url: &str) -> Option<String> {
     let id = if let Some(rest) = url.split("youtu.be/").nth(1) {

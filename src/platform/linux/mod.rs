@@ -1,9 +1,11 @@
+pub mod canvas;
 pub mod displays;
 pub mod gl;
 pub mod layer;
 pub mod mainloop;
 pub mod media_view;
 pub mod monitor;
+pub mod plasma;
 pub mod program;
 pub mod session;
 pub mod shell;

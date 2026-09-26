@@ -1,10 +1,10 @@
-use eframe::egui;
 use crate::error::Result;
 use crate::ipc::{Request, Response, Status};
 use crate::model::Control;
 use crate::model::props::ControlKind;
 use crate::ui::Backend;
 use crate::ui::widgets::Toasts;
+use eframe::egui;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -18,7 +18,6 @@ pub struct Panel {
     root: PathBuf,
     folders: HashMap<String, Vec<String>>,
     last_send: Option<Instant>,
-    error: Option<String>,
 }
 
 impl Panel {
@@ -34,7 +33,6 @@ impl Panel {
                 self.key = Some(key);
                 self.root = root;
                 self.folders.clear();
-                self.error = None;
                 Ok(())
             }
             _ => Ok(()),
@@ -50,6 +48,10 @@ impl Panel {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.controls.is_empty()
+    }
+
     fn send(&mut self, backend: &mut Backend, toasts: &mut Toasts, name: &str, value: Value) {
         let Some((wallpaper, display)) = self.key.clone() else { return };
         if let Err(e) = backend.call(Request::SetProperty { wallpaper, display, name: name.into(), value }) {
@@ -59,13 +61,10 @@ impl Panel {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, backend: &mut Backend, toasts: &mut Toasts) {
-        if let Some(e) = &self.error {
-            ui.colored_label(egui::Color32::from_rgb(230, 90, 90), e);
-        }
         let mut pending: Vec<(String, Value)> = Vec::new();
         let mut reset = false;
         let throttle_ok = self.last_send.is_none_or(|t| t.elapsed() > Duration::from_millis(80));
-        egui::Grid::new("props").num_columns(2).spacing([10.0, 8.0]).striped(true).show(ui, |ui| {
+        egui::Grid::new("props").num_columns(2).spacing([16.0, 10.0]).striped(true).show(ui, |ui| {
             for (i, (name, control)) in self.controls.iter_mut().enumerate() {
                 let label = if control.text.is_empty() { name.clone() } else { control.text.clone() };
                 match &mut control.kind {
@@ -112,7 +111,7 @@ impl Panel {
                         });
                     }
                     ControlKind::Textbox { value } => {
-                        let r = ui.add(egui::TextEdit::singleline(value).desired_width(200.0));
+                        let r = ui.add(egui::TextEdit::singleline(value).desired_width(220.0));
                         if r.lost_focus() && r.changed() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                             pending.push((name.clone(), Value::String(value.clone())));
                         }
@@ -129,33 +128,35 @@ impl Panel {
                         let current = value.clone().unwrap_or_else(|| "(none)".into());
                         let mut chosen: Option<Option<String>> = None;
                         let names = folder_files(&folder, &filter, &self.root, &mut self.folders);
-                        egui::ComboBox::from_id_salt(("fd", i)).selected_text(current).show_ui(ui, |ui| {
-                            if ui.selectable_label(value.is_none(), "(none)").clicked() {
-                                chosen = Some(None);
-                            }
-                            for n in &names {
-                                if ui.selectable_label(value.as_deref() == Some(n), n).clicked() {
-                                    chosen = Some(Some(n.clone()));
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt(("fd", i)).selected_text(current).show_ui(ui, |ui| {
+                                if ui.selectable_label(value.is_none(), "(none)").clicked() {
+                                    chosen = Some(None);
+                                }
+                                for n in &names {
+                                    if ui.selectable_label(value.as_deref() == Some(n), n).clicked() {
+                                        chosen = Some(Some(n.clone()));
+                                    }
+                                }
+                            });
+                            if ui.small_button("＋").on_hover_text("Copy a file into this folder").clicked() {
+                                if let Some(files) = rfd::FileDialog::new().pick_files() {
+                                    let dir = self.root.join(&folder);
+                                    let _ = std::fs::create_dir_all(&dir);
+                                    let mut last = None;
+                                    for f in files {
+                                        let name = crate::paths::file_name(&f);
+                                        if std::fs::copy(&f, dir.join(&name)).is_ok() {
+                                            last = Some(name);
+                                        }
+                                    }
+                                    self.folders.remove(&folder);
+                                    if let Some(n) = last {
+                                        chosen = Some(Some(n));
+                                    }
                                 }
                             }
                         });
-                        if ui.small_button("＋").on_hover_text("Copy a file into this folder").clicked() {
-                            if let Some(files) = rfd::FileDialog::new().pick_files() {
-                                let dir = self.root.join(&folder);
-                                let _ = std::fs::create_dir_all(&dir);
-                                let mut last = None;
-                                for f in files {
-                                    let name = crate::paths::file_name(&f);
-                                    if std::fs::copy(&f, dir.join(&name)).is_ok() {
-                                        last = Some(name);
-                                    }
-                                }
-                                self.folders.remove(&folder);
-                                if let Some(n) = last {
-                                    chosen = Some(Some(n));
-                                }
-                            }
-                        }
                         if let Some(c) = chosen {
                             *value = c.clone();
                             pending.push((name.clone(), c.map(Value::String).unwrap_or(Value::Null)));
@@ -166,7 +167,7 @@ impl Panel {
                 ui.end_row();
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(10.0);
         if ui.button("Restore defaults").clicked() {
             reset = true;
         }

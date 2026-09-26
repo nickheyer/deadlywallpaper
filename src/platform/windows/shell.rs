@@ -2,6 +2,7 @@
 
 use crate::error::{Error, Result};
 use crate::geom::{Rect, Size};
+use crate::ipc::Capabilities;
 use crate::model::Display;
 use crate::model::display::virtual_bounds;
 use crate::platform::ShellApi;
@@ -112,6 +113,8 @@ impl Shell {
 }
 
 impl ShellApi for Shell {
+    type Slot = Slot;
+
     fn spans_displays(&self) -> bool {
         true
     }
@@ -149,5 +152,12 @@ impl ShellApi for Shell {
         let (canvas, bounds) = self.canvas.ok_or_else(|| Error::Platform("no wallpaper surface".into()))?;
         let hwnd = self.create(canvas, region, (bounds.x, bounds.y))?;
         Ok(Slot { hwnd, size: Size { w: region.w, h: region.h }, hinstance: self.hinstance })
+    }
+
+    /// Explorer keeps drawing its own wallpaper under WorkerW; nothing is handed back.
+    fn settle(&mut self) {}
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities { presenter: "win32".into(), pointer_motion: true, pointer_clicks: true, global_pointer: true, programs: true, web_devtools: true }
     }
 }

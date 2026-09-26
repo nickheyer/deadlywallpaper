@@ -2,6 +2,7 @@
 
 use crate::error::{Error, Result};
 use crate::geom::{Rect, Size};
+use crate::ipc::Capabilities;
 use crate::model::Display;
 use crate::platform::ShellApi;
 use crate::platform::macos::{displays, ns_rect};
@@ -84,6 +85,8 @@ impl Shell {
 }
 
 impl ShellApi for Shell {
+    type Slot = Slot;
+
     fn spans_displays(&self) -> bool {
         false
     }
@@ -109,5 +112,12 @@ impl ShellApi for Shell {
         view.setWantsLayer(true);
         content.addSubview(&view);
         Ok(Slot { view, size: Size { w: region.w, h: region.h } })
+    }
+
+    /// Finder keeps drawing its own desktop above these windows; nothing is handed back.
+    fn settle(&mut self) {}
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities { presenter: "quartz".into(), pointer_motion: true, pointer_clicks: true, global_pointer: true, programs: false, web_devtools: true }
     }
 }

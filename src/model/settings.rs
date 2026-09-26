@@ -164,6 +164,21 @@ impl StreamQuality {
         }
     }
 
+    /// yt-dlp format selector for players that need video and audio in one stream.
+    #[cfg(target_os = "linux")]
+    pub fn single_stream_format(self) -> String {
+        let cap = match self {
+            StreamQuality::P144 => 144,
+            StreamQuality::P240 => 240,
+            StreamQuality::P360 => 360,
+            StreamQuality::P480 => 480,
+            StreamQuality::P720 => 720,
+            StreamQuality::P1080 => 1080,
+            StreamQuality::Best => return "best[acodec!=none][vcodec!=none]/best".into(),
+        };
+        format!("best[height<={cap}][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best")
+    }
+
     pub fn ytdl_format(self) -> String {
         let cap = match self {
             StreamQuality::P144 => 144,

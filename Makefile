@@ -6,11 +6,13 @@ DIST         := $(BUILD)/target
 CONFIG       ?= Release
 INSTALL_DIR  ?= $(HOME)/.local/lib/deadlywp
 BIN_DIR      ?= $(HOME)/.local/bin
+APP_DIR      ?= $(HOME)/.local/share/applications
+ICON_DIR     ?= $(HOME)/.local/share/icons/hicolor
 BIN          := $(DIST)/$(if $(filter Release,$(CONFIG)),release,debug)/deadlywp
 CARGO_FLAGS  := $(if $(filter Release,$(CONFIG)),--release,)
 export CARGO_TARGET_DIR := $(DIST)
 
-.PHONY: build check test run daemon ui install uninstall check-all clean
+.PHONY: build check test run daemon ui install uninstall check-all shaders clean
 
 build:
 	cargo build $(CARGO_FLAGS)
@@ -31,13 +33,19 @@ ui: build
 	$(BIN) ui
 
 install: build
-	install -d $(INSTALL_DIR) $(BIN_DIR)
+	install -d $(INSTALL_DIR) $(BIN_DIR) $(APP_DIR) $(ICON_DIR)/256x256/apps $(ICON_DIR)/32x32/apps
 	install -m 755 $(BIN) $(INSTALL_DIR)/deadlywp
 	ln -sfn $(INSTALL_DIR)/deadlywp $(BIN_DIR)/deadlywp
+	install -m 644 $(ROOT)/assets/deadlywp.desktop $(APP_DIR)/deadlywp.desktop
+	install -m 644 $(ROOT)/assets/icon.png $(ICON_DIR)/256x256/apps/deadlywp.png
+	install -m 644 $(ROOT)/assets/icon-32.png $(ICON_DIR)/32x32/apps/deadlywp.png
+	-update-desktop-database $(APP_DIR) 2>/dev/null
+	-gtk-update-icon-cache -q $(ICON_DIR) 2>/dev/null
 
 uninstall:
-	rm -f $(BIN_DIR)/deadlywp
+	rm -f $(BIN_DIR)/deadlywp $(APP_DIR)/deadlywp.desktop $(ICON_DIR)/256x256/apps/deadlywp.png $(ICON_DIR)/32x32/apps/deadlywp.png
 	rm -rf $(INSTALL_DIR)
+	rm -rf $(HOME)/.local/share/plasma/wallpapers/org.deadlywp.live
 
 # Type-check every supported platform from one machine. Away from macOS the Apple targets
 # use clang as a cross compiler for one header-free Objective-C helper.
@@ -47,6 +55,10 @@ check-all:
 	cargo check $(CARGO_FLAGS) --target x86_64-pc-windows-msvc
 	$(APPLE_CC) cargo check $(CARGO_FLAGS) --target x86_64-apple-darwin
 	$(APPLE_CC) cargo check $(CARGO_FLAGS) --target aarch64-apple-darwin
+
+# Recompile the Plasma plugin's colour-adjustment shader (needs qt6-shadertools).
+shaders:
+	qsb --qt6 --qsbversion 64 -o $(ROOT)/assets/plasma/contents/shaders/adjust.frag.qsb $(ROOT)/assets/plasma/contents/shaders/adjust.frag
 
 clean:
 	rm -rf $(DIST) $(BUILD) $(ROOT)/target

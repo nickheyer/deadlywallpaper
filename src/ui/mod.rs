@@ -3,14 +3,16 @@
 mod app;
 mod customize;
 mod library;
+mod screens;
 mod settings;
+mod theme;
 mod widgets;
 
-use eframe::egui;
 use crate::error::{Error, Result};
 use crate::ipc::client::Client;
 use crate::ipc::{Event, Request, Response};
 use crate::paths::Paths;
+use eframe::egui;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
@@ -18,7 +20,7 @@ use std::time::Duration;
 pub enum UiMsg {
     Event(Event),
     /// Outcome of a background request, labeled for the toast.
-    Done { label: String, result: Result<Response> },
+    Done { label: String, result: Box<Result<Response>> },
     Disconnected,
 }
 
@@ -30,8 +32,8 @@ pub fn run() -> Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title(crate::paths::APP_NAME)
             .with_app_id(crate::paths::APP_ID)
-            .with_inner_size([1120.0, 740.0])
-            .with_min_inner_size([820.0, 540.0])
+            .with_inner_size([1180.0, 760.0])
+            .with_min_inner_size([900.0, 600.0])
             .with_icon(icon),
         persist_window: true,
         ..Default::default()
@@ -41,6 +43,7 @@ pub fn run() -> Result<()> {
         options,
         Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
+            theme::install(&cc.egui_ctx);
             Ok(Box::new(app::App::new(cc, paths)))
         }),
     )
@@ -112,7 +115,7 @@ impl Backend {
         let (tx, ctx, label) = (self.tx.clone(), ctx.clone(), label.into());
         std::thread::spawn(move || {
             let result = Client::connect().and_then(|mut c| c.call(&req));
-            let _ = tx.send(UiMsg::Done { label, result });
+            let _ = tx.send(UiMsg::Done { label, result: Box::new(result) });
             ctx.request_repaint();
         });
     }
@@ -121,37 +124,21 @@ impl Backend {
 /// Reveal a file or folder in the system file manager.
 pub fn reveal(path: &std::path::Path) {
     let target = if path.is_dir() { path.to_path_buf() } else { path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.to_path_buf()) };
-    #[cfg(target_os = "linux")]
-    let mut cmd = {
-        let mut c = std::process::Command::new("xdg-open");
-        c.arg(&target);
-        c
-    };
-    #[cfg(target_os = "macos")]
-    let mut cmd = {
-        let mut c = std::process::Command::new("open");
-        c.arg(&target);
-        c
-    };
-    #[cfg(windows)]
-    let mut cmd = {
-        let mut c = std::process::Command::new("explorer");
-        c.arg(&target);
-        c
-    };
-    if let Err(e) = cmd.spawn() {
-        log::warn!("open {}: {e}", target.display());
-    }
+    open_target(&target.to_string_lossy());
 }
 
 pub fn open_url(url: &str) {
+    open_target(url);
+}
+
+fn open_target(target: &str) {
     #[cfg(target_os = "linux")]
     let program = "xdg-open";
     #[cfg(target_os = "macos")]
     let program = "open";
     #[cfg(windows)]
     let program = "explorer";
-    if let Err(e) = std::process::Command::new(program).arg(url).spawn() {
-        log::warn!("open {url}: {e}");
+    if let Err(e) = std::process::Command::new(program).arg(target).spawn() {
+        log::warn!("open {target}: {e}");
     }
 }

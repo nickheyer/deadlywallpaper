@@ -14,9 +14,16 @@ pub enum Msg {
     Session { locked: bool },
     Content(ContentId, ContentEvent),
     Tray(TrayAction),
-    /// Global pointer event in desktop coordinates (platforms that inject input).
-    #[cfg_attr(target_os = "linux", allow(dead_code, reason = "Linux delivers pointer input to wallpaper surfaces natively"))]
+    /// Global pointer event in desktop coordinates (platforms that track the pointer).
     Pointer { x: i32, y: i32, kind: PointerKind },
+    /// The desktop reassigned its wallpaper areas (Plasma restarted or switched activity).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "sent by the Plasma presenter"))]
+    DesktopChanged,
+    /// The desktop's own settings replaced the wallpaper on a display.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "sent by the Plasma presenter"))]
+    WallpaperDismissed { display: String },
+    /// The system colour scheme changed.
+    ColorScheme { dark: bool },
     /// Audio spectrum bins for visualizer wallpapers.
     Audio(Vec<f32>),
     /// Result of background work, applied on the engine thread.

@@ -3,6 +3,7 @@
 use crate::content::{Content, ContentId};
 use crate::error::Result;
 use crate::geom::Rect;
+use crate::ipc::Capabilities;
 use crate::model::{Display, Settings, Wallpaper};
 use crate::msg::Msg;
 use crate::paths::Paths;
@@ -69,9 +70,11 @@ pub trait RuntimeApi: Sized {
     fn shell(&mut self) -> &mut Shell;
     /// Display server name for status output.
     fn session(&self) -> String;
-    /// Start the window monitor; returns its backend name.
-    fn start_window_monitor(&mut self, interval_ms: u64) -> String;
+    /// Start the window monitor; returns its backend name. `track_pointer` asks backends
+    /// that report pointer motion through the daemon to do so.
+    fn start_window_monitor(&mut self, interval_ms: u64, track_pointer: bool) -> String;
     fn set_monitor_interval(&mut self, interval_ms: u64);
+    fn set_pointer_tracking(&mut self, track: bool);
     fn spawn_content(&mut self, spec: &ContentSpec<'_>, slot: &Slot) -> Result<Box<dyn Content>>;
 }
 
@@ -83,12 +86,17 @@ pub trait MainLoopApi {
 
 /// Desktop background layer: presents content regions on displays.
 pub trait ShellApi {
+    type Slot;
     /// Whether one slot can span several displays (X11 root-sized window, Windows WorkerW).
     fn spans_displays(&self) -> bool;
     /// Returns `true` when the background surfaces had to be recreated, which invalidates
     /// every slot handed out before.
     fn sync_displays(&mut self, displays: &[Display]) -> Result<bool>;
-    fn slot(&mut self, display: &Display, region: Rect) -> Result<Slot>;
+    fn slot(&mut self, display: &Display, region: Rect) -> Result<Self::Slot>;
+    /// Called after every engine message: hand desktop areas no slot holds any more back to
+    /// the desktop's own wallpaper.
+    fn settle(&mut self);
+    fn capabilities(&self) -> Capabilities;
 }
 
 pub trait MsgSenderApi: Clone + Send + 'static {

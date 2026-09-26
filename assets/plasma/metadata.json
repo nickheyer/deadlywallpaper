@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Wallpaper",
+    "KPlugin": {
+        "Id": "org.deadlywp.live",
+        "Name": "Deadly Wallpaper",
+        "Description": "Live wallpapers: videos, GIFs, pictures, web pages and streams, chosen in the Deadly Wallpaper app.",
+        "Icon": "preferences-desktop-wallpaper",
+        "License": "MIT",
+        "Version": "1",
+        "Authors": [{"Name": "Deadly Wallpaper"}],
+        "Website": "https://github.com/nickheyer/deadlywallpaper"
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell"
+}

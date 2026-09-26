@@ -116,14 +116,6 @@ pub struct LayerShell {
     _watch: glib::SourceId,
 }
 
-/// KWin keeps the Plasma desktop above every other desktop-layer surface, so on KDE the
-/// wallpaper must sit on the `bottom` layer to be visible at all; elsewhere `background`
-/// stays underneath any desktop icon layer the shell provides.
-fn preferred_layer() -> Layer {
-    let kde = std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.to_ascii_lowercase().contains("kde"));
-    if kde || crate::platform::linux::monitor::kwin::available() { Layer::Bottom } else { Layer::Background }
-}
-
 impl LayerShell {
     /// Attach to GDK's Wayland connection. `Ok(None)` when not on Wayland.
     pub fn attach(display: &gdk::Display) -> Result<Option<LayerShell>> {
@@ -153,8 +145,8 @@ impl LayerShell {
             watched.dispatch();
             glib::ControlFlow::Continue
         });
-        let layer = preferred_layer();
-        log::info!("wayland layer shell v{} on the {:?} layer", version.min(4), layer);
+        let layer = Layer::Background;
+        log::info!("wayland layer shell v{} on the background layer", version.min(4));
         Ok(Some(LayerShell { inner, layer, _watch: watch }))
     }
 

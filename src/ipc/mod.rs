@@ -90,12 +90,32 @@ pub enum Event {
     Info { message: String },
 }
 
+/// What the presenter on this desktop can do; the UI shows only settings that apply.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Capabilities {
+    /// `plasma`, `layer-shell`, `x11`, `win32` or `quartz`.
+    pub presenter: String,
+    /// Interactive wallpapers receive pointer motion.
+    pub pointer_motion: bool,
+    /// Interactive wallpapers receive clicks.
+    pub pointer_clicks: bool,
+    /// Motion is tracked across the whole desktop, so it can keep flowing while another
+    /// application is focused.
+    pub global_pointer: bool,
+    /// Program wallpapers can be embedded.
+    pub programs: bool,
+    /// Web wallpapers can open developer tools.
+    pub web_devtools: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Status {
     pub version: String,
     pub platform: String,
     pub session: String,
     pub window_monitor: String,
+    pub capabilities: Capabilities,
     pub displays: Vec<Display>,
     pub layout: Layout,
     pub active: Vec<ActiveInfo>,
@@ -151,7 +171,7 @@ mod tests {
             Response::Controls { path: PathBuf::from("/p"), controls: vec![] },
             Response::Devices(vec![AudioDevice { id: "x".into(), name: "X".into() }]),
             Response::Text("t".into()),
-            Response::Status(Status { version: "v".into(), platform: "p".into(), session: "s".into(), window_monitor: "m".into(), displays: vec![d], layout: Layout::default(), active: vec![], paused: false, locked: false, on_battery: false }),
+            Response::Status(Status { version: "v".into(), platform: "p".into(), session: "s".into(), window_monitor: "m".into(), capabilities: Capabilities::default(), displays: vec![d], layout: Layout::default(), active: vec![], paused: false, locked: false, on_battery: false }),
         ];
         for r in samples {
             let text = serde_json::to_string(&r).expect("serialize");

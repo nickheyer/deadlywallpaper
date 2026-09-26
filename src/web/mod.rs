@@ -12,9 +12,12 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use wry::{PageLoadEvent, WebView, WebViewBuilder};
 
+#[cfg(target_os = "linux")]
+pub mod serve;
+
 pub const SCHEME: &str = "wallpaper";
 
-const BRIDGE: &str = r#"(() => {
+pub const BRIDGE: &str = r#"(() => {
   const call = (name, ...args) => { const f = window[name]; if (typeof f === 'function') { try { f(...args); } catch (e) { console.error(name, e); } } };
   const media = () => Array.from(document.querySelectorAll('video,audio'));
   let volume = 1, muted = false;

@@ -13,6 +13,7 @@ mod model;
 mod msg;
 mod paths;
 mod platform;
+mod scheme;
 mod tray;
 mod ui;
 mod web;
@@ -180,7 +181,7 @@ fn print_response(resp: Response) {
         Response::Ok => {}
         Response::Text(t) => println!("{t}"),
         Response::Status(s) => {
-            println!("deadlywp {} on {} ({}), window monitor: {}", s.version, s.platform, s.session, s.window_monitor);
+            println!("deadlywp {} on {} ({}), presenter: {}, window monitor: {}", s.version, s.platform, s.session, s.capabilities.presenter, s.window_monitor);
             println!("arrangement: {}  paused: {}  locked: {}  battery: {}", s.layout.arrangement.label(), s.paused, s.locked, s.on_battery);
             for (i, d) in s.displays.iter().enumerate() {
                 let active = s.active.iter().find(|a| a.display == d.id);

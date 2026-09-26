@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Deadly Wallpaper
+GenericName=Live wallpapers
+Comment=Videos, GIFs, pictures and web pages as your desktop wallpaper
+Exec=deadlywp ui
+Icon=deadlywp
+Terminal=false
+Categories=Settings;DesktopSettings;Utility;
+Keywords=wallpaper;live;video;lively;background;
+StartupWMClass=deadlywp

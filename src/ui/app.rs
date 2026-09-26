@@ -1,17 +1,19 @@
-use eframe::egui;
 use crate::ipc::{AudioDevice, Event, InfoPatch, Request, Response, Status};
 use crate::model::settings::Theme;
 use crate::model::{Arrangement, Kind, Settings, Summary};
 use crate::paths::Paths;
-use crate::ui::widgets::{Toasts, display_strip};
-use crate::ui::{Backend, UiMsg, customize, library, settings};
+use crate::ui::widgets::{Toasts, chip};
+use crate::ui::{Backend, UiMsg, customize, library, screens, settings, theme};
+use eframe::egui::{self, RichText};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-pub enum Panel {
-    Wallpaper,
+pub enum Page {
+    Library,
+    Screens,
     Settings,
+    About,
 }
 
 pub enum Dialog {
@@ -28,14 +30,14 @@ pub struct App {
     devices: Vec<AudioDevice>,
     selected_display: Option<String>,
     search: String,
-    panel: Panel,
-    panel_open: bool,
+    filter: library::Filter,
+    page: Page,
     customize: customize::Panel,
     dialog: Option<Dialog>,
     toasts: Toasts,
     volume: u8,
     last_poll: Instant,
-    _paths: Paths,
+    paths: Paths,
 }
 
 impl App {
@@ -48,14 +50,14 @@ impl App {
             devices: Vec::new(),
             selected_display: None,
             search: String::new(),
-            panel: Panel::Wallpaper,
-            panel_open: true,
+            filter: library::Filter::default(),
+            page: Page::Library,
             customize: customize::Panel::default(),
             dialog: None,
             toasts: Toasts::default(),
             volume: 75,
             last_poll: Instant::now(),
-            _paths: paths,
+            paths,
         };
         app.refresh_all(&cc.egui_ctx);
         app
@@ -121,7 +123,7 @@ impl App {
                 UiMsg::Event(Event::Settings) => self.refresh_settings(ctx),
                 UiMsg::Event(Event::Error { message }) => self.toasts.error(message),
                 UiMsg::Event(Event::Info { message }) => self.toasts.info(message),
-                UiMsg::Done { label, result } => match result {
+                UiMsg::Done { label, result } => match *result {
                     Ok(Response::Wallpaper(w)) => self.toasts.info(format!("{label}: {}", w.title)),
                     Ok(_) => self.toasts.info(label),
                     Err(e) => self.toasts.error(format!("{label} failed: {e}")),
@@ -158,7 +160,7 @@ impl App {
 
     fn import_paths(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>) {
         for p in paths {
-            let label = format!("Imported {}", crate::paths::file_name(&p));
+            let label = format!("Added {}", crate::paths::file_name(&p));
             self.backend.background(ctx, label, Request::Import { source: p.to_string_lossy().into_owned() });
         }
     }
@@ -183,211 +185,284 @@ impl App {
         }
     }
 
-    fn top_bar(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+    // ---- chrome -----------------------------------------------------------------------------
+
+    fn nav(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new("Deadly Wallpaper").strong().size(17.0));
-            ui.add_space(12.0);
-            let (displays, active): (Vec<_>, Vec<String>) = match &self.status {
-                Some(s) => (s.displays.clone(), s.active.iter().map(|a| a.display.clone()).collect()),
-                None => (Vec::new(), Vec::new()),
-            };
-            let all = self.arrangement() != Arrangement::Per;
-            if let Some(id) = display_strip(ui, &displays, self.selected_display.as_deref(), all, &active) {
-                self.selected_display = Some(id);
+            ui.add(theme::logo().fit_to_exact_size(egui::vec2(34.0, 34.0)));
+            ui.label(RichText::new("Deadly Wallpaper").size(16.0).strong());
+        });
+        ui.add_space(18.0);
+        for (n, page, glyph, label) in [(1, Page::Library, "🖼", "Library"), (2, Page::Screens, "🖥", "Screens"), (3, Page::Settings, "⚙", "Settings"), (4, Page::About, "ℹ", "About")] {
+            if nav_item(ui, self.page == page, glyph, label).on_hover_text(format!("Ctrl+{n}")).clicked() {
+                self.page = page;
             }
-            let mut arrangement = self.arrangement();
-            egui::ComboBox::from_id_salt("arrangement").selected_text(arrangement.label()).width(120.0).show_ui(ui, |ui| {
-                for a in [Arrangement::Per, Arrangement::Span, Arrangement::Duplicate] {
-                    ui.selectable_value(&mut arrangement, a, a.label());
+        }
+        ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+            ui.add_space(4.0);
+            let (connected, paused, playing) = match &self.status {
+                Some(s) => (true, s.paused, s.active.len()),
+                None => (false, false, 0),
+            };
+            ui.horizontal(|ui| {
+                ui.label("🔊");
+                let slider = ui.add(egui::Slider::new(&mut self.volume, 0..=100).show_value(false).trailing_fill(true));
+                if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {
+                    self.send(Request::Volume { value: self.volume.to_string() });
                 }
             });
-            if arrangement != self.arrangement() {
-                let display = self.selected_display.clone();
-                self.send(Request::SetArrangement { arrangement, display });
+            if connected {
+                let label = if paused { "▶  Resume wallpapers" } else { "⏸  Pause wallpapers" };
+                if ui.add_sized([ui.available_width(), 32.0], egui::Button::new(label)).clicked() {
+                    self.send(Request::Play { play: paused });
+                }
             }
-            ui.add_space(8.0);
-            let paused = self.status.as_ref().is_some_and(|s| s.paused);
-            if ui.button(if paused { "▶ Resume" } else { "⏸ Pause" }).on_hover_text("Pause every wallpaper").clicked() {
-                self.send(Request::Play { play: paused });
-            }
-            ui.add_space(4.0);
-            ui.label("🔊");
-            let slider = ui.add(egui::Slider::new(&mut self.volume, 0..=100).show_value(false));
-            if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {
-                self.send(Request::Volume { value: self.volume.to_string() });
-            }
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let (dot, text) = if !connected {
+                    (ui.visuals().warn_fg_color, "Connecting to the daemon…".to_string())
+                } else if paused {
+                    (ui.visuals().warn_fg_color, "Paused".to_string())
+                } else {
+                    (egui::Color32::from_rgb(76, 175, 110), match playing {
+                        0 => "Idle".to_string(),
+                        1 => "1 wallpaper playing".to_string(),
+                        n => format!("{n} wallpapers playing"),
+                    })
+                };
+                let (r, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                ui.painter().circle_filled(r.center(), 4.0, dot);
+                ui.label(RichText::new(text).small().color(ui.visuals().weak_text_color()));
+            });
+        });
+    }
+
+    fn library_page(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            theme::page_title(ui, "Library");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let label = if self.panel_open { "Hide panel" } else { "Show panel" };
-                if ui.button("⚙").on_hover_text("Settings").clicked() {
-                    self.panel = Panel::Settings;
-                    self.panel_open = !(self.panel_open && self.panel == Panel::Settings) || self.panel != Panel::Settings;
-                }
-                if ui.button("🎨").on_hover_text(label).clicked() {
-                    self.panel_open = !(self.panel_open && self.panel == Panel::Wallpaper);
-                    self.panel = Panel::Wallpaper;
-                }
-                ui.menu_button("＋ Add", |ui| {
-                    if ui.button("Files…").clicked() {
+                ui.menu_button(RichText::new("＋  Add").strong(), |ui| {
+                    ui.set_min_width(220.0);
+                    if ui.button("Video, picture, GIF or package…").clicked() {
                         ui.close();
                         self.pick_files(ctx);
                     }
-                    if ui.button("Folder (web project)…").clicked() {
+                    if ui.button("Web page folder…").clicked() {
                         ui.close();
                         self.pick_folder(ctx);
                     }
-                    if ui.button("URL or video stream…").clicked() {
+                    if ui.button("Link to a website or video stream…").clicked() {
                         ui.close();
                         self.dialog = Some(Dialog::AddUrl { url: String::new() });
                     }
-                    if ui.button("Random wallpaper").clicked() {
-                        ui.close();
-                        let display = self.selected_display.clone();
-                        self.send(Request::Set { target: "random".into(), display });
-                    }
                 });
-                ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("Search").desired_width(180.0));
+                ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("🔍 Search").desired_width(220.0));
             });
         });
-    }
-
-    fn side_panel(&mut self, ui: &mut egui::Ui) {
-        let mut open = self.panel_open;
-        egui::Panel::right("side").resizable(true).default_size(360.0).min_size(280.0).show_collapsible(ui, &mut open, |ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.panel, Panel::Wallpaper, "Wallpaper");
-                ui.selectable_value(&mut self.panel, Panel::Settings, "Settings");
-            });
-            ui.separator();
-            egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| match self.panel {
-                Panel::Wallpaper => self.wallpaper_panel(ui),
-                Panel::Settings => self.settings_panel(ui),
-            });
-        });
-        self.panel_open = open;
-    }
-
-    fn wallpaper_panel(&mut self, ui: &mut egui::Ui) {
-        let Some(status) = self.status.clone() else {
-            ui.weak("Daemon not connected");
-            return;
+        ui.add_space(6.0);
+        let (displays, active): (Vec<_>, Vec<_>) = match &self.status {
+            Some(s) => (s.displays.clone(), s.active.clone()),
+            None => (Vec::new(), Vec::new()),
         };
-        let selected = self.selected_display.clone();
-        let active = status.active.iter().find(|a| Some(&a.display) == selected.as_ref() || self.arrangement() != Arrangement::Per).cloned();
-        match active {
-            None => {
-                ui.add_space(8.0);
-                ui.weak("No wallpaper on this display. Click a tile to apply one.");
-            }
-            Some(a) => {
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(&a.title).strong().size(16.0));
-                ui.weak(format!("{}{}", a.kind.label(), if a.paused { " · paused" } else { "" }));
-                ui.horizontal(|ui| {
-                    if ui.button("Reload").clicked() {
-                        self.send(Request::Set { target: "reload".into(), display: selected.clone() });
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Apply to").color(ui.visuals().weak_text_color()));
+            match self.arrangement() {
+                Arrangement::Per => {
+                    for (i, d) in displays.iter().enumerate() {
+                        let selected = self.selected_display.as_deref() == Some(d.id.as_str());
+                        if chip(ui, selected, format!("{}  {}", i + 1, d.name)).on_hover_text(format!("{}×{}", d.rect.w, d.rect.h)).clicked() {
+                            self.selected_display = Some(d.id.clone());
+                        }
                     }
-                    if ui.button("Close").clicked() {
-                        self.send(Request::Close { display: if self.arrangement() == Arrangement::Per { selected.clone() } else { None } });
-                    }
-                    if a.kind.is_media() && ui.button("Restart playback").clicked() {
-                        self.send(Request::Seek { display: selected.clone(), value: "0".into() });
-                    }
-                });
-                ui.separator();
-                if a.customizable {
-                    let root = self.library.iter().find(|w| w.id == a.wallpaper).map(|w| {
-                        if w.absolute { PathBuf::from(&w.source).parent().map(|p| p.to_path_buf()).unwrap_or(w.dir.clone()) } else { w.dir.clone() }
-                    });
-                    if let Err(e) = self.customize.ensure(&mut self.backend, &a.wallpaper, selected.as_deref(), root.unwrap_or_default()) {
-                        ui.weak(e.to_string());
-                    } else {
-                        self.customize.ui(ui, &mut self.backend, &mut self.toasts);
-                    }
-                } else {
-                    ui.weak("This wallpaper has no customization controls.");
+                }
+                Arrangement::Span => {
+                    chip(ui, true, "Every display, spanning");
+                }
+                Arrangement::Duplicate => {
+                    chip(ui, true, "Every display");
                 }
             }
+            ui.add_space(12.0);
+            ui.separator();
+            if let Some(kind) = library::filter_bar(ui, &self.filter, &self.library) {
+                self.filter.kind = kind;
+            }
+        });
+        ui.add_space(8.0);
+        let grid = library::Grid {
+            items: &self.library,
+            search: &self.search,
+            filter: &self.filter,
+            displays: &displays,
+            active: &active,
+            arrangement: self.arrangement(),
+            selected_display: self.selected_display.as_deref(),
+            hovering_files: ctx.input(|i| !i.raw.hovered_files.is_empty()),
+            connected: self.backend.connected(),
+        };
+        let actions = library::grid(ui, &grid);
+        self.library_actions(ctx, actions);
+    }
+
+    fn screens_page(&mut self, ui: &mut egui::Ui) {
+        let Some(status) = self.status.clone() else {
+            theme::page_title(ui, "Screens");
+            ui.label(RichText::new("Connecting to the wallpaper daemon…").color(ui.visuals().weak_text_color()));
+            return;
+        };
+        let view = screens::View { status: &status, library: &self.library, selected: self.selected_display.as_deref() };
+        let actions = egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+            let actions = screens::page(ui, &view);
+            let selected = self.selected_display.clone().or_else(|| crate::model::display::primary(&status.displays).map(|d| d.id.clone()));
+            let active = status.active.iter().find(|a| Some(&a.display) == selected.as_ref() || status.layout.arrangement != Arrangement::Per).cloned();
+            if let Some(a) = active.filter(|a| a.customizable) {
+                ui.add_space(12.0);
+                theme::section_title(ui, "Customize");
+                ui.add_space(4.0);
+                theme::card(ui).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    let root = self.library.iter().find(|w| w.id == a.wallpaper).map(|w| if w.absolute { PathBuf::from(&w.source).parent().map(|p| p.to_path_buf()).unwrap_or(w.dir.clone()) } else { w.dir.clone() });
+                    match self.customize.ensure(&mut self.backend, &a.wallpaper, selected.as_deref(), root.unwrap_or_default()) {
+                        Err(e) => {
+                            ui.label(RichText::new(e.to_string()).color(ui.visuals().error_fg_color));
+                        }
+                        Ok(()) if self.customize.is_empty() => theme::hint(ui, "This wallpaper has no adjustable properties."),
+                        Ok(()) => self.customize.ui(ui, &mut self.backend, &mut self.toasts),
+                    }
+                });
+            }
+            actions
+        });
+        for action in actions.inner {
+            match action {
+                screens::Action::Select(id) => self.selected_display = Some(id),
+                screens::Action::Send(req) => self.send(req),
+                screens::Action::GoToLibrary => self.page = Page::Library,
+            }
         }
     }
 
-    fn settings_panel(&mut self, ui: &mut egui::Ui) {
+    fn settings_page(&mut self, ui: &mut egui::Ui) {
+        theme::page_title(ui, "Settings");
+        ui.add_space(8.0);
         let Some(mut s) = self.settings.clone() else {
-            ui.weak("Daemon not connected");
+            ui.label(RichText::new("Connecting to the wallpaper daemon…").color(ui.visuals().weak_text_color()));
             return;
         };
-        let displays = self.status.as_ref().map(|st| st.displays.clone()).unwrap_or_default();
-        if settings::ui(ui, &mut s, &self.devices, &displays) {
-            self.settings = Some(s.clone());
-            self.send(Request::SetSettings { settings: s });
-        }
-        ui.add_space(12.0);
-        ui.separator();
-        if let Some(st) = &self.status {
-            ui.weak(format!("deadlywp {} · {} · window monitor: {}", st.version, st.session, st.window_monitor));
-            if st.window_monitor == "none" {
-                ui.colored_label(egui::Color32::from_rgb(220, 160, 60), "This desktop exposes no window information; fullscreen and focus rules cannot pause wallpapers here.");
+        let (displays, capabilities) = match &self.status {
+            Some(st) => (st.displays.clone(), st.capabilities.clone()),
+            None => (Vec::new(), Default::default()),
+        };
+        egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+            ui.set_max_width(760.0);
+            let cx = settings::Context { devices: &self.devices, displays: &displays, capabilities: &capabilities };
+            if settings::ui(ui, &mut s, &cx) {
+                self.settings = Some(s.clone());
+                self.send(Request::SetSettings { settings: s });
             }
-            if st.window_monitor == "kwin" && st.session == "wayland" {
-                ui.weak("On KDE Plasma the wallpaper layer sits above the Plasma desktop, so desktop icons and widgets are hidden while a wallpaper runs.");
+        });
+    }
+
+    fn about_page(&mut self, ui: &mut egui::Ui) {
+        theme::page_title(ui, "About");
+        ui.add_space(8.0);
+        theme::card(ui).show(ui, |ui| {
+            ui.set_min_width(ui.available_width().min(760.0));
+            ui.horizontal(|ui| {
+                ui.add(theme::logo().fit_to_exact_size(egui::vec2(72.0, 72.0)));
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Deadly Wallpaper").size(20.0).strong());
+                    ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                    theme::hint(ui, "Live wallpapers for Linux, macOS and Windows. Plays Lively Wallpaper packages.");
+                });
+            });
+            ui.add_space(10.0);
+            if let Some(s) = &self.status {
+                egui::Grid::new("about").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
+                    ui.label(RichText::new("Presenter").color(ui.visuals().weak_text_color()));
+                    ui.label(presenter_label(&s.capabilities.presenter));
+                    ui.end_row();
+                    ui.label(RichText::new("Session").color(ui.visuals().weak_text_color()));
+                    ui.label(format!("{} on {}", s.session, s.platform));
+                    ui.end_row();
+                    ui.label(RichText::new("Window monitor").color(ui.visuals().weak_text_color()));
+                    ui.label(if s.window_monitor == "none" { "none: playback rules that depend on window positions stay inactive".to_string() } else { s.window_monitor.clone() });
+                    ui.end_row();
+                });
             }
-        }
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.button("Open library folder").clicked() {
+                    if let Some(s) = &self.settings {
+                        crate::ui::reveal(&s.library_dir);
+                    }
+                }
+                if ui.button("Open log file").clicked() {
+                    crate::ui::reveal(&self.paths.log_file());
+                }
+                ui.hyperlink_to("Source code", "https://github.com/nickheyer/deadlywallpaper");
+            });
+        });
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
         let Some(dialog) = self.dialog.take() else { return };
-        let mut keep = true;
         let mut next = None;
         match dialog {
             Dialog::AddUrl { mut url } => {
-                egui::Window::new("Add web page or video stream").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                    ui.label("Web pages become HTML wallpapers; video links that yt-dlp understands play as streams.");
-                    let edit = ui.add(egui::TextEdit::singleline(&mut url).hint_text("https://").desired_width(420.0));
+                let modal = egui::Modal::new(egui::Id::new("add-url")).show(ctx, |ui| {
+                    ui.set_width(460.0);
+                    ui.label(RichText::new("Add a link").size(17.0).strong());
+                    theme::hint(ui, "Web pages become website wallpapers. Video links that yt-dlp understands play as streams.");
+                    ui.add_space(6.0);
+                    let edit = ui.add(egui::TextEdit::singleline(&mut url).hint_text("https://").desired_width(f32::INFINITY));
                     edit.request_focus();
                     let submit = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    ui.horizontal(|ui| {
-                        if ui.button("Add").clicked() || submit {
+                    ui.add_space(8.0);
+                    let mut done = false;
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add(egui::Button::new("Add").fill(theme::accent(ui))).clicked() || submit {
                             let u = url.trim().to_string();
                             if !u.is_empty() {
                                 self.backend.background(ctx, "Added", Request::Import { source: u });
                             }
-                            keep = false;
+                            done = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            keep = false;
+                            done = true;
                         }
                     });
+                    done
                 });
-                if keep {
+                if !modal.inner && !modal.should_close() {
                     next = Some(Dialog::AddUrl { url });
                 }
             }
             Dialog::Edit { id, mut title, mut author, mut desc, mut contact, mut license, mut arguments, program } => {
-                egui::Window::new("Edit wallpaper").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                    egui::Grid::new("edit").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
-                        ui.label("Title");
-                        ui.add(egui::TextEdit::singleline(&mut title).desired_width(360.0));
-                        ui.end_row();
-                        ui.label("Author");
-                        ui.add(egui::TextEdit::singleline(&mut author).desired_width(360.0));
-                        ui.end_row();
-                        ui.label("Description");
-                        ui.add(egui::TextEdit::multiline(&mut desc).desired_rows(3).desired_width(360.0));
-                        ui.end_row();
-                        ui.label("Website");
-                        ui.add(egui::TextEdit::singleline(&mut contact).desired_width(360.0));
-                        ui.end_row();
-                        ui.label("License");
-                        ui.add(egui::TextEdit::singleline(&mut license).desired_width(360.0));
-                        ui.end_row();
+                let modal = egui::Modal::new(egui::Id::new("edit")).show(ctx, |ui| {
+                    ui.set_width(520.0);
+                    ui.label(RichText::new("Edit details").size(17.0).strong());
+                    ui.add_space(6.0);
+                    egui::Grid::new("edit").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+                        for (label, value, multiline) in [("Title", &mut title, false), ("Author", &mut author, false), ("Description", &mut desc, true), ("Website", &mut contact, false), ("License", &mut license, false)] {
+                            ui.label(label);
+                            if multiline {
+                                ui.add(egui::TextEdit::multiline(value).desired_rows(3).desired_width(380.0));
+                            } else {
+                                ui.add(egui::TextEdit::singleline(value).desired_width(380.0));
+                            }
+                            ui.end_row();
+                        }
                         if program {
                             ui.label("Arguments");
-                            ui.add(egui::TextEdit::singleline(&mut arguments).desired_width(360.0));
+                            ui.add(egui::TextEdit::singleline(&mut arguments).desired_width(380.0));
                             ui.end_row();
                         }
                     });
-                    ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
+                    ui.add_space(8.0);
+                    let mut done = false;
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add(egui::Button::new("Save").fill(theme::accent(ui))).clicked() {
                             let patch = InfoPatch {
                                 title: Some(title.clone()),
                                 author: Some(author.clone()),
@@ -397,31 +472,37 @@ impl App {
                                 arguments: program.then(|| arguments.clone()),
                             };
                             self.send(Request::EditInfo { wallpaper: id.clone(), patch });
-                            keep = false;
+                            done = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            keep = false;
+                            done = true;
                         }
                     });
+                    done
                 });
-                if keep {
+                if !modal.inner && !modal.should_close() {
                     next = Some(Dialog::Edit { id, title, author, desc, contact, license, arguments, program });
                 }
             }
             Dialog::Delete { id, title } => {
-                egui::Window::new("Delete wallpaper").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                    ui.label(format!("Remove '{title}' from the library? Files outside the library stay untouched."));
-                    ui.horizontal(|ui| {
-                        if ui.button("Delete").clicked() {
+                let modal = egui::Modal::new(egui::Id::new("delete")).show(ctx, |ui| {
+                    ui.set_width(440.0);
+                    ui.label(RichText::new(format!("Remove “{title}”?")).size(17.0).strong());
+                    theme::hint(ui, "The wallpaper leaves the library. Files that live outside the library folder stay where they are.");
+                    ui.add_space(8.0);
+                    let mut done = false;
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add(egui::Button::new("Remove").fill(ui.visuals().error_fg_color)).clicked() {
                             self.send(Request::Delete { wallpaper: id.clone() });
-                            keep = false;
+                            done = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            keep = false;
+                            done = true;
                         }
                     });
+                    done
                 });
-                if keep {
+                if !modal.inner && !modal.should_close() {
                     next = Some(Dialog::Delete { id, title });
                 }
             }
@@ -434,15 +515,11 @@ impl App {
             match action {
                 library::Action::Apply { id, display } => self.apply(&id, display),
                 library::Action::Customize { id } => {
-                    if self.status.as_ref().is_some_and(|s| s.active.iter().any(|a| a.wallpaper == id)) {
-                        if let Some(a) = self.status.as_ref().and_then(|s| s.active.iter().find(|a| a.wallpaper == id)) {
-                            self.selected_display = Some(a.display.clone());
-                        }
-                    } else {
-                        self.apply(&id, None);
+                    match self.status.as_ref().and_then(|s| s.active.iter().find(|a| a.wallpaper == id)) {
+                        Some(a) => self.selected_display = Some(a.display.clone()),
+                        None => self.apply(&id, None),
                     }
-                    self.panel = Panel::Wallpaper;
-                    self.panel_open = true;
+                    self.page = Page::Screens;
                 }
                 library::Action::Edit { id } => {
                     if let Some(w) = self.library.iter().find(|w| w.id == id) {
@@ -471,9 +548,35 @@ impl App {
                     self.dialog = Some(Dialog::Delete { id, title });
                 }
                 library::Action::Open { url } => crate::ui::open_url(&url),
+                library::Action::PickFiles => self.pick_files(ctx),
             }
         }
     }
+}
+
+fn presenter_label(presenter: &str) -> String {
+    match presenter {
+        "plasma" => "KDE Plasma wallpaper plugin: wallpapers play beneath the desktop icons and widgets".into(),
+        "layer-shell" => "Wayland layer shell: background surfaces behind every window".into(),
+        "x11" => "X11: keep-below windows behind every application window".into(),
+        "win32" => "Windows: behind the desktop icons under Explorer's WorkerW".into(),
+        "quartz" => "macOS: desktop-level windows below the Finder icons".into(),
+        other => other.to_string(),
+    }
+}
+
+fn nav_item(ui: &mut egui::Ui, selected: bool, glyph: &str, label: &str) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 36.0), egui::Sense::click());
+    let visuals = ui.visuals();
+    if selected {
+        ui.painter().rect_filled(rect, egui::CornerRadius::same(8), theme::accent(ui).gamma_multiply(0.35));
+    } else if response.hovered() {
+        ui.painter().rect_filled(rect, egui::CornerRadius::same(8), visuals.widgets.hovered.weak_bg_fill);
+    }
+    let color = if selected { visuals.strong_text_color() } else { visuals.text_color() };
+    ui.painter().text(rect.left_center() + egui::vec2(12.0, 0.0), egui::Align2::LEFT_CENTER, glyph, egui::FontId::proportional(17.0), color);
+    ui.painter().text(rect.left_center() + egui::vec2(42.0, 0.0), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(15.0), color);
+    response
 }
 
 impl eframe::App for App {
@@ -481,36 +584,27 @@ impl eframe::App for App {
         let ctx = root.ctx().clone();
         let ctx = &ctx;
         self.handle_messages(ctx);
+        ctx.input(|i| {
+            for (n, page) in [(egui::Key::Num1, Page::Library), (egui::Key::Num2, Page::Screens), (egui::Key::Num3, Page::Settings), (egui::Key::Num4, Page::About)] {
+                if i.modifiers.command && i.key_pressed(n) {
+                    self.page = page;
+                }
+            }
+        });
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
         if !dropped.is_empty() {
             self.import_paths(ctx, dropped);
         }
-        egui::Panel::top("top").show(root, |ui| {
-            ui.add_space(4.0);
-            self.top_bar(ctx, ui);
-            ui.add_space(4.0);
+        let (panel_fill, window_fill) = (root.visuals().panel_fill, root.visuals().window_fill);
+        let nav_frame = egui::Frame::new().fill(panel_fill).inner_margin(egui::Margin { left: 12, right: 12, top: 16, bottom: 12 });
+        egui::Panel::left("nav").exact_size(210.0).resizable(false).frame(nav_frame).show(root, |ui| self.nav(ui));
+        let content_frame = egui::Frame::new().fill(window_fill).inner_margin(egui::Margin { left: 24, right: 24, top: 18, bottom: 16 });
+        egui::CentralPanel::default().frame(content_frame).show(root, |ui| match self.page {
+            Page::Library => self.library_page(ctx, ui),
+            Page::Screens => self.screens_page(ui),
+            Page::Settings => self.settings_page(ui),
+            Page::About => self.about_page(ui),
         });
-        self.side_panel(root);
-        let actions = egui::CentralPanel::default()
-            .show(root, |ui| {
-                if !self.backend.connected() {
-                    ui.centered_and_justified(|ui| ui.label("Connecting to the wallpaper daemon…"));
-                    return Vec::new();
-                }
-                let status = self.status.as_ref();
-                let grid = library::Grid {
-                    items: &self.library,
-                    search: &self.search,
-                    displays: status.map(|s| s.displays.as_slice()).unwrap_or(&[]),
-                    active: status.map(|s| s.active.as_slice()).unwrap_or(&[]),
-                    arrangement: self.arrangement(),
-                    selected_display: self.selected_display.as_deref(),
-                    hovering_files: ctx.input(|i| !i.raw.hovered_files.is_empty()),
-                };
-                library::grid(ui, &grid)
-            })
-            .inner;
-        self.library_actions(ctx, actions);
         self.dialogs(ctx);
         self.toasts.show(ctx);
     }

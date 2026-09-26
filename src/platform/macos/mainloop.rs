@@ -136,7 +136,9 @@ impl RuntimeApi for Runtime {
         "quartz".into()
     }
 
-    fn start_window_monitor(&mut self, interval_ms: u64) -> String {
+    /// The global event monitor installed at startup always reports motion; the engine
+    /// decides what reaches wallpapers.
+    fn start_window_monitor(&mut self, interval_ms: u64, _track_pointer: bool) -> String {
         self.interval.store(interval_ms, Ordering::Relaxed);
         monitor::start(self.tx.clone(), self.interval.clone());
         "quartz".into()
@@ -145,6 +147,8 @@ impl RuntimeApi for Runtime {
     fn set_monitor_interval(&mut self, interval_ms: u64) {
         self.interval.store(interval_ms, Ordering::Relaxed);
     }
+
+    fn set_pointer_tracking(&mut self, _track: bool) {}
 
     fn spawn_content(&mut self, spec: &ContentSpec<'_>, slot: &Slot) -> Result<Box<dyn Content>> {
         let kind = spec.wallpaper.kind();
