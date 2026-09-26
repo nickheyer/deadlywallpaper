@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Files Logo" src="resources/figma_promo_16x9.jpg" width="450" />
+  <img alt="Files Logo" src="assets/logo.png" width="450" />
   <h2 align="center">Deadly Wallpaper</h2>
 </p>
 
