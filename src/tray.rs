@@ -1,0 +1,62 @@
+use crate::error::{Error, Result};
+use crate::msg::{Msg, TrayAction};
+use crate::platform::{MsgSender, MsgSenderApi};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
+
+pub struct Tray {
+    icon: TrayIcon,
+    pause: CheckMenuItem,
+}
+
+fn icon() -> Result<Icon> {
+    let img = image::load_from_memory(include_bytes!("../assets/icon.png")).map_err(|e| Error::Platform(format!("tray icon: {e}")))?.into_rgba8();
+    let (w, h) = img.dimensions();
+    Icon::from_rgba(img.into_raw(), w, h).map_err(|e| Error::Platform(format!("tray icon: {e}")))
+}
+
+impl Tray {
+    pub fn new(tx: MsgSender, paused: bool) -> Result<Tray> {
+        let menu = Menu::new();
+        let open = MenuItem::new("Open Deadly Wallpaper", true, None);
+        let pause = CheckMenuItem::new("Pause wallpapers", true, paused, None);
+        let close = MenuItem::new("Close wallpapers", true, None);
+        let random = MenuItem::new("Random wallpaper", true, None);
+        let quit = MenuItem::new("Quit", true, None);
+        menu.append_items(&[&open, &PredefinedMenuItem::separator(), &pause, &close, &random, &PredefinedMenuItem::separator(), &quit])
+            .map_err(|e| Error::Platform(format!("tray menu: {e}")))?;
+        let ids = [
+            (open.id().clone(), TrayAction::OpenUi),
+            (pause.id().clone(), TrayAction::TogglePause),
+            (close.id().clone(), TrayAction::CloseAll),
+            (random.id().clone(), TrayAction::Random),
+            (quit.id().clone(), TrayAction::Quit),
+        ];
+        let menu_tx = tx.clone();
+        MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
+            if let Some((_, action)) = ids.iter().find(|(id, _)| *id == e.id) {
+                menu_tx.send(Msg::Tray(*action));
+            }
+        }));
+        TrayIconEvent::set_event_handler(Some(move |e: TrayIconEvent| {
+            if let TrayIconEvent::DoubleClick { .. } = e {
+                tx.send(Msg::Tray(TrayAction::OpenUi));
+            }
+        }));
+        let icon = TrayIconBuilder::new()
+            .with_menu(Box::new(menu))
+            .with_tooltip(crate::paths::APP_NAME)
+            .with_icon(icon()?)
+            .build()
+            .map_err(|e| Error::Platform(format!("tray: {e}")))?;
+        Ok(Tray { icon, pause })
+    }
+
+    pub fn set_paused(&self, paused: bool) {
+        self.pause.set_checked(paused);
+    }
+
+    pub fn set_visible(&self, visible: bool) {
+        let _ = self.icon.set_visible(visible);
+    }
+}
