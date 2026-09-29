@@ -1,5 +1,3 @@
-//! The Settings page. It edits a draft that the app saves once no control is mid-edit.
-
 use crate::ipc::{AudioDevice, Capabilities};
 use crate::model::Display;
 use crate::model::settings::{AudioOutput, PauseScope, Scaler, Settings, StreamQuality, Theme};
@@ -13,18 +11,13 @@ pub struct Context<'a> {
     pub capabilities: &'a Capabilities,
 }
 
-/// UI state that outlives a frame.
 #[derive(Default)]
 pub struct State {
-    /// Focus the application field that was just added.
     pub focus_new_app: bool,
 }
 
-fn section(ui: &mut egui::Ui, title: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
+fn section(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
     theme::section_title(ui, title);
-    if !help.is_empty() {
-        theme::hint(ui, help);
-    }
     ui.add_space(6.0);
     theme::card_compact(ui).show(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -34,13 +27,12 @@ fn section(ui: &mut egui::Ui, title: &str, help: &str, add: impl FnOnce(&mut egu
     ui.add_space(18.0);
 }
 
-/// Draw the form. Returns true while a slider is being dragged or a text field has focus, so
-/// the caller waits before saving.
+/// Returns true while editing, to defer saving.
 pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'_>) -> bool {
     let p = theme::palette(ui);
     let mut busy = false;
 
-    section(ui, "General", "", |ui| {
+    section(ui, "General", |ui| {
         row(ui, "Start at login", "", |ui| {
             toggle(ui, &mut s.autostart);
         });
@@ -75,7 +67,7 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
         });
     });
 
-    section(ui, "Pause", "", |ui| {
+    section(ui, "Pause", |ui| {
         row(ui, "When a window covers the display", "", |ui| {
             toggle(ui, &mut s.rules.fullscreen_pause);
         });
@@ -146,7 +138,7 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
         }
     });
 
-    section(ui, "Audio", "", |ui| {
+    section(ui, "Audio", |ui| {
         row(ui, "Volume", "", |ui| {
             let r = ui.add(egui::Slider::new(&mut s.volume, 0..=100).suffix("%"));
             busy |= r.dragged();
@@ -186,7 +178,7 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
         });
     });
 
-    section(ui, "Video", "", |ui| {
+    section(ui, "Video", |ui| {
         row(ui, "Hardware decoding", "", |ui| {
             toggle(ui, &mut s.video.hw_accel);
         });
@@ -214,7 +206,7 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
     });
 
     if cx.capabilities.web_devtools {
-        section(ui, "Web", "", |ui| {
+        section(ui, "Web", |ui| {
             row(ui, "Developer tools", "", |ui| {
                 toggle(ui, &mut s.web.devtools);
             });
@@ -222,7 +214,7 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
     }
 
     if cx.capabilities.pointer_motion || cx.capabilities.pointer_clicks {
-        section(ui, "Input", "", |ui| {
+        section(ui, "Input", |ui| {
             row(ui, "Pointer", "", |ui| {
                 toggle(ui, &mut s.input.forward_mouse);
             });

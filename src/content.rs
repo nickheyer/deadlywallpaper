@@ -47,19 +47,15 @@ impl Seek {
     /// Parse `50`, `+10`, `-10` as used by the CLI.
     pub fn parse(s: &str) -> Option<Seek> {
         let t = s.trim();
-        if let Some(rest) = t.strip_prefix('+') {
-            return rest.parse().ok().map(|v: f64| Seek::Relative(v.clamp(-100.0, 100.0)));
+        let value: f64 = t.parse().ok()?;
+        if !value.is_finite() {
+            return None;
         }
-        if let Some(rest) = t.strip_prefix('-') {
-            return rest.parse().ok().map(|v: f64| Seek::Relative(-v.clamp(-100.0, 100.0)));
-        }
-        t.parse().ok().map(|v: f64| Seek::Absolute(v.clamp(0.0, 100.0)))
+        Some(if t.starts_with(['+', '-']) { Seek::Relative(value.clamp(-100.0, 100.0)) } else { Seek::Absolute(value.clamp(0.0, 100.0)) })
     }
 }
 
-/// How an instance's image maps onto its slot. The image is `width`×`height` logical pixels;
-/// it is drawn scaled by `scale`, rotated `rotation` degrees clockwise, with its centre `x`, `y`
-/// pixels from the slot centre. [`View::whole`] shows the whole image edge to edge.
+/// Image size in logical pixels, scale, clockwise rotation in degrees, and offset from the slot centre.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct View {
     pub width: i32,
@@ -107,8 +103,7 @@ impl View {
     }
 }
 
-/// A live wallpaper instance. Implementations own their native surface; dropping one
-/// removes it from the desktop.
+/// Owns a native wallpaper surface; drop removes it from the desktop.
 pub trait Content {
     fn set_paused(&mut self, paused: bool);
     /// 0..=100
@@ -131,6 +126,17 @@ pub trait Content {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seek_rejects_invalid_numbers() {
+        for value in ["NaN", "inf", "-inf", "++10", "--10", "+-10", "1e999", ""] {
+            assert_eq!(Seek::parse(value), None, "{value}");
+        }
+        assert_eq!(Seek::parse("50"), Some(Seek::Absolute(50.0)));
+        assert_eq!(Seek::parse(" +10 "), Some(Seek::Relative(10.0)));
+        assert_eq!(Seek::parse("-10"), Some(Seek::Relative(-10.0)));
+        assert_eq!(Seek::parse("200"), Some(Seek::Absolute(100.0)));
+    }
 
     #[test]
     fn view_maps_both_ways() {

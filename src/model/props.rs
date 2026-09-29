@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::path::Path;
 
-/// One control of a `LivelyProperties.json` file, typed for the UI and content engines.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Control {
     pub text: String,
@@ -83,8 +82,7 @@ impl Control {
     }
 }
 
-/// A `LivelyProperties.json` document. Unknown fields and control order are preserved;
-/// edits touch only `value`.
+/// LivelyProperties.json; preserves unknown fields and control order.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Properties {
     raw: Map<String, Value>,
@@ -105,7 +103,7 @@ impl Properties {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         let text = serde_json::to_string_pretty(&Value::Object(self.raw.clone()))?;
-        ctx(std::fs::write(path, text), path.display())
+        crate::paths::write(path, text)
     }
 
     pub fn controls(&self) -> Vec<(String, Control)> {
@@ -130,9 +128,7 @@ impl Properties {
         self.raw.get(name).and_then(Control::parse)
     }
 
-    /// Coerce `incoming` to the control's type, clamp it, store it, and return the
-    /// value as it should be sent to the wallpaper. Sliders and dropdowns accept
-    /// `++n` / `--n` for relative changes.
+    /// Validate and store a value. Sliders and dropdowns accept relative `++n` / `--n`.
     pub fn set(&mut self, name: &str, incoming: &Value) -> Result<Value> {
         let control = self.get(name).ok_or_else(|| Error::NotFound(format!("no control named '{name}'")))?;
         let stored = match &control.kind {
@@ -146,7 +142,11 @@ impl Properties {
             }
             ControlKind::Checkbox { .. } => Value::Bool(match incoming {
                 Value::Bool(b) => *b,
-                Value::String(s) => matches!(s.trim().to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "on"),
+                Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
+                    "true" | "1" | "yes" | "on" => true,
+                    "false" | "0" | "no" | "off" => false,
+                    _ => return Err(Error::Invalid(format!("'{name}' expects true or false"))),
+                },
                 Value::Number(n) => n.as_f64().unwrap_or(0.0) != 0.0,
                 _ => return Err(Error::Invalid(format!("'{name}' expects true or false"))),
             }),
@@ -172,17 +172,17 @@ fn number(v: &Value) -> Option<f64> {
         Value::String(s) => s.trim().parse().ok(),
         Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
         _ => None,
-    }
+    }.filter(|n| n.is_finite())
 }
 
 fn relative(v: &Value, current: f64) -> Option<f64> {
     if let Value::String(s) = v {
         let s = s.trim();
         if let Some(rest) = s.strip_prefix("++") {
-            return rest.trim().parse::<f64>().ok().map(|d| current + d);
+            return rest.trim().parse::<f64>().ok().map(|d| current + d).filter(|n| n.is_finite());
         }
         if let Some(rest) = s.strip_prefix("--") {
-            return rest.trim().parse::<f64>().ok().map(|d| current - d);
+            return rest.trim().parse::<f64>().ok().map(|d| current - d).filter(|n| n.is_finite());
         }
     }
     number(v)
@@ -218,8 +218,6 @@ pub const MEDIA_DEFAULTS: &str = r##"{
   "mute": { "type": "checkbox", "text": "Mute", "value": false }
 }"##;
 
-/// The built-in controls that apply to `kind`: pictures have neither speed nor sound, GIFs
-/// have no sound.
 pub fn media_defaults(kind: Kind) -> Properties {
     let all: Value = serde_json::from_str(MEDIA_DEFAULTS).expect("MEDIA_DEFAULTS is valid JSON");
     let mut p = Properties::from_value(all).expect("MEDIA_DEFAULTS is an object");
@@ -274,6 +272,18 @@ mod tests {
         assert_eq!(p.set("scaler", &Value::String("++9".into())).unwrap(), 3);
         assert_eq!(p.set("mute", &Value::String("true".into())).unwrap(), true);
         assert!(p.set("nope", &Value::Null).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_values_without_changing_properties() {
+        let mut p = props();
+        let original = p.clone();
+        for value in ["NaN", "inf", "++NaN", "--inf", "++1e999"] {
+            assert!(p.set("saturation", &Value::String(value.into())).is_err());
+            assert!(p.set("scaler", &Value::String(value.into())).is_err());
+        }
+        assert!(p.set("mute", &Value::String("tru".into())).is_err());
+        assert_eq!(p, original);
     }
 
     #[test]

@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
-// Plasma's wallpaper settings page for this plugin. The wallpaper itself is chosen in the
-// Deadly Wallpaper app; picking another wallpaper type here hands the screen back to Plasma.
 ColumnLayout {
     id: root
     property string cfg_Title
@@ -14,8 +12,8 @@ ColumnLayout {
         visible: true
         type: Kirigami.MessageType.Information
         text: root.cfg_Title !== ""
-            ? i18n("This screen shows “%1” from Deadly Wallpaper. Open Deadly Wallpaper to change it, or choose another wallpaper type above to stop it.", root.cfg_Title)
-            : i18n("This screen is managed by Deadly Wallpaper. Open Deadly Wallpaper to choose a live wallpaper, or choose another wallpaper type above to stop it.")
+            ? i18n("Wallpaper: %1. Change it in Deadly Wallpaper, or select another wallpaper type above.", root.cfg_Title)
+            : i18n("Choose a wallpaper in Deadly Wallpaper, or select another wallpaper type above.")
     }
 
     Item { Layout.fillHeight: true }

@@ -1,5 +1,4 @@
-//! The engine owns desired state (layout, settings), reconciles it against connected displays
-//! into running content, and answers every request from the CLI and UI.
+//! Reconcile settings and layout with running wallpapers; handle CLI and UI requests.
 
 pub mod library;
 pub mod playback;
@@ -41,6 +40,14 @@ struct Active {
     thumbnail_pending: bool,
 }
 
+struct PendingShot {
+    id: ContentId,
+    path: PathBuf,
+    thumbnail: Option<String>,
+    reply: Reply,
+    deadline: Instant,
+}
+
 pub struct Engine {
     rt: Runtime,
     paths: Paths,
@@ -61,7 +68,7 @@ pub struct Engine {
     audio: Option<Capture>,
     monitor_name: String,
     capabilities: Capabilities,
-    pending_shots: Vec<(ContentId, PathBuf, Reply)>,
+    pending_shots: Vec<PendingShot>,
 }
 
 impl Engine {
@@ -122,6 +129,7 @@ impl Engine {
     /// Handle one message; `false` ends the daemon.
     pub fn handle(&mut self, msg: Msg) -> bool {
         let keep = self.dispatch(msg);
+        self.expire_captures();
         self.rt.shell().settle();
         keep
     }
@@ -185,7 +193,6 @@ impl Engine {
         self.reconcile();
     }
 
-    /// The user picked another wallpaper in the desktop's own settings: respect it.
     fn wallpaper_dismissed(&mut self, display: &str) {
         let Some(d) = self.displays.iter().find(|d| d.id == display).cloned() else { return };
         self.active.retain(|a| a.placement.display != d.id);
@@ -210,13 +217,6 @@ impl Engine {
             log::warn!("save layout: {e}");
         }
         self.broadcast(Event::Layout);
-    }
-
-    fn save_settings(&self) {
-        if let Err(e) = self.settings.save(&self.paths.settings_file()) {
-            log::warn!("save settings: {e}");
-        }
-        self.broadcast(Event::Settings);
     }
 
     fn display(&self, reference: Option<&str>) -> Result<Display> {
@@ -247,7 +247,7 @@ impl Engine {
         ctx(std::fs::create_dir_all(&dir), dir.display())?;
         let path = dir.join(format!("{}.json", crate::paths::slug(slot)));
         if !path.is_file() {
-            ctx(std::fs::write(&path, template), path.display())?;
+            crate::paths::write(&path, template)?;
         } else if let Some(allowed) = builtin {
             let mut existing = Properties::load(&path)?;
             if existing.retain(|name| allowed.get(name).is_some()) {
@@ -263,8 +263,6 @@ impl Engine {
         }
         self.ensure_props(wp, slot)
     }
-
-    // ---- reconciliation -------------------------------------------------------------------
 
     fn reconcile(&mut self) {
         let desired = self.layout.plan(&self.displays, self.rt.shell().spans_displays());
@@ -473,6 +471,10 @@ impl Engine {
     }
 
     fn content_event(&mut self, id: ContentId, ev: ContentEvent) {
+        if let ContentEvent::Screenshot { path, result } = ev {
+            self.finish_capture(id, &path, result);
+            return;
+        }
         let Some(idx) = self.active.iter().position(|a| a.id == id) else { return };
         match ev {
             ContentEvent::Loaded => {
@@ -481,7 +483,7 @@ impl Engine {
                 }
                 self.active[idx].loaded = true;
                 self.apply_properties(idx);
-                // Pages lose their view on navigation; every kind takes it again cheaply.
+                // Navigation resets the page transform.
                 let view = self.active[idx].view;
                 if let Err(e) = self.active[idx].content.set_view(&view) {
                     self.report(&e);
@@ -507,48 +509,70 @@ impl Engine {
                 self.audio_sync();
                 self.broadcast(Event::Playback);
             }
-            ContentEvent::Screenshot { path, result } => {
-                if let Some(pos) = self.pending_shots.iter().position(|(cid, p, _)| *cid == id && *p == path) {
-                    let (_, _, reply) = self.pending_shots.remove(pos);
-                    reply(match result {
-                        Ok(()) => Response::Ok,
-                        Err(e) => Response::error(&e),
-                    });
-                    return;
-                }
-                let a = &self.active[idx];
-                if path == a.wallpaper.dir.join(THUMBNAIL) {
-                    match result.and_then(|_| crate::capture::shrink(&path, crate::media::thumb::WIDTH)) {
-                        Ok(()) => self.set_thumbnail(&a.wallpaper.id.clone(), THUMBNAIL),
-                        Err(e) => log::warn!("thumbnail for '{}': {e}", a.wallpaper.title()),
-                    }
-                }
+            ContentEvent::Screenshot { .. } => unreachable!(),
+        }
+    }
+
+    fn capture(&mut self, idx: usize, path: PathBuf, thumbnail: Option<String>, reply: Reply) {
+        if self.pending_shots.iter().any(|shot| shot.path == path) {
+            reply(Response::error(&Error::Media("capture already in progress for this file".into())));
+            return;
+        }
+        let id = self.active[idx].id;
+        self.pending_shots.push(PendingShot { id, path: path.clone(), thumbnail, reply, deadline: Instant::now() + Duration::from_secs(30) });
+        self.active[idx].content.screenshot(path);
+    }
+
+    fn finish_capture(&mut self, id: ContentId, path: &std::path::Path, result: Result<()>) {
+        let Some(pos) = self.pending_shots.iter().position(|shot| shot.id == id && shot.path == path) else { return };
+        let shot = self.pending_shots.remove(pos);
+        let result = result.and_then(|_| {
+            if let Some(wallpaper) = shot.thumbnail {
+                crate::capture::shrink(path, crate::media::thumb::WIDTH)?;
+                self.set_thumbnail(&wallpaper, THUMBNAIL)?;
             }
+            Ok(())
+        });
+        (shot.reply)(result.map_or_else(|e| Response::error(&e), |_| Response::Ok));
+    }
+
+    fn expire_captures(&mut self) {
+        for shot in std::mem::take(&mut self.pending_shots) {
+            let error = if !self.active.iter().any(|a| a.id == shot.id) {
+                "wallpaper stopped before capture completed"
+            } else if Instant::now() >= shot.deadline {
+                "capture timed out"
+            } else {
+                self.pending_shots.push(shot);
+                continue;
+            };
+            (shot.reply)(Response::error(&Error::Media(error.into())));
         }
     }
 
     fn capture_thumbnail(&mut self, id: ContentId) {
-        if let Some(a) = self.active.iter_mut().find(|a| a.id == id) {
+        if let Some(idx) = self.active.iter().position(|a| a.id == id) {
+            let a = &self.active[idx];
             let path = a.wallpaper.dir.join(THUMBNAIL);
-            a.content.screenshot(path);
+            let wallpaper = a.wallpaper.id.clone();
+            self.capture(idx, path, Some(wallpaper), Box::new(|response| {
+                if let Response::Error { message, .. } = response {
+                    log::warn!("thumbnail: {message}");
+                }
+            }));
         }
     }
 
-    fn set_thumbnail(&mut self, wallpaper: &str, file: &str) {
-        match self.library.get(wallpaper) {
-            Ok(mut wp) => {
-                wp.info.thumbnail = Some(file.into());
-                if let Err(e) = wp.save_info() {
-                    log::warn!("{e}");
-                }
-                let updated = Wallpaper::from_info(&wp.dir, wp.info.clone());
-                for a in self.active.iter_mut().filter(|a| a.wallpaper.id == wallpaper) {
-                    a.wallpaper = updated.clone();
-                }
-                self.broadcast(Event::Library);
-            }
-            Err(e) => log::warn!("{e}"),
+    fn set_thumbnail(&mut self, wallpaper: &str, file: &str) -> Result<()> {
+        let mut wp = self.library.get(wallpaper)?;
+        wp.info.thumbnail = Some(file.into());
+        wp.save_info()?;
+        let updated = Wallpaper::from_info(&wp.dir, wp.info.clone());
+        for a in self.active.iter_mut().filter(|a| a.wallpaper.id == wallpaper) {
+            a.wallpaper = updated.clone();
         }
+        self.broadcast(Event::Library);
+        Ok(())
     }
 
     fn pointer(&mut self, x: i32, y: i32, kind: PointerKind) {
@@ -646,14 +670,11 @@ impl Engine {
         });
     }
 
-    /// Tell subscribers about entries an import left out, one message each.
     fn report_problems(&self, problems: &[String]) {
         for message in problems {
             self.broadcast(Event::Error { message: message.clone() });
         }
     }
-
-    // ---- requests -------------------------------------------------------------------------
 
     fn request(&mut self, req: Request, reply: Reply) -> bool {
         let resp = match req {
@@ -722,9 +743,7 @@ impl Engine {
             }
             Request::Screenshot { display, file } => match self.display(display.as_deref()).and_then(|d| self.active_on(&d.id).ok_or_else(|| Error::NotFound(format!("no wallpaper running on {}", d.name)))) {
                 Ok(idx) => {
-                    let id = self.active[idx].id;
-                    self.active[idx].content.screenshot(file.clone());
-                    self.pending_shots.push((id, file, reply));
+                    self.capture(idx, file, None, reply);
                     return true;
                 }
                 Err(e) => Response::error(&e),
@@ -780,10 +799,13 @@ impl Engine {
 
     fn set_settings(&mut self, mut s: Settings) -> Result<()> {
         s.normalize();
+        if self.settings.library_dir != s.library_dir {
+            ctx(std::fs::create_dir_all(&s.library_dir), s.library_dir.display())?;
+        }
+        s.save(&self.paths.settings_file())?;
         let old = std::mem::replace(&mut self.settings, s);
         let s = &self.settings;
         if old.library_dir != s.library_dir {
-            ctx(std::fs::create_dir_all(&s.library_dir), s.library_dir.display())?;
             self.library = Library { dir: s.library_dir.clone() };
             self.broadcast(Event::Library);
         }
@@ -819,7 +841,7 @@ impl Engine {
         if restart_media || restart_web {
             self.active.retain(|a| !((restart_media && a.wallpaper.kind().is_media()) || (restart_web && a.wallpaper.kind().is_web())));
         }
-        self.save_settings();
+        self.broadcast(Event::Settings);
         self.reconcile();
         Ok(())
     }
@@ -1009,15 +1031,17 @@ impl Engine {
 
     fn volume(&mut self, value: &str) -> Result<()> {
         let v = value.trim();
-        let new = if let Some(rest) = v.strip_prefix('+') {
-            self.settings.volume as i32 + rest.trim().parse::<i32>().map_err(|_| Error::Invalid(format!("'{value}' is not a volume")))?
-        } else if let Some(rest) = v.strip_prefix('-') {
-            self.settings.volume as i32 - rest.trim().parse::<i32>().map_err(|_| Error::Invalid(format!("'{value}' is not a volume")))?
+        let parsed = v.parse::<i32>().map_err(|_| Error::Invalid(format!("'{value}' is not a volume")))?;
+        let new = if v.starts_with(['+', '-']) {
+            (self.settings.volume as i32).saturating_add(parsed)
         } else {
-            v.parse::<i32>().map_err(|_| Error::Invalid(format!("'{value}' is not a volume")))?
+            parsed
         };
-        self.settings.volume = new.clamp(0, 100) as u8;
-        self.save_settings();
+        let mut settings = self.settings.clone();
+        settings.volume = new.clamp(0, 100) as u8;
+        settings.save(&self.paths.settings_file())?;
+        self.settings = settings;
+        self.broadcast(Event::Settings);
         self.evaluate();
         Ok(())
     }
@@ -1031,26 +1055,8 @@ impl Engine {
             }
         };
         let path = wp.dir.join(THUMBNAIL);
-        if let Some(a) = self.active.iter_mut().find(|a| a.wallpaper.id == wp.id) {
-            a.content.screenshot(path.clone());
-            let id = a.id;
-            let wid = wp.id.clone();
-            self.pending_shots.push((id, path.clone(), Box::new(move |_| {})));
-            let tx = self.rt.sender();
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(1500));
-                tx.send(Msg::Job(Box::new(move |e| {
-                    if e.library.get(&wid).is_ok_and(|w| w.dir.join(THUMBNAIL).is_file()) {
-                        if let Err(err) = crate::capture::shrink(&path, crate::media::thumb::WIDTH) {
-                            log::warn!("{err}");
-                        }
-                        e.set_thumbnail(&wid, THUMBNAIL);
-                        reply(Response::Ok);
-                    } else {
-                        reply(Response::error(&Error::Media("thumbnail capture did not complete".into())));
-                    }
-                })));
-            });
+        if let Some(idx) = self.active.iter().position(|a| a.wallpaper.id == wp.id) {
+            self.capture(idx, path, Some(wp.id), reply);
             return true;
         }
         if wp.kind().is_media() && !wp.kind().is_online() {
@@ -1060,13 +1066,7 @@ impl Engine {
             let wid = wp.id.clone();
             self.job(
                 move || crate::media::thumb::capture(&source, kind, &path, &temp),
-                move |e, r| match r {
-                    Ok(()) => {
-                        e.set_thumbnail(&wid, THUMBNAIL);
-                        reply(Response::Ok);
-                    }
-                    Err(err) => reply(Response::error(&err)),
-                },
+                move |e, r| reply(r.and_then(|_| e.set_thumbnail(&wid, THUMBNAIL)).map_or_else(|err| Response::error(&err), |_| Response::Ok)),
             );
             return true;
         }

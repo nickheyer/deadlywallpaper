@@ -1,5 +1,3 @@
-//! Visual system: palette, typography, spacing, and the small painting helpers every page shares.
-
 use crate::model::Kind;
 use eframe::egui::style::{HandleShape, ScrollStyle, Style, WidgetVisuals};
 use eframe::egui::{self, Button, Color32, CornerRadius, CursorIcon, FontId, Frame, Margin, RichText, Shadow, Stroke, TextStyle, Theme};
@@ -10,25 +8,19 @@ pub fn logo() -> egui::Image<'static> {
     egui::Image::from_bytes(LOGO_URI, include_bytes!("../../assets/icon.png"))
 }
 
-/// Colours of one theme. egui's `Visuals` carries some of these; the rest are read from here.
 #[derive(Clone, Copy)]
 pub struct Palette {
     pub dark: bool,
-    /// Window background.
     pub bg: Color32,
     pub sidebar: Color32,
-    /// Cards.
     pub surface: Color32,
     pub surface_hover: Color32,
-    /// Menus, tooltips, dialogs.
     pub elevated: Color32,
     pub stroke: Color32,
     pub stroke_strong: Color32,
-    /// Buttons and other interactive controls.
     pub control: Color32,
     pub control_hover: Color32,
     pub control_active: Color32,
-    /// Text fields.
     pub input: Color32,
     pub text: Color32,
     pub text_strong: Color32,
@@ -183,20 +175,15 @@ fn apply(style: &mut Style, p: &Palette) {
     v.widgets.open = WidgetVisuals { weak_bg_fill: p.control_hover, bg_fill: p.elevated, bg_stroke: Stroke::new(1.0, p.stroke_strong), fg_stroke: Stroke::new(1.0, p.text), corner_radius: radius, expansion: 0.0 };
 }
 
-// ---- frames -------------------------------------------------------------------------------
-
-/// A raised surface for grouped content.
 pub fn card(ui: &egui::Ui) -> Frame {
     let p = palette(ui);
     Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.stroke)).corner_radius(CornerRadius::same(12)).inner_margin(Margin::same(18))
 }
 
-/// A card with a tighter margin, for rows of controls.
 pub fn card_compact(ui: &egui::Ui) -> Frame {
     card(ui).inner_margin(Margin::symmetric(16, 12))
 }
 
-/// An anchored panel that opens from a button.
 pub fn popover_frame(ui: &egui::Ui) -> Frame {
     let p = palette(ui);
     Frame::new().fill(p.elevated).stroke(Stroke::new(1.0, p.stroke_strong)).corner_radius(CornerRadius::same(12)).inner_margin(Margin::same(14)).shadow(ui.visuals().popup_shadow)
@@ -211,8 +198,6 @@ pub fn dialog_frame(ctx: &egui::Context) -> Frame {
         .inner_margin(Margin::same(22))
         .shadow(Shadow { offset: [0, 12], blur: 36, spread: 0, color: Color32::from_black_alpha(if p.dark { 140 } else { 50 }) })
 }
-
-// ---- text ---------------------------------------------------------------------------------
 
 /// Page title on the left, `right` laid out right-to-left on the same row.
 pub fn page_header(ui: &mut egui::Ui, title: &str, subtitle: Option<&str>, right: impl FnOnce(&mut egui::Ui)) {
@@ -244,9 +229,6 @@ pub fn weak(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).color(p.text_weak));
 }
 
-// ---- buttons ------------------------------------------------------------------------------
-
-/// A filled button in the accent (or danger) colour with hover and press feedback.
 pub struct Filled {
     text: String,
     min_size: egui::Vec2,
@@ -304,8 +286,6 @@ pub fn secondary_button(text: &str) -> Button<'static> {
     Button::new(RichText::new(text)).corner_radius(CornerRadius::same(8)).min_size(egui::vec2(0.0, 32.0))
 }
 
-// ---- kinds --------------------------------------------------------------------------------
-
 pub fn kind_glyph(kind: Kind) -> &'static str {
     match kind {
         Kind::Video => "🎬",
@@ -352,9 +332,7 @@ mod tests {
     use eframe::egui::{Color32, FontDefinitions, FontId};
     use eframe::epaint::text::{Fonts, TextOptions};
 
-    /// Every glyph the window paints must exist in egui's bundled fonts, or it renders as the
-    /// replacement square. Detected by comparing the atlas rectangle with the replacement's,
-    /// because `has_glyph` reports every emoji-font glyph as missing.
+    // Compare atlas rectangles: has_glyph misreports bundled emoji glyphs.
     #[test]
     fn glyphs_exist_in_default_fonts() {
         let mut fonts = Fonts::new(TextOptions::default(), FontDefinitions::default());

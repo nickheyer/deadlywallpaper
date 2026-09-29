@@ -1,7 +1,4 @@
-//! The wallpaper package plasmashell loads, embedded in the binary and installed into the
-//! user's Plasma wallpaper directory. plasmashell caches QML components by URL for as long
-//! as it runs, so `main.qml` is a permanent trampoline and the implementation files live in a
-//! directory named after their content hash: every build gets fresh URLs.
+//! Embedded Plasma package. Content-hashed implementation URLs bypass plasmashell's QML cache.
 
 use crate::error::{Error, Result, ctx};
 use std::path::PathBuf;
@@ -52,9 +49,7 @@ fn write_if_changed(path: &PathBuf, bytes: &[u8]) -> Result<bool> {
     Ok(true)
 }
 
-/// Install the package and the current implementation; returns the implementation directory
-/// name to write into the `Impl` configuration key. Older implementation directories are
-/// removed.
+/// Install the package, remove old implementations, and return the new Impl directory.
 pub fn install() -> Result<String> {
     let root = dir()?;
     let name = impl_name();

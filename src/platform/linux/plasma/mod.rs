@@ -1,7 +1,4 @@
-//! KDE Plasma presenter: plasmashell renders wallpapers through the Deadly Wallpaper plugin
-//! package on each desktop containment, underneath its own icons and widgets. The daemon
-//! drives the plugin through plasmashell's scripting interface and remembers which plugin
-//! every containment showed before, so closing a wallpaper hands the desktop back to Plasma.
+//! Control Plasma's wallpaper plugin and restore each containment's previous plugin on close.
 
 pub mod content;
 pub mod package;

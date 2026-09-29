@@ -8,13 +8,13 @@ A spitefully ported "re-imagining" of the Windows desktop application "Lively Wa
 ## Commands
 
 ```
-# dev
+# Build
 make build
 make install
 make test
 make check-all
 
-# application
+# Run
 deadlywp daemon                  run the daemon in the foreground
 deadlywp status                  daemon state and what plays where
 deadlywp list                    library wallpapers
@@ -23,9 +23,9 @@ deadlywp set <target> [-d N]     apply a library id, file, folder, URL, `random`
 deadlywp close [-d N]            stop one display, or all
 deadlywp layout per|span|duplicate
 deadlywp align image|<display> [--x N --y N --scale S --rotate D] [--reset]
-deadlywp volume 40 | +10 | -10
-deadlywp play | pause
-deadlywp seek 50 | +10           media wallpapers
+deadlywp volume <0-100|+N|-N>
+deadlywp <play|pause>
+deadlywp seek <0-100|+N|-N>           media wallpapers
 deadlywp prop name=value [-d N]  change a wallpaper property (++n / --n for relative)
 deadlywp screenshot out.png      capture a running wallpaper
 deadlywp import <source>         add a file, a folder of wallpapers, a Lively .zip, or a URL

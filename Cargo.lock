@@ -1108,6 +1108,7 @@ dependencies = [
  "serde",
  "serde_json",
  "starship-battery",
+ "tempfile",
  "tray-icon",
  "wayland-backend",
  "wayland-client",

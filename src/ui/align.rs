@@ -1,5 +1,4 @@
-//! Span alignment: the shared wallpaper's image laid across the displays. The image and every
-//! display can be moved, scaled and turned; the parts of the image no display shows are dimmed.
+//! Interactive alignment of a spanning wallpaper and its displays.
 
 use crate::geom::Rect as GeomRect;
 use crate::model::{Display, Kind, Layout, Pose};
@@ -96,7 +95,7 @@ impl Placed {
 
 const HANDLE: f32 = 8.0;
 const ROTATE_ARM: f32 = 28.0;
-/// Screen pixels within which a dragged edge or pose locks onto a neighbour or its home.
+/// Snap distance in screen pixels.
 const SNAP_PX: f64 = 12.0;
 
 pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Event> {
@@ -175,7 +174,6 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
     let placed: Vec<Placed> = scene.displays.iter().zip(&poses).map(|(d, pose)| Placed::new(d.rect, *pose)).collect();
     let selected_target = if image_selected { Some(Target::Image) } else { scene.selected.and_then(|id| scene.displays.iter().position(|d| d.id == id)).map(Target::Display) };
 
-    // ---- hit testing, against what is on screen when nothing is being dragged -------------
     let handle_points = |placed: &Placed| -> ([Pos2; 4], Pos2) {
         let corners = placed.corners().map(|(x, y)| to_screen(x, y));
         let (tx, ty) = placed.out(0.0, -placed.h / 2.0);
@@ -211,7 +209,6 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
         None
     };
 
-    // ---- events ----------------------------------------------------------------------------
     let mut event = None;
     if resp.drag_started() {
         if let Some(start) = ui.input(|i| i.pointer.press_origin()).or(pointer) {
@@ -257,7 +254,6 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
         }
     }
 
-    // ---- painting --------------------------------------------------------------------------
     let painter = ui.painter();
     let texture = scene.thumbnail.and_then(|uri| match ui.ctx().try_load_texture(uri, TextureOptions::LINEAR, SizeHint::default()) {
         Ok(TexturePoll::Ready { texture }) => Some(texture),

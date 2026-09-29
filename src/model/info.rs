@@ -6,7 +6,7 @@ use std::path::Path;
 pub const FILE_NAME: &str = "LivelyInfo.json";
 pub const PROPERTIES_FILE_NAME: &str = "LivelyProperties.json";
 
-/// Wallpaper metadata, byte-compatible with Lively's `LivelyInfo.json`.
+/// LivelyInfo.json metadata.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "PascalCase", default)]
 pub struct Info {
@@ -61,7 +61,7 @@ impl Info {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         let text = serde_json::to_string_pretty(self)?;
-        ctx(std::fs::write(path, text), path.display())
+        crate::paths::write(path, text)
     }
 
     /// Program arguments split shell-style on whitespace with simple quoting.

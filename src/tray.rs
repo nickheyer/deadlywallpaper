@@ -9,8 +9,7 @@ pub struct Tray {
     pause: CheckMenuItem,
 }
 
-/// The logo as rendered for the panel: on dark panels it sits on a light tile so its dark
-/// petals keep their contrast; on light panels the plain artwork reads best.
+/// Use a light tile behind the logo on dark panels.
 fn icon(dark: bool) -> Result<Icon> {
     let bytes: &[u8] = if dark { include_bytes!("../assets/tray-dark.png") } else { include_bytes!("../assets/tray-light.png") };
     let img = image::load_from_memory(bytes).map_err(|e| Error::Platform(format!("tray icon: {e}")))?.into_rgba8();

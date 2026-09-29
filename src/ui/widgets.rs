@@ -1,6 +1,3 @@
-//! Reusable controls: navigation items, chips, segmented controls, toggles, thumbnails, toasts,
-//! settings rows and the display diagram.
-
 use crate::model::{Display, Kind};
 use crate::ui::theme;
 use eframe::egui::load::{SizeHint, TexturePoll};
@@ -9,8 +6,6 @@ use eframe::epaint::RectShape;
 use eframe::epaint::text::LayoutJob;
 use std::path::Path;
 use std::time::{Duration, Instant};
-
-// ---- navigation ---------------------------------------------------------------------------
 
 pub fn nav_item(ui: &mut egui::Ui, selected: bool, glyph: &str, label: &str, shortcut: &str) -> egui::Response {
     let p = theme::palette(ui);
@@ -35,9 +30,6 @@ pub fn nav_item(ui: &mut egui::Ui, selected: bool, glyph: &str, label: &str, sho
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
-// ---- chips and segments -------------------------------------------------------------------
-
-/// A pill-shaped toggle used for filters and targets.
 pub fn chip(ui: &mut egui::Ui, selected: bool, text: &str) -> egui::Response {
     let p = theme::palette(ui);
     let font = TextStyle::Button.resolve(ui.style());
@@ -59,7 +51,6 @@ pub fn chip(ui: &mut egui::Ui, selected: bool, text: &str) -> egui::Response {
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
-/// A row of mutually exclusive choices drawn as one joined control.
 pub fn segmented<T: Copy + PartialEq>(ui: &mut egui::Ui, id_salt: &str, value: &mut T, options: &[(T, &str)]) -> bool {
     let p = theme::palette(ui);
     let font = TextStyle::Button.resolve(ui.style());
@@ -98,7 +89,6 @@ pub fn segmented<T: Copy + PartialEq>(ui: &mut egui::Ui, id_salt: &str, value: &
     changed
 }
 
-/// An on/off switch.
 pub fn toggle(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     let p = theme::palette(ui);
     let (rect, mut response) = ui.allocate_exact_size(egui::vec2(40.0, 22.0), Sense::click());
@@ -122,15 +112,13 @@ pub fn toggle(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
-/// A small square button that shows a glyph and only draws its frame on hover.
 pub fn icon_button(ui: &mut egui::Ui, glyph: &str, tooltip: &str) -> egui::Response {
     let p = theme::palette(ui);
     let r = ui.add(Button::new(RichText::new(glyph).size(14.0).color(p.text_weak)).frame_when_inactive(false).min_size(egui::vec2(28.0, 28.0)).corner_radius(CornerRadius::same(7)));
     if tooltip.is_empty() { r } else { r.on_hover_text(tooltip) }
 }
 
-/// A search field with a magnifier and a clear button. `take_focus` moves keyboard focus into
-/// it once and is reset.
+/// Consumes take_focus to focus the search field once.
 pub fn search_box(ui: &mut egui::Ui, text: &mut String, take_focus: &mut bool, width: f32) -> egui::Response {
     let p = theme::palette(ui);
     let frame = Frame::new().fill(p.input).stroke(Stroke::new(1.0, p.stroke)).corner_radius(CornerRadius::same(9)).inner_margin(Margin::symmetric(10, 4));
@@ -163,8 +151,6 @@ pub fn search_box(ui: &mut egui::Ui, text: &mut String, take_focus: &mut bool, w
     response
 }
 
-// ---- painting helpers ---------------------------------------------------------------------
-
 /// Paint one line of text, cut with an ellipsis when wider than `max_width`.
 pub fn elided(painter: &Painter, pos: Pos2, align: Align2, text: &str, font: FontId, color: Color32, max_width: f32) -> Rect {
     let mut job = LayoutJob::simple_singleline(text.to_owned(), font, color);
@@ -177,7 +163,6 @@ pub fn elided(painter: &Painter, pos: Pos2, align: Align2, text: &str, font: Fon
     rect
 }
 
-/// A small pill with text, anchored at `pos`.
 pub fn badge(painter: &Painter, pos: Pos2, align: Align2, text: &str, fill: Color32, fg: Color32) -> Rect {
     let galley = painter.layout_no_wrap(text.to_owned(), FontId::proportional(11.5), fg);
     let pad = egui::vec2(8.0, 4.0);
@@ -207,8 +192,7 @@ pub fn thumbnail_uri(path: &Path) -> String {
     format!("file://{}", path.display())
 }
 
-/// Paint a thumbnail cover-cropped into `rect`, or a placeholder tile for the wallpaper kind
-/// while it loads or when there is none. Returns whether the image was painted.
+/// Draw a cropped thumbnail or placeholder; return whether the image was available.
 pub fn thumbnail(ui: &egui::Ui, rect: Rect, uri: Option<&str>, kind: Kind, corner: CornerRadius) -> bool {
     let p = theme::palette(ui);
     let painter = ui.painter();
@@ -225,8 +209,6 @@ pub fn thumbnail(ui: &egui::Ui, rect: Rect, uri: Option<&str>, kind: Kind, corne
     false
 }
 
-// ---- display diagram ----------------------------------------------------------------------
-
 pub struct DiagramItem<'a> {
     pub display: &'a Display,
     pub thumbnail: Option<&'a Path>,
@@ -234,8 +216,7 @@ pub struct DiagramItem<'a> {
     pub paused: bool,
 }
 
-/// Monitor layout drawn to scale. Each display shows the thumbnail of the wallpaper it runs,
-/// its number and name. Returns the display that was clicked.
+/// Draw displays to scale; return the clicked display.
 pub fn display_diagram(ui: &mut egui::Ui, items: &[DiagramItem<'_>], selected: Option<&str>, all_selected: bool, max_size: Vec2) -> Option<String> {
     let p = theme::palette(ui);
     if items.is_empty() {
@@ -297,8 +278,6 @@ pub fn display_diagram(ui: &mut egui::Ui, items: &[DiagramItem<'_>], selected: O
     }
     clicked
 }
-
-// ---- toasts -------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ToastKind {
@@ -379,9 +358,6 @@ impl Toasts {
     }
 }
 
-// ---- settings rows ------------------------------------------------------------------------
-
-/// A labeled row: label and help on the left, the control on the right.
 pub fn row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
     let p = theme::palette(ui);
     ui.horizontal(|ui| {
@@ -399,17 +375,13 @@ pub fn row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egu
     });
 }
 
-/// Thin line between rows of a card.
 pub fn divider(ui: &mut egui::Ui) {
     let p = theme::palette(ui);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), Sense::hover());
     ui.painter().hline(rect.x_range(), rect.center().y, Stroke::new(1.0, p.stroke));
 }
 
-// ---- empty states -------------------------------------------------------------------------
-
-/// Centered glyph, title, body and an optional primary action. Returns true when the action
-/// was clicked.
+/// Returns true when the action is clicked.
 pub fn empty_state(ui: &mut egui::Ui, glyph: &str, title: &str, body: &str, action: Option<&str>) -> bool {
     let p = theme::palette(ui);
     let mut clicked = false;

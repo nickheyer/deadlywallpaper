@@ -8,7 +8,7 @@ use crate::model::{Info, Kind, Wallpaper};
 use crate::paths::{file_name, nonce, slug};
 use std::collections::HashSet;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub const THUMBNAIL: &str = "thumbnail.jpg";
 
@@ -52,7 +52,7 @@ impl Library {
     }
 
     pub fn get(&self, id: &str) -> Result<Wallpaper> {
-        if id.is_empty() || id.contains(['/', '\\']) || id == ".." {
+        if id.is_empty() || id.contains(['/', '\\', ':']) || id == "." || id == ".." {
             return Err(Error::NotFound(format!("no wallpaper '{id}'")));
         }
         Wallpaper::load(&self.dir.join(id)).map_err(|_| Error::NotFound(format!("no wallpaper '{id}'")))
@@ -61,23 +61,39 @@ impl Library {
     fn new_dir(&self, title: &str) -> Result<PathBuf> {
         for _ in 0..8 {
             let dir = self.dir.join(format!("{}-{}", slug(title), nonce()));
-            if !dir.exists() {
-                ctx(std::fs::create_dir_all(&dir), dir.display())?;
-                return Ok(dir);
+            match std::fs::create_dir(&dir) {
+                Ok(()) => return Ok(dir),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return ctx(Err(e), dir.display()),
             }
         }
         Err(Error::Io(std::io::Error::other("could not allocate a library directory")))
     }
 
-    /// Bring a file, folder, Lively package, or URL into the library
+    fn create(&self, title: &str, populate: impl FnOnce(&Path) -> Result<()>) -> Result<Wallpaper> {
+        let dir = self.new_dir(title)?;
+        let result = populate(&dir).and_then(|_| Wallpaper::load(&dir));
+        if result.is_err() {
+            if let Err(e) = std::fs::remove_dir_all(&dir) {
+                log::warn!("remove incomplete import {}: {e}", dir.display());
+            }
+        }
+        result
+    }
+
     pub fn import(&self, source: &str, opts: &ImportOptions<'_>, progress: &mut dyn FnMut(&Wallpaper)) -> Result<Imported> {
         ctx(std::fs::create_dir_all(&self.dir), self.dir.display())?;
         let mut out = Imported::default();
         let path = PathBuf::from(source);
         let is_url = source.starts_with("http://") || source.starts_with("https://");
         if !is_url && path.is_dir() {
-            let root = std::path::absolute(&path)?;
-            self.import_tree(&root, opts, &mut HashSet::new(), progress, &mut out);
+            let root = ctx(std::fs::canonicalize(&path), path.display())?;
+            let library = ctx(std::fs::canonicalize(&self.dir), self.dir.display())?;
+            let mut seen = HashSet::new();
+            if root != library {
+                seen.insert(library);
+            }
+            self.import_tree(&root, opts, &mut seen, progress, &mut out);
             return match (out.wallpapers.is_empty(), out.problems.is_empty()) {
                 (true, true) => Err(Error::Unsupported(format!("{} contains no wallpapers", root.display()))),
                 (true, false) => Err(Error::Invalid(out.problems.join("\n"))),
@@ -96,7 +112,6 @@ impl Library {
         Ok(out)
     }
 
-    /// One file: a Lively package, a web page, a program, or media.
     fn import_file(&self, path: &Path, opts: &ImportOptions<'_>) -> Result<Wallpaper> {
         let ext = extension(path);
         if PACKAGE_EXTENSIONS.contains(&ext.as_str()) {
@@ -110,24 +125,24 @@ impl Library {
             return self.import_web(&source_abs, opts.copy);
         }
         let title = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Wallpaper".into());
-        let dir = self.new_dir(&title)?;
-        let mut info = Info { title: title.clone(), kind, ..Info::default() };
-        if kind.is_media() && opts.copy {
-            let name = file_name(&source_abs);
-            ctx(std::fs::copy(&source_abs, dir.join(&name)), source_abs.display())?;
-            info.file_name = name;
-        } else {
-            info.file_name = source_abs.to_string_lossy().into_owned();
-            info.is_absolute_path = true;
-        }
-        if kind.is_media() && opts.thumbnails {
-            match thumb::capture(&source_abs, kind, &dir.join(THUMBNAIL), opts.temp_dir) {
-                Ok(()) => info.thumbnail = Some(THUMBNAIL.into()),
-                Err(e) => log::warn!("thumbnail for {}: {e}", source_abs.display()),
+        self.create(&title, |dir| {
+            let mut info = Info { title: title.clone(), kind, ..Info::default() };
+            if kind.is_media() && opts.copy {
+                let name = file_name(&source_abs);
+                ctx(std::fs::copy(&source_abs, dir.join(&name)), source_abs.display())?;
+                info.file_name = name;
+            } else {
+                info.file_name = source_abs.to_string_lossy().into_owned();
+                info.is_absolute_path = true;
             }
-        }
-        info.save(&dir.join(FILE_NAME))?;
-        Wallpaper::load(&dir)
+            if kind.is_media() && opts.thumbnails {
+                match thumb::capture(&source_abs, kind, &dir.join(THUMBNAIL), opts.temp_dir) {
+                    Ok(()) => info.thumbnail = Some(THUMBNAIL.into()),
+                    Err(e) => log::warn!("thumbnail for {}: {e}", source_abs.display()),
+                }
+            }
+            info.save(&dir.join(FILE_NAME))
+        })
     }
 
     fn import_tree(&self, dir: &Path, opts: &ImportOptions<'_>, seen: &mut HashSet<PathBuf>, progress: &mut dyn FnMut(&Wallpaper), out: &mut Imported) {
@@ -157,7 +172,14 @@ impl Library {
                 return;
             }
         };
-        let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| !file_name(p).starts_with('.')).collect();
+        let mut paths = Vec::new();
+        for entry in entries {
+            match entry {
+                Ok(e) if !file_name(&e.path()).starts_with('.') => paths.push(e.path()),
+                Ok(_) => {},
+                Err(e) => out.problems.push(format!("{}: {e}", dir.display())),
+            }
+        }
         paths.sort();
         for p in paths {
             if p.is_dir() {
@@ -181,27 +203,24 @@ impl Library {
             },
             Err(e) => return Err(e),
         };
-        let dir = self.new_dir(&title)?;
-        let mut info = Info { title, kind, file_name, contact: Some(url.to_string()), is_absolute_path: true, ..Info::default() };
-        if kind == Kind::VideoStream && want_thumbnail {
-            match super::stream::thumbnail(url, &dir) {
-                Ok(name) => info.thumbnail = Some(name),
-                Err(e) => log::warn!("stream thumbnail: {e}"),
+        self.create(&title, |dir| {
+            let mut info = Info { title: title.clone(), kind, file_name, contact: Some(url.to_string()), is_absolute_path: true, ..Info::default() };
+            if kind == Kind::VideoStream && want_thumbnail {
+                match super::stream::thumbnail(url, dir) {
+                    Ok(name) => info.thumbnail = Some(name),
+                    Err(e) => log::warn!("stream thumbnail: {e}"),
+                }
             }
-        }
-        info.save(&dir.join(FILE_NAME))?;
-        Wallpaper::load(&dir)
+            info.save(&dir.join(FILE_NAME))
+        })
     }
 
-    /// A folder that already is a Lively wallpaper
     fn import_lively_dir(&self, path: &Path) -> Result<Wallpaper> {
-        if path.parent().is_some_and(|p| p == self.dir) {
+        if path.parent().is_some_and(|p| std::fs::canonicalize(&self.dir).is_ok_and(|library| p == library)) {
             return Wallpaper::load(path);
         }
         let info = Info::load(&path.join(FILE_NAME))?;
-        let dir = self.new_dir(&info.title)?;
-        copy_tree(path, &dir)?;
-        Wallpaper::load(&dir)
+        self.create(&info.title, |dir| copy_tree(path, dir))
     }
 
     fn import_web(&self, index: &Path, copy: bool) -> Result<Wallpaper> {
@@ -211,17 +230,17 @@ impl Library {
         }
         let stem = index.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let title = if stem.eq_ignore_ascii_case("index") { file_name(root) } else { stem };
-        let dir = self.new_dir(&title)?;
-        let mut info = Info { title, kind: Kind::Web, ..Info::default() };
-        if copy {
-            copy_tree(root, &dir)?;
-            info.file_name = file_name(index);
-        } else {
-            info.file_name = index.to_string_lossy().into_owned();
-            info.is_absolute_path = true;
-        }
-        info.save(&dir.join(FILE_NAME))?;
-        Wallpaper::load(&dir)
+        self.create(&title, |dir| {
+            let mut info = Info { title: title.clone(), kind: Kind::Web, ..Info::default() };
+            if copy {
+                copy_tree(root, dir)?;
+                info.file_name = file_name(index);
+            } else {
+                info.file_name = index.to_string_lossy().into_owned();
+                info.is_absolute_path = true;
+            }
+            info.save(&dir.join(FILE_NAME))
+        })
     }
 
     fn import_zip(&self, path: &Path) -> Result<Wallpaper> {
@@ -237,35 +256,32 @@ impl Library {
         archive.by_name(&info_entry).map_err(|e| Error::Invalid(e.to_string()))?.read_to_string(&mut info_text)?;
         let info: Info = serde_json::from_str(&info_text)?;
         let title = if info.title.trim().is_empty() { file_name(path) } else { info.title.clone() };
-        let dir = self.new_dir(&title)?;
-        for i in 0..archive.len() {
-            let mut entry = archive.by_index(i).map_err(|e| Error::Invalid(e.to_string()))?;
-            let name = entry.name().to_string();
-            let Some(rel) = name.strip_prefix(&prefix) else { continue };
-            if rel.is_empty() {
-                continue;
-            }
-            let mut target = dir.clone();
-            for part in rel.split('/') {
-                if part.is_empty() || part == "." {
+        self.create(&title, |dir| {
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).map_err(|e| Error::Invalid(e.to_string()))?;
+                let name = entry.name().to_string();
+                let Some(rel) = name.strip_prefix(&prefix) else { continue };
+                if rel.is_empty() {
                     continue;
                 }
-                if part == ".." {
+                if entry.enclosed_name().is_none() || rel.contains(['\\', ':'])
+                    || Path::new(rel).components().any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+                {
                     return Err(Error::Invalid(format!("{} contains an unsafe path", path.display())));
                 }
-                target.push(part);
-            }
-            if entry.is_dir() {
-                ctx(std::fs::create_dir_all(&target), target.display())?;
-            } else {
-                if let Some(parent) = target.parent() {
-                    ctx(std::fs::create_dir_all(parent), parent.display())?;
+                let target = dir.join(rel);
+                if entry.is_dir() {
+                    ctx(std::fs::create_dir_all(&target), target.display())?;
+                } else {
+                    if let Some(parent) = target.parent() {
+                        ctx(std::fs::create_dir_all(parent), parent.display())?;
+                    }
+                    let mut out = ctx(std::fs::File::create(&target), target.display())?;
+                    std::io::copy(&mut entry, &mut out)?;
                 }
-                let mut out = ctx(std::fs::File::create(&target), target.display())?;
-                std::io::copy(&mut entry, &mut out)?;
             }
-        }
-        Wallpaper::load(&dir)
+            Ok(())
+        })
     }
 
     /// Remove a wallpaper directory and its property copies. Only directories inside the
@@ -284,25 +300,27 @@ impl Library {
     /// Write a Lively package: the wallpaper folder, plus referenced files when the wallpaper
     /// points outside the library, with paths rewritten relative.
     pub fn export(&self, wp: &Wallpaper, file: &Path) -> Result<()> {
-        let out = ctx(std::fs::File::create(file), file.display())?;
+        let library_entry = wp.dir.canonicalize()?;
+        let parent = file.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).canonicalize()?;
+        let destination = file.canonicalize().unwrap_or_else(|_| parent.join(file_name(file)));
+        let inside_source = wp.info.is_absolute_path && !wp.kind().is_online() && if wp.kind().is_directory_project() {
+            destination.starts_with(wp.root_dir().canonicalize()?)
+        } else {
+            destination == Path::new(&wp.source).canonicalize()?
+        };
+        if inside_source || destination.starts_with(&library_entry) {
+            return Err(Error::Invalid("export outside the wallpaper's source and library folders".into()));
+        }
+        let out = ctx(tempfile::NamedTempFile::new_in(&parent), file.display())?;
         let mut zip = zip::ZipWriter::new(out);
         let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         let mut info = wp.info.clone();
-        let mut skip_info = false;
-        add_tree(&mut zip, &wp.dir, "", &opts, &mut |rel| {
-            if rel == FILE_NAME {
-                skip_info = true;
-                false
-            } else {
-                true
-            }
-        })?;
-        let _ = skip_info;
+        add_tree(&mut zip, &wp.dir, "", &opts)?;
         if wp.info.is_absolute_path && !wp.kind().is_online() {
             let src = PathBuf::from(&wp.source);
             if wp.kind().is_directory_project() {
                 let root = wp.root_dir();
-                add_tree(&mut zip, &root, "content/", &opts, &mut |_| true)?;
+                add_tree(&mut zip, &root, "content/", &opts)?;
                 let rel = src.strip_prefix(&root).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| file_name(&src));
                 info.file_name = format!("content/{rel}");
             } else if src.is_file() {
@@ -317,7 +335,9 @@ impl Library {
         info.thumbnail = wp.thumbnail.as_ref().map(|t| file_name(t));
         zip.start_file(FILE_NAME, opts).map_err(|e| Error::Io(std::io::Error::other(e)))?;
         zip.write_all(serde_json::to_string_pretty(&info)?.as_bytes())?;
-        zip.finish().map_err(|e| Error::Io(std::io::Error::other(e)))?;
+        let out = zip.finish().map_err(|e| Error::Io(std::io::Error::other(e)))?;
+        ctx(out.as_file().sync_all(), file.display())?;
+        ctx(out.persist(file).map_err(|e| e.error), file.display())?;
         Ok(())
     }
 }
@@ -347,17 +367,23 @@ fn find_index(dir: &Path) -> Option<PathBuf> {
 }
 
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    let from = ctx(std::fs::canonicalize(from), from.display())?;
     ctx(std::fs::create_dir_all(to), to.display())?;
-    for entry in ctx(std::fs::read_dir(from), from.display())?.flatten() {
-        let src = entry.path();
-        let dst = to.join(entry.file_name());
-        if src.is_dir() {
-            copy_tree(&src, &dst)?;
-        } else {
-            ctx(std::fs::copy(&src, &dst).map(|_| ()), src.display())?;
-        }
+    let to = ctx(std::fs::canonicalize(to), to.display())?;
+    if to.starts_with(&from) {
+        return Err(Error::Invalid("cannot copy a wallpaper into its own source folder".into()));
     }
-    Ok(())
+    walk_tree(&from, &mut HashSet::new(), &mut |src, directory| {
+        if directory && ctx(src.canonicalize(), src.display())? == to {
+            return Err(Error::Invalid("cannot copy a wallpaper into its own source folder".into()));
+        }
+        let dst = to.join(src.strip_prefix(&from).map_err(|e| Error::Invalid(e.to_string()))?);
+        if directory {
+            ctx(std::fs::create_dir_all(&dst), dst.display())
+        } else {
+            ctx(std::fs::copy(src, &dst).map(|_| ()), src.display())
+        }
+    })
 }
 
 fn add_tree<W: Write + std::io::Seek>(
@@ -365,22 +391,35 @@ fn add_tree<W: Write + std::io::Seek>(
     root: &Path,
     prefix: &str,
     opts: &zip::write::SimpleFileOptions,
-    keep: &mut dyn FnMut(&str) -> bool,
 ) -> Result<()> {
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in ctx(std::fs::read_dir(&dir), dir.display())?.flatten() {
-            let path = entry.path();
-            let rel = path.strip_prefix(root).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-            if path.is_dir() {
-                stack.push(path);
-            } else if keep(&rel) {
-                zip.start_file(format!("{prefix}{rel}"), *opts).map_err(|e| Error::Io(std::io::Error::other(e)))?;
-                let mut f = ctx(std::fs::File::open(&path), path.display())?;
-                std::io::copy(&mut f, zip)?;
-            }
+    walk_tree(root, &mut HashSet::new(), &mut |path, directory| {
+        let rel = path.strip_prefix(root).map_err(|e| Error::Invalid(e.to_string()))?.to_string_lossy().replace('\\', "/");
+        if !directory && !(prefix.is_empty() && rel == FILE_NAME) {
+            zip.start_file(format!("{prefix}{rel}"), *opts).map_err(|e| Error::Io(std::io::Error::other(e)))?;
+            let mut f = ctx(std::fs::File::open(path), path.display())?;
+            std::io::copy(&mut f, zip)?;
+        }
+        Ok(())
+    })
+}
+
+fn walk_tree(dir: &Path, ancestors: &mut HashSet<PathBuf>, visit: &mut dyn FnMut(&Path, bool) -> Result<()>) -> Result<()> {
+    let real = ctx(std::fs::canonicalize(dir), dir.display())?;
+    if !ancestors.insert(real.clone()) {
+        return Err(Error::Invalid(format!("{} contains a directory cycle", dir.display())));
+    }
+    for entry in ctx(std::fs::read_dir(dir), dir.display())? {
+        let path = ctx(entry, dir.display())?.path();
+        let metadata = ctx(std::fs::metadata(&path), path.display())?;
+        if !metadata.is_dir() && !metadata.is_file() {
+            return Err(Error::Invalid(format!("{} is not a regular file or directory", path.display())));
+        }
+        visit(&path, metadata.is_dir())?;
+        if metadata.is_dir() {
+            walk_tree(&path, ancestors, visit)?;
         }
     }
+    ancestors.remove(&real);
     Ok(())
 }
 
@@ -394,7 +433,6 @@ mod tests {
         dir
     }
 
-    /// Import source for one wallpaper
     fn one(lib: &Library, source: &Path, copy: bool, root: &Path) -> Result<Wallpaper> {
         let opts = ImportOptions { copy, thumbnails: false, temp_dir: root };
         let mut imported = lib.import(source.to_str().unwrap(), &opts, &mut |_| {})?;
@@ -528,6 +566,63 @@ mod tests {
         std::fs::write(only_bad.join("x.zip"), b"PK\x03\x04junk").unwrap();
         assert!(matches!(lib.import(only_bad.to_str().unwrap(), &opts, &mut |_| {}), Err(Error::Invalid(_))));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rejects_escaping_archive_paths_and_removes_partial_imports() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = Library { dir: root.path().join("library") };
+        for name in ["../escape", "/escape", "C:/escape", "..\\escape", "folder/../../escape", "folder\\..\\..\\escape"] {
+            let package = root.path().join("bad.zip");
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&package).unwrap());
+            let opts = zip::write::SimpleFileOptions::default();
+            zip.start_file(FILE_NAME, opts).unwrap();
+            zip.write_all(br#"{"Title":"Bad","Type":7,"FileName":"clip.mp4"}"#).unwrap();
+            zip.start_file(name, opts).unwrap();
+            zip.write_all(b"escape").unwrap();
+            zip.finish().unwrap();
+            assert!(one(&lib, &package, true, root.path()).is_err(), "{name}");
+            assert_eq!(std::fs::read_dir(&lib.dir).unwrap().count(), 0, "{name}");
+            assert!(!root.path().join("escape").exists());
+        }
+    }
+
+    #[test]
+    fn rejects_copying_a_project_into_itself() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = Library { dir: root.path().join("library") };
+        std::fs::write(root.path().join("index.html"), "site").unwrap();
+        assert!(one(&lib, root.path(), true, root.path()).is_err());
+        assert_eq!(std::fs::read_dir(&lib.dir).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn recursive_import_skips_its_library() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = Library { dir: root.path().join("library") };
+        std::fs::write(root.path().join("clip.mp4"), "video").unwrap();
+        one(&lib, root.path(), true, root.path()).unwrap();
+        assert_eq!(lib.scan().len(), 1);
+        one(&lib, root.path(), true, root.path()).unwrap();
+        assert_eq!(lib.scan().len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_cycles_fail_without_overwriting_an_export() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = Library { dir: root.path().join("library") };
+        let site = root.path().join("site");
+        std::fs::create_dir(&site).unwrap();
+        std::fs::write(site.join("index.html"), "site").unwrap();
+        std::os::unix::fs::symlink(&site, site.join("loop")).unwrap();
+        assert!(one(&lib, &site, true, root.path()).is_err());
+        assert_eq!(std::fs::read_dir(&lib.dir).unwrap().count(), 0);
+        let wp = one(&lib, &site, false, root.path()).unwrap();
+        let package = root.path().join("existing.zip");
+        std::fs::write(&package, "keep this").unwrap();
+        assert!(lib.export(&wp, &package).is_err());
+        assert_eq!(std::fs::read_to_string(package).unwrap(), "keep this");
     }
 
     #[test]

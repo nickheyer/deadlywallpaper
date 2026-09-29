@@ -1,5 +1,3 @@
-//! The application: state, daemon messages, navigation, dialogs and the glue between pages.
-
 use crate::ipc::{AudioDevice, Event, InfoPatch, Request, Response, Status};
 use crate::model::settings::Theme;
 use crate::model::{Arrangement, Kind, Settings, Summary};
@@ -72,7 +70,6 @@ impl Page {
     }
 }
 
-/// Storage key of the page to reopen on the next start.
 const PAGE_KEY: &str = "page";
 
 pub enum Dialog {
@@ -88,8 +85,8 @@ pub struct App {
     thumb_stamps: HashMap<PathBuf, SystemTime>,
     /// Settings as the daemon last reported or acknowledged them.
     saved: Option<Settings>,
-    /// Settings as edited on the Settings page.
     draft: Option<Settings>,
+    failed_settings: Option<Settings>,
     devices: Vec<AudioDevice>,
     selected_display: Option<String>,
     library_state: library::State,
@@ -119,6 +116,7 @@ impl App {
             thumb_stamps: HashMap::new(),
             saved: None,
             draft: None,
+            failed_settings: None,
             devices: Vec::new(),
             selected_display: None,
             library_state: library::State::default(),
@@ -136,8 +134,6 @@ impl App {
             paths,
         }
     }
-
-    // ---- daemon state ---------------------------------------------------------------------
 
     fn refresh_all(&mut self, ctx: &egui::Context) {
         self.refresh_status();
@@ -212,18 +208,29 @@ impl App {
         if saved.theme != draft.theme {
             self.apply_theme(ctx, draft.theme);
         }
-        if busy || draft == saved {
+        if busy || draft == saved || self.failed_settings.as_ref() == Some(draft) {
             return;
         }
-        let draft = draft.clone();
-        self.saved = Some(draft.clone());
-        self.send(Request::SetSettings { settings: draft });
+        let mut draft = draft.clone();
+        draft.normalize();
+        match self.backend.call(Request::SetSettings { settings: draft.clone() }) {
+            Ok(_) => {
+                self.saved = Some(draft.clone());
+                self.draft = Some(draft);
+                self.failed_settings = None;
+            }
+            Err(e) => {
+                self.failed_settings = self.draft.clone();
+                self.toasts.error(e.to_string());
+            }
+        }
     }
 
     fn handle_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.backend.rx.try_recv() {
             match msg {
                 UiMsg::Connected(client) => {
+                    self.failed_settings = None;
                     let was_down = self.connect_error.take().is_some();
                     self.backend.attach(ctx, *client);
                     self.refresh_all(ctx);
@@ -290,8 +297,6 @@ impl App {
         }
     }
 
-    /// One picker for every kind: media, web pages, programs and Lively packages. Programs
-    /// without a listed extension come in through "All files".
     fn pick_files(&mut self, ctx: &egui::Context) {
         let media: Vec<&str> = [Kind::Video, Kind::Gif, Kind::Picture].iter().flat_map(|k| k.extensions().iter().copied()).collect();
         let picked = rfd::FileDialog::new()
@@ -307,14 +312,11 @@ impl App {
         }
     }
 
-    /// Whole folders: each yields every wallpaper inside it.
     fn pick_folders(&mut self, ctx: &egui::Context) {
         if let Some(dirs) = rfd::FileDialog::new().pick_folders() {
             self.import_paths(ctx, dirs);
         }
     }
-
-    // ---- chrome ---------------------------------------------------------------------------
 
     fn nav(&mut self, ui: &mut egui::Ui) {
         let p = theme::palette(ui);
@@ -409,8 +411,6 @@ impl App {
         });
         ui.add_space(12.0);
     }
-
-    // ---- pages ----------------------------------------------------------------------------
 
     fn library_page(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let (displays, active): (Vec<_>, Vec<_>) = match &self.status {
@@ -509,8 +509,6 @@ impl App {
         }
     }
 
-    // ---- dialogs --------------------------------------------------------------------------
-
     fn dialogs(&mut self, ctx: &egui::Context) {
         let Some(dialog) = self.dialog.take() else { return };
         let p = theme::palette_of(ctx);
@@ -587,8 +585,6 @@ impl App {
         }
         self.dialog = next;
     }
-
-    // ---- actions --------------------------------------------------------------------------
 
     fn library_actions(&mut self, ctx: &egui::Context, actions: Vec<library::Action>) {
         for action in actions {

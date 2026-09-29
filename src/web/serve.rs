@@ -1,20 +1,19 @@
-//! Loopback HTTP server for wallpapers hosted by an external renderer. It serves a web
-//! wallpaper's files and streams engine events (properties, pause and volume, pointer motion,
-//! audio spectra) to the page as server-sent events.
+//! Loopback file server and event stream for externally rendered wallpapers.
 
 use crate::content::ContentId;
 use crate::error::{Error, Result};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{RecvTimeoutError, SyncSender, sync_channel};
 use std::time::Duration;
 
 struct Entry {
     root: Option<PathBuf>,
     token: String,
-    subscribers: Vec<TcpStream>,
+    subscribers: Vec<SyncSender<String>>,
     /// Events replayed to every new subscriber, keyed so later values replace earlier ones.
     retained: Vec<(String, String, String)>,
 }
@@ -42,20 +41,6 @@ impl Server {
                             let _ = std::thread::Builder::new().name("web-conn".into()).spawn(move || handle(stream, &entries));
                         }
                         Err(e) => log::warn!("web serve accept: {e}"),
-                    }
-                }
-            })
-            .map_err(|e| Error::Web(e.to_string()))?;
-        let ping_entries = entries.clone();
-        std::thread::Builder::new()
-            .name("web-serve-ping".into())
-            .spawn(move || {
-                loop {
-                    std::thread::sleep(Duration::from_secs(15));
-                    if let Ok(mut all) = ping_entries.lock() {
-                        for entry in all.values_mut() {
-                            entry.subscribers.retain_mut(|s| s.write_all(b": ping\n\n").and_then(|_| s.flush()).is_ok());
-                        }
                     }
                 }
             })
@@ -90,12 +75,11 @@ impl Server {
             entry.retained.push((key.to_string(), event.to_string(), data.to_string()));
         }
         let frame = format_event(event, data);
-        entry.subscribers.retain_mut(|s| s.write_all(frame.as_bytes()).and_then(|_| s.flush()).is_ok());
+        entry.subscribers.retain(|s| s.try_send(frame.clone()).is_ok());
     }
 
     pub fn page_url(&self, id: ContentId, relative: &str) -> String {
-        let rel = relative.replace('\\', "/");
-        format!("http://127.0.0.1:{}/c/{}/{}", self.port, id, rel.trim_start_matches('/'))
+        format!("http://127.0.0.1:{}/c/{}/{}", self.port, id, super::encode_path(relative))
     }
 
     pub fn events_url(&self, id: ContentId, token: &str) -> String {
@@ -160,21 +144,24 @@ fn handle(mut stream: TcpStream, entries: &Arc<Mutex<HashMap<ContentId, Entry>>>
         let _ = respond(&mut stream, 404, "text/plain", b"not found");
         return;
     };
-    let Some(file) = resolve(&root, &percent_decode(rel)) else {
-        let _ = respond(&mut stream, 403, "text/plain", b"forbidden");
-        return;
-    };
-    match std::fs::read(&file) {
-        Ok(body) => {
-            let mime = mime_guess::from_path(&file).first_or_octet_stream();
-            let ct = if mime.type_() == mime_guess::mime::TEXT || mime.subtype() == mime_guess::mime::JAVASCRIPT || mime.subtype() == mime_guess::mime::JSON {
-                format!("{mime}; charset=utf-8")
-            } else {
-                mime.to_string()
-            };
-            let _ = respond(&mut stream, 200, &ct, if method == "HEAD" { &[] } else { &body });
+    let file = match super::resolve(&root, rel) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            let _ = respond(&mut stream, 403, "text/plain", b"forbidden");
+            return;
         }
         Err(_) => {
+            let _ = respond(&mut stream, 404, "text/plain", b"not found");
+            return;
+        }
+    };
+    match std::fs::File::open(&file).and_then(|f| f.metadata().map(|m| (f, m))) {
+        Ok((mut body, metadata)) if metadata.is_file() => {
+            if headers(&mut stream, 200, &super::content_type(&file), metadata.len()).is_ok() && method != "HEAD" {
+                let _ = std::io::copy(&mut body, &mut stream);
+            }
+        }
+        _ => {
             let _ = respond(&mut stream, 404, "text/plain", b"not found");
         }
     }
@@ -184,29 +171,45 @@ fn subscribe(mut stream: TcpStream, entries: &Arc<Mutex<HashMap<ContentId, Entry
     let token = query.split('&').find_map(|kv| kv.strip_prefix("token=")).unwrap_or("");
     let Ok(mut all) = entries.lock() else { return };
     let Some(entry) = all.get_mut(&id) else {
+        drop(all);
         let _ = respond(&mut stream, 404, "text/plain", b"not found");
         return;
     };
     if token.is_empty() || token != entry.token {
+        drop(all);
         let _ = respond(&mut stream, 403, "text/plain", b"forbidden");
-        return;
-    }
-    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
-    if stream.write_all(head.as_bytes()).is_err() {
         return;
     }
     let mut replay = String::from(": connected\n\n");
     for (_, event, data) in &entry.retained {
         replay.push_str(&format_event(event, data));
     }
-    if stream.write_all(replay.as_bytes()).and_then(|_| stream.flush()).is_err() {
+    let (tx, rx) = sync_channel(32);
+    entry.subscribers.push(tx);
+    drop(all);
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
+    if stream.write_all(head.as_bytes()).and_then(|_| stream.write_all(replay.as_bytes())).is_err() {
         return;
     }
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
-    entry.subscribers.push(stream);
+    loop {
+        let frame = match rx.recv_timeout(Duration::from_secs(15)) {
+            Ok(frame) => frame,
+            Err(RecvTimeoutError::Timeout) => ": ping\n\n".into(),
+            Err(RecvTimeoutError::Disconnected) => return,
+        };
+        if stream.write_all(frame.as_bytes()).is_err() {
+            return;
+        }
+    }
 }
 
 fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8]) -> std::io::Result<()> {
+    headers(stream, status, content_type, body.len() as u64)?;
+    stream.write_all(body)
+}
+
+fn headers(stream: &mut TcpStream, status: u16, content_type: &str, length: u64) -> std::io::Result<()> {
     let reason = match status {
         200 => "OK",
         403 => "Forbidden",
@@ -215,54 +218,9 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8])
         _ => "Error",
     };
     let head = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
-        body.len()
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {length}\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
     );
-    stream.write_all(head.as_bytes())?;
-    stream.write_all(body)?;
-    stream.flush()
-}
-
-/// Join a request path onto the wallpaper root, refusing anything that escapes it.
-fn resolve(root: &Path, rel: &str) -> Option<PathBuf> {
-    let mut path = root.to_path_buf();
-    for part in rel.split('/') {
-        if part.is_empty() || part == "." {
-            continue;
-        }
-        if part == ".." {
-            return None;
-        }
-        path.push(part);
-    }
-    Some(path)
-}
-
-fn percent_decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            if let (Some(h), Some(l)) = (hex(bytes.get(i + 1).copied()), hex(bytes.get(i + 2).copied())) {
-                out.push(h << 4 | l);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn hex(b: Option<u8>) -> Option<u8> {
-    match b? {
-        c @ b'0'..=b'9' => Some(c - b'0'),
-        c @ b'a'..=b'f' => Some(c - b'a' + 10),
-        c @ b'A'..=b'F' => Some(c - b'A' + 10),
-        _ => None,
-    }
+    stream.write_all(head.as_bytes())
 }
 
 #[cfg(test)]
@@ -270,8 +228,6 @@ mod tests {
     use super::*;
     use std::io::Read;
 
-    /// Accumulate reads until `needle` arrives; the server writes headers and events in
-    /// separate segments.
     fn read_until(s: &mut TcpStream, needle: &str) -> String {
         let mut text = String::new();
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
@@ -299,6 +255,21 @@ mod tests {
         s.read_to_string(&mut body).unwrap();
         assert!(body.starts_with("HTTP/1.1 200"), "{body}");
         assert!(body.ends_with("<html>hi</html>"));
+
+        let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+        s.write_all(b"HEAD /c/7/index.html HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        let mut body = String::new();
+        s.read_to_string(&mut body).unwrap();
+        assert!(body.contains("Content-Length: 15\r\n"), "{body}");
+        assert!(body.ends_with("\r\n\r\n"));
+
+        std::fs::write(root.join("space #100%.html"), "encoded").unwrap();
+        let url: http::Uri = server.page_url(7, "space #100%.html").parse().unwrap();
+        let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+        s.write_all(format!("GET {} HTTP/1.1\r\n\r\n", url.path()).as_bytes()).unwrap();
+        let mut body = String::new();
+        s.read_to_string(&mut body).unwrap();
+        assert!(body.ends_with("encoded"), "{body}");
 
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
         s.write_all(b"GET /c/7/../etc/passwd HTTP/1.1\r\n\r\n").unwrap();

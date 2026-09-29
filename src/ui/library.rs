@@ -1,5 +1,3 @@
-//! The Library page: every wallpaper, filters, search, and the display a click applies to.
-
 use crate::ipc::ActiveInfo;
 use crate::model::{Arrangement, Display, Kind, Summary};
 use crate::ui::{theme, widgets};
@@ -34,13 +32,11 @@ pub struct View<'a> {
     pub hovering_files: bool,
 }
 
-/// Page state that outlives a frame.
 #[derive(Default)]
 pub struct State {
     pub search: String,
     /// Move keyboard focus into the search box once.
     pub search_focus: bool,
-    /// The link typed into the Add panel.
     pub link: String,
     /// Move keyboard focus into the link field once the Add panel opens.
     pub link_focus: bool,
@@ -119,7 +115,6 @@ pub fn page(ui: &mut egui::Ui, v: &View<'_>, state: &mut State) -> Vec<Action> {
     actions
 }
 
-/// Everything the Add button offers, in one panel under it: files, folders, and a link.
 fn add_popover(ui: &mut egui::Ui, add: &egui::Response, state: &mut State, actions: &mut Vec<Action>) {
     let id = egui::Id::new(ADD_POPUP);
     let frame = theme::popover_frame(ui);
@@ -187,7 +182,6 @@ fn short_name(d: &Display) -> String {
     if d.name.chars().count() > 26 { format!("{}…", d.name.chars().take(24).collect::<String>()) } else { d.name.clone() }
 }
 
-/// Which display a click applies to. Shown only when there is a choice to make.
 fn target_bar(ui: &mut egui::Ui, v: &View<'_>, actions: &mut Vec<Action>) {
     let p = theme::palette(ui);
     ui.horizontal_wrapped(|ui| {

@@ -1,6 +1,4 @@
-//! A wallpaper instance rendered by plasmashell. Engine calls become configuration writes
-//! on the containment; web pages additionally receive properties, pointer motion and audio
-//! spectra through the daemon's loopback event stream.
+//! Plasma wallpaper controlled through containment settings and a loopback event stream.
 
 use crate::content::{Content, ContentEvent, ContentId, PointerEvent, PointerKind, Seek};
 use crate::error::{Error, Result};
@@ -112,9 +110,7 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, shell: &Shell) 
     Ok(Box::new(content))
 }
 
-/// A generation that differs from every earlier one this daemon wrote and fits the plugin's
-/// 32-bit `Generation` key: milliseconds since the epoch folded into that range, bumped
-/// whenever two applies land in the same millisecond.
+/// Millisecond-based generation fitting Plasma's 32-bit key; increment on collisions.
 fn next_generation() -> i64 {
     use std::sync::atomic::AtomicI64;
     static LAST: AtomicI64 = AtomicI64::new(0);

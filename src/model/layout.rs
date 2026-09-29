@@ -1,5 +1,5 @@
 use crate::content::View;
-use crate::error::{Result, ctx};
+use crate::error::Result;
 use crate::geom::Rect;
 use crate::model::Display;
 use crate::model::display;
@@ -34,8 +34,7 @@ pub struct Assignment {
     pub wallpaper: String,
 }
 
-/// Where something sits in span space relative to where it starts: its centre shifted by `x`,
-/// `y` pixels, scaled by `scale`, rotated `rotation` degrees clockwise.
+/// Centre offset in pixels, scale, and clockwise rotation in degrees.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Pose {
@@ -79,8 +78,7 @@ pub struct Alignment {
     pub pose: Pose,
 }
 
-/// Desired wallpaper state, persisted as `layout.json`. Assignments for displays that are
-/// currently disconnected are kept so they restore when the display returns.
+/// layout.json; retains assignments for disconnected displays.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Layout {
@@ -121,7 +119,7 @@ impl Layout {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         let text = serde_json::to_string_pretty(self)?;
-        ctx(std::fs::write(path, text), path.display())
+        crate::paths::write(path, text)
     }
 
     pub fn assign(&mut self, display: &str, wallpaper: &str) {
@@ -233,10 +231,7 @@ impl Layout {
         }
     }
 
-    /// Expand the layout into concrete placements for the connected displays.
-    /// `spans` says whether the platform can present one region across several displays;
-    /// when it cannot, or when the image or a display has a pose, span runs one instance per
-    /// display, each showing its part of the image through [`Layout::view_for`].
+    /// Use one spanning surface when supported and untransformed; otherwise crop per display.
     pub fn plan(&self, displays: &[Display], spans: bool) -> Vec<Placement> {
         let Some(primary) = display::primary(displays) else { return Vec::new() };
         match self.arrangement {

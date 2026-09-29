@@ -1,5 +1,3 @@
-//! The Screens page: what plays where, the arrangement, and per-display controls.
-
 use crate::ipc::{ActiveInfo, Request, Status};
 use crate::model::{Arrangement, Display, Kind, Summary};
 use crate::ui::{align, theme, widgets};
@@ -58,7 +56,6 @@ pub fn page(ui: &mut egui::Ui, v: &View<'_>) -> Vec<Action> {
         ui.vertical_centered(|ui| {
             let max = egui::vec2((ui.available_width() - 20.0).min(860.0), 300.0);
             if arrangement == Arrangement::Span {
-                // The alignment editor: the shared image across the displays, all adjustable.
                 let shared = status.layout.shared.as_deref().and_then(|id| summary(v.library, id));
                 let kind = shared.map(|s| s.kind);
                 let thumbnail = shared.and_then(|s| s.thumbnail.as_deref()).map(widgets::thumbnail_uri);

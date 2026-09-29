@@ -1,5 +1,4 @@
-//! Live property editor for one running wallpaper: the controls of its `LivelyProperties.json`
-//! copy, or the built-in media controls.
+//! Live wallpaper property editor.
 
 use crate::error::Result;
 use crate::ipc::{Request, Response, Status};

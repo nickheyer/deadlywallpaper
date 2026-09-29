@@ -1,5 +1,4 @@
-//! Minimal libmpv client and render API bindings, loaded at runtime so the binary starts
-//! without libmpv installed and reports a clear error when a media wallpaper needs it.
+//! Runtime-loaded libmpv client and render API bindings.
 
 use crate::error::{Error, Result};
 use libloading::{Library, Symbol};

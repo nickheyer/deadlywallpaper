@@ -45,8 +45,7 @@ impl Client {
         loop {
             match Client::connect() {
                 Ok(c) => return Ok(c),
-                Err(e) if start.elapsed() < timeout => {
-                    let _ = e;
+                Err(_) if start.elapsed() < timeout => {
                     std::thread::sleep(Duration::from_millis(100));
                 }
                 Err(e) => return Err(e),

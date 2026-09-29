@@ -1,10 +1,7 @@
 import QtQuick
 import org.kde.plasma.plasmoid
 
-// Stable entry point. plasmashell caches QML components by URL for as long as it runs, so
-// this file never changes: the implementation lives in a directory named after its own
-// content hash, chosen through the `Impl` configuration key the daemon writes, which gives
-// every build a fresh URL.
+// Keep this entry point stable; content-hashed Impl URLs bypass Plasma's QML cache.
 WallpaperItem {
     id: root
 

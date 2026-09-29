@@ -1,5 +1,3 @@
-//! The About page: version, how wallpapers are presented on this desktop, and useful folders.
-
 use crate::ipc::Status;
 use crate::model::Settings;
 use crate::paths::Paths;
@@ -104,8 +102,6 @@ fn presenter_label(presenter: &str) -> String {
     }
 }
 
-/// One row of the Files card: a name, a path that is cut with an ellipsis when too long, and
-/// an optional button. Returns true when the button was clicked.
 fn file_row(ui: &mut egui::Ui, name: &str, path: &str, button: Option<&str>) -> bool {
     let p = theme::palette(ui);
     let mut clicked = false;

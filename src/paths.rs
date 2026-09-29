@@ -1,5 +1,6 @@
 use crate::error::{Error, Result, ctx};
 use std::path::{Path, PathBuf};
+use std::io::Write;
 
 pub const APP_ID: &str = "deadlywp";
 pub const APP_NAME: &str = "Deadly Wallpaper";
@@ -82,6 +83,15 @@ pub fn file_name(p: &Path) -> String {
     p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
+/// Replace a file only after its complete contents have been written.
+pub fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut file = ctx(tempfile::NamedTempFile::new_in(parent), path.display())?;
+    ctx(file.write_all(contents.as_ref()), path.display())?;
+    ctx(file.as_file().sync_all(), path.display())?;
+    ctx(file.persist(path).map(|_| ()).map_err(|e| e.error), path.display())
+}
+
 /// Filesystem-safe, ASCII-only slug of a title, used for library directory names.
 pub fn slug(s: &str) -> String {
     let mut out = String::new();
@@ -102,7 +112,7 @@ pub fn slug(s: &str) -> String {
     if out.is_empty() { "wallpaper".into() } else { out }
 }
 
-/// Short random suffix: time and address entropy, hex encoded.
+/// Random suffix for temporary files and library entries.
 pub fn nonce() -> String {
     use std::hash::{BuildHasher, Hasher};
     let mut h = std::hash::RandomState::new().build_hasher();

@@ -1,6 +1,4 @@
-//! GTK background canvases for desktops without their own wallpaper renderer: one
-//! wlr-layer-shell surface per display on Wayland compositors that offer it, one keep-below
-//! toplevel per display on X11.
+//! GTK wallpaper surfaces using wlr-layer-shell or X11 keep-below windows.
 
 use crate::error::{Error, Result};
 use crate::geom::{Rect, Size};
@@ -75,9 +73,7 @@ impl Shell {
         (window, layout)
     }
 
-    /// One undecorated, sticky, keep-below toplevel per display. The EWMH "below" layer sits
-    /// above desktop-type windows (which window managers keep at the very bottom under their
-    /// own desktop) and under every normal window.
+    /// EWMH keep-below windows sit above desktop windows and below applications.
     fn x11_canvas(&mut self, display: &Display) -> Result<()> {
         let (window, layout) = self.new_window();
         let r = display.rect;
@@ -180,9 +176,7 @@ fn all_desktops_hint(window: &gdk::Window) {
     gdk::property_change(window, &gdk::Atom::intern("_NET_WM_DESKTOP"), &gdk::Atom::intern("CARDINAL"), 32, gdk::PropMode::Replace, gdk::ChangeData::UChars(&all));
 }
 
-/// After mapping, ask the window manager (through EWMH client messages, the only channel it
-/// honors for mapped windows) to show the canvas on every desktop, keep it below other
-/// windows, leave it out of switchers, and drop the attention flag raised by mapping unfocused.
+/// Mapped windows require EWMH client messages to change desktop and stacking hints.
 fn pin_x11(window: &gdk::Window) -> Result<()> {
     use glib::translate::ToGlibPtr;
     use x11rb::connection::Connection;

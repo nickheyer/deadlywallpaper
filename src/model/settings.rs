@@ -1,4 +1,4 @@
-use crate::error::{Result, ctx};
+use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -266,7 +266,7 @@ impl Settings {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         let text = serde_json::to_string_pretty(self)?;
-        ctx(std::fs::write(path, text), path.display())
+        crate::paths::write(path, text)
     }
 
     pub fn normalize(&mut self) {

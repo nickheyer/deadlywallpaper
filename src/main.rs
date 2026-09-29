@@ -124,10 +124,7 @@ fn main() {
 fn run(command: Option<Command>) -> Result<()> {
     match command {
         Some(Command::Daemon) => daemon::run(),
-        None | Some(Command::Ui) => {
-            ensure_daemon()?;
-            ui::run()
-        }
+        None | Some(Command::Ui) => ui::run(),
         Some(cmd) => client_command(cmd),
     }
 }

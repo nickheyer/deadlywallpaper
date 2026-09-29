@@ -52,8 +52,7 @@ pub const BRIDGE: &str = r#"(() => {
 
 /// URL under which a local wallpaper file is served.
 pub fn page_url(relative: &str) -> String {
-    let rel = relative.replace('\\', "/");
-    let rel = rel.trim_start_matches('/');
+    let rel = encode_path(relative);
     if cfg!(windows) { format!("http://{SCHEME}.localhost/{rel}") } else { format!("{SCHEME}://localhost/{rel}") }
 }
 
@@ -103,28 +102,16 @@ pub fn builder(spec: &ContentSpec<'_>, tx: MsgSender) -> Result<WebViewBuilder<'
 }
 
 fn serve(root: &Path, req: http::Request<Vec<u8>>) -> http::Response<Cow<'static, [u8]>> {
-    let rel = percent_decode(req.uri().path()).trim_start_matches('/').to_string();
-    let mut path = root.to_path_buf();
-    for part in rel.split('/') {
-        if part.is_empty() || part == "." {
-            continue;
-        }
-        if part == ".." {
-            return status(403, "forbidden");
-        }
-        path.push(part);
-    }
+    let path = match resolve(root, req.uri().path().trim_start_matches('/')) {
+        Ok(path) => path,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return status(403, "forbidden"),
+        Err(_) => return status(404, "not found"),
+    };
     match std::fs::read(&path) {
         Ok(body) => {
-            let mime = mime_guess::from_path(&path).first_or_octet_stream();
-            let ct = if mime.type_() == mime_guess::mime::TEXT || mime.subtype() == mime_guess::mime::JAVASCRIPT || mime.subtype() == mime_guess::mime::JSON {
-                format!("{mime}; charset=utf-8")
-            } else {
-                mime.to_string()
-            };
             http::Response::builder()
                 .status(200)
-                .header("Content-Type", ct)
+                .header("Content-Type", content_type(&path))
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Cache-Control", "no-cache")
                 .body(Cow::Owned(body))
@@ -140,6 +127,45 @@ fn status(code: u16, text: &'static str) -> http::Response<Cow<'static, [u8]>> {
         .header("Content-Type", "text/plain")
         .body(Cow::Borrowed(text.as_bytes()))
         .expect("static response")
+}
+
+fn content_type(path: &Path) -> String {
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    if mime.type_() == mime_guess::mime::TEXT || mime.subtype() == mime_guess::mime::JAVASCRIPT || mime.subtype() == mime_guess::mime::JSON {
+        format!("{mime}; charset=utf-8")
+    } else {
+        mime.to_string()
+    }
+}
+
+fn encode_path(relative: &str) -> String {
+    use std::fmt::Write;
+    let mut encoded = String::new();
+    for b in relative.replace('\\', "/").trim_start_matches('/').bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.' | b'~') {
+            encoded.push(b as char);
+        } else {
+            write!(encoded, "%{b:02X}").expect("writing to String");
+        }
+    }
+    encoded
+}
+
+fn resolve(root: &Path, relative: &str) -> std::io::Result<PathBuf> {
+    use std::io::{Error, ErrorKind};
+    use std::path::Component;
+    let relative = percent_decode(relative);
+    if relative.contains(['\\', ':', '\0'])
+        || Path::new(&relative).components().any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+    {
+        return Err(Error::new(ErrorKind::PermissionDenied, "path outside wallpaper folder"));
+    }
+    let root = root.canonicalize()?;
+    let path = root.join(relative).canonicalize()?;
+    if !path.starts_with(&root) {
+        return Err(Error::new(ErrorKind::PermissionDenied, "path outside wallpaper folder"));
+    }
+    Ok(path)
 }
 
 fn percent_decode(s: &str) -> String {
@@ -166,6 +192,46 @@ fn hex(b: Option<u8>) -> Option<u8> {
         c @ b'a'..=b'f' => Some(c - b'a' + 10),
         c @ b'A'..=b'F' => Some(c - b'A' + 10),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serves_filenames_with_url_characters() {
+        let root = tempfile::tempdir().unwrap();
+        let name = "night #1? 100% ü.html";
+        std::fs::write(root.path().join(name), "wallpaper").unwrap();
+        let url = page_url(name);
+        let request = http::Request::builder().uri(url).body(Vec::new()).unwrap();
+        let response = serve(root.path(), request);
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.body().as_ref(), b"wallpaper");
+    }
+
+    #[test]
+    fn rejects_paths_outside_the_wallpaper_folder() {
+        let root = tempfile::tempdir().unwrap();
+        for path in ["../secret", "%2e%2e/secret", "..%5csecret", "%2Fsecret", "C%3A/secret", "%00"] {
+            assert_eq!(resolve(root.path(), path).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied, "{path}");
+        }
+        assert_eq!(resolve(root.path(), "missing").unwrap_err().kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_must_stay_inside_the_wallpaper_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let site = root.path().join("site");
+        std::fs::create_dir(&site).unwrap();
+        std::fs::write(root.path().join("secret"), "secret").unwrap();
+        std::fs::write(site.join("asset"), "asset").unwrap();
+        std::os::unix::fs::symlink(root.path().join("secret"), site.join("outside")).unwrap();
+        std::os::unix::fs::symlink(site.join("asset"), site.join("inside")).unwrap();
+        assert_eq!(resolve(&site, "outside").unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(std::fs::read(resolve(&site, "inside").unwrap()).unwrap(), b"asset");
     }
 }
 

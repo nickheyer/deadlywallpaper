@@ -1,5 +1,3 @@
-//! The control window: an egui client of the daemon.
-
 mod about;
 mod align;
 mod app;
@@ -18,16 +16,11 @@ use eframe::egui;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-/// Messages from worker threads to the UI thread.
 pub enum UiMsg {
-    /// A connection attempt succeeded; the client is handed over to the UI thread.
     Connected(Box<Client>),
-    /// A connection attempt failed with this message.
     ConnectFailed(String),
     Event(Event),
-    /// Outcome of a background request, labeled for the toast.
     Done { label: String, result: Box<Result<Response>> },
-    /// The event stream ended: the daemon went away.
     Disconnected,
 }
 
@@ -58,9 +51,7 @@ pub fn run() -> Result<()> {
     .map_err(|e| Error::Platform(format!("window: {e}")))
 }
 
-/// Request plumbing shared by the UI: one blocking connection for quick calls, a subscription
-/// thread that turns daemon events into repaints, and connection attempts that never block
-/// the UI thread.
+/// Daemon connection and event subscription.
 pub struct Backend {
     client: Option<Client>,
     connecting: bool,
@@ -74,8 +65,7 @@ impl Backend {
         Backend { client: None, connecting: false, tx, rx }
     }
 
-    /// Start the daemon when needed and connect, on a worker thread. The outcome arrives as
-    /// [`UiMsg::Connected`] or [`UiMsg::ConnectFailed`].
+    /// Connect on a worker thread; report success or failure through UiMsg.
     pub fn connect(&mut self, ctx: &egui::Context) {
         if self.client.is_some() || self.connecting {
             return;
@@ -130,7 +120,7 @@ impl Backend {
         self.connecting
     }
 
-    /// Synchronous request; the daemon answers these immediately.
+    /// Blocking request.
     pub fn call(&mut self, req: Request) -> Result<Response> {
         let Some(client) = self.client.as_mut() else { return Err(Error::Ipc("not connected".into())) };
         match client.call(&req) {

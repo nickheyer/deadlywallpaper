@@ -1,6 +1,4 @@
-//! Draws a libmpv frame through an instance's [`View`]: the frame is rendered into a texture
-//! the size of the image, then that texture is drawn onto the slot scaled, turned and shifted.
-//! Shared by the render-API backends; the GL context must be current for every call.
+//! Render libmpv into a texture, then apply View to the slot. Requires a current GL context.
 
 use crate::content::View;
 use crate::geom::Size;
@@ -365,8 +363,6 @@ pub fn render_view(ctx: &RenderContext, quad: &mut Option<Quad>, view: &View, sl
 mod tests {
     use super::*;
 
-    /// The matrix `draw` builds must be an exact copy for a whole view, and place the image
-    /// centre at the slot centre plus the shift otherwise.
     #[test]
     fn view_matrix_is_a_copy_for_a_whole_view() {
         let slot = Size { w: 1920, h: 1080 };

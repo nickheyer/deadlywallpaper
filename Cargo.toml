@@ -33,6 +33,7 @@ wry = "0.57"
 tray-icon = { version = "0.25", default-features = false, features = ["libappindicator"] }
 raw-window-handle = "0.6"
 http = "1.1"
+tempfile = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
