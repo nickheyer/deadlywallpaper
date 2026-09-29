@@ -43,7 +43,13 @@ pub enum WindowPlacement {
     /// Frame geometry in desktop coordinates.
     Rect(Rect),
     /// Only the origins of the outputs the window is on are known.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "reported only by the wlroots foreign-toplevel monitor"))]
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(
+            dead_code,
+            reason = "reported only by the wlroots foreign-toplevel monitor"
+        )
+    )]
     Outputs(Vec<(i32, i32)>),
 }
 

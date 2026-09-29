@@ -34,7 +34,13 @@ pub struct Analyzer {
 impl Analyzer {
     pub fn new() -> Analyzer {
         let fft = RealFftPlanner::<f32>::new().plan_fft_forward(WINDOW);
-        Analyzer { input: fft.make_input_vec(), spectrum: fft.make_output_vec(), fft, pending: Vec::with_capacity(WINDOW * 2), previous: vec![0.0; BINS] }
+        Analyzer {
+            input: fft.make_input_vec(),
+            spectrum: fft.make_output_vec(),
+            fft,
+            pending: Vec::with_capacity(WINDOW * 2),
+            previous: vec![0.0; BINS],
+        }
     }
 
     /// Feed mono samples; returns a frame whenever a full window has accumulated.
@@ -45,20 +51,35 @@ impl Analyzer {
         }
         self.input.copy_from_slice(&self.pending[..WINDOW]);
         self.pending.drain(..WINDOW);
-        if self.fft.process(&mut self.input, &mut self.spectrum).is_err() {
+        if self
+            .fft
+            .process(&mut self.input, &mut self.spectrum)
+            .is_err()
+        {
             return None;
         }
         let scale = 1.0 / (WINDOW as f32).sqrt();
-        let current: Vec<f32> = self.spectrum.iter().take(BINS).map(|c| c.norm() * scale).collect();
-        let vertical: Vec<f32> = current.iter().zip(&self.previous).map(|(a, b)| (a + b) / 2.0).collect();
+        let current: Vec<f32> = self
+            .spectrum
+            .iter()
+            .take(BINS)
+            .map(|c| c.norm() * scale)
+            .collect();
+        let vertical: Vec<f32> = current
+            .iter()
+            .zip(&self.previous)
+            .map(|(a, b)| (a + b) / 2.0)
+            .collect();
         self.previous = current;
-        Some((0..BINS)
-            .map(|i| {
-                let lo = i.saturating_sub(1);
-                let hi = (i + 2).min(BINS);
-                vertical[lo..hi].iter().sum::<f32>() / 4.0
-            })
-            .collect())
+        Some(
+            (0..BINS)
+                .map(|i| {
+                    let lo = i.saturating_sub(1);
+                    let hi = (i + 2).min(BINS);
+                    vertical[lo..hi].iter().sum::<f32>() / 4.0
+                })
+                .collect(),
+        )
     }
 }
 
@@ -94,5 +115,8 @@ pub fn downmix(samples: &[f32], channels: usize) -> Vec<f32> {
     if channels <= 1 {
         return samples.to_vec();
     }
-    samples.chunks_exact(channels).map(|f| f.iter().sum::<f32>() / channels as f32).collect()
+    samples
+        .chunks_exact(channels)
+        .map(|f| f.iter().sum::<f32>() / channels as f32)
+        .collect()
 }

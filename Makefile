@@ -11,7 +11,7 @@ BIN          := $(DIST)/$(if $(filter Release,$(CONFIG)),release,debug)/deadlywp
 CARGO_FLAGS  := $(if $(filter Release,$(CONFIG)),--release,)
 export CARGO_TARGET_DIR := $(DIST)
 
-.PHONY: build check test run daemon ui install uninstall check-all shaders icons clean
+.PHONY: build check test run daemon ui install uninstall check-all release shaders icons clean
 
 build:
 	cargo build $(CARGO_FLAGS)
@@ -53,6 +53,9 @@ check-all:
 	cargo check $(CARGO_FLAGS) --target x86_64-pc-windows-msvc
 	$(APPLE_CC) cargo check $(CARGO_FLAGS) --target x86_64-apple-darwin
 	$(APPLE_CC) cargo check $(CARGO_FLAGS) --target aarch64-apple-darwin
+
+release:
+	bash $(ROOT)/scripts/release/pushReleaseTag.sh $(RELEASE_FLAGS)
 
 # Requires qt6-shadertools.
 shaders:

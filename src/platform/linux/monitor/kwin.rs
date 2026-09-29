@@ -12,8 +12,8 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use zbus::blocking::{Connection, Proxy};
 use zbus::blocking::connection::Builder;
+use zbus::blocking::{Connection, Proxy};
 
 pub const SERVICE: &str = "org.deadlywp.Daemon";
 const PLUGIN: &str = "deadlywp";
@@ -69,13 +69,22 @@ if (__TRACK_POINTER__) {
 "#;
 
 fn script_text(track_pointer: bool) -> String {
-    SCRIPT.replace("__TRACK_POINTER__", if track_pointer { "true" } else { "false" })
+    SCRIPT.replace(
+        "__TRACK_POINTER__",
+        if track_pointer { "true" } else { "false" },
+    )
 }
 
 pub fn available() -> bool {
-    let Ok(conn) = Connection::session() else { return false };
-    let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&conn) else { return false };
-    let Ok(name) = zbus::names::BusName::try_from("org.kde.KWin") else { return false };
+    let Ok(conn) = Connection::session() else {
+        return false;
+    };
+    let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&conn) else {
+        return false;
+    };
+    let Ok(name) = zbus::names::BusName::try_from("org.kde.KWin") else {
+        return false;
+    };
     dbus.name_has_owner(name).unwrap_or(false)
 }
 
@@ -119,9 +128,15 @@ impl Sink {
     }
 
     fn pointer(&self, position: String) {
-        let Some((x, y)) = position.split_once(',') else { return };
+        let Some((x, y)) = position.split_once(',') else {
+            return;
+        };
         if let (Ok(x), Ok(y)) = (x.trim().parse::<i32>(), y.trim().parse::<i32>()) {
-            self.tx.send(Msg::Pointer { x, y, kind: PointerKind::Move });
+            self.tx.send(Msg::Pointer {
+                x,
+                y,
+                kind: PointerKind::Move,
+            });
         }
     }
 }
@@ -143,23 +158,37 @@ impl Kwin {
         let track = Arc::new(AtomicBool::new(track_pointer));
         std::fs::write(&script, script_text(track_pointer))?;
         load(&conn, &script)?;
-        let (watcher, watched_script, watched_track) = (conn.clone(), script.clone(), track.clone());
-        let _ = std::thread::Builder::new().name("kwin-watch".into()).spawn(move || {
-            let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&watcher) else { return };
-            let Ok(changes) = dbus.receive_name_owner_changed() else { return };
-            for change in changes {
-                if let Ok(args) = change.args() {
-                    if args.name() == "org.kde.KWin" && args.new_owner().is_some() {
-                        std::thread::sleep(std::time::Duration::from_secs(2));
-                        let text = script_text(watched_track.load(Ordering::Relaxed));
-                        if let Err(e) = std::fs::write(&watched_script, text).map_err(Error::Io).and_then(|_| load(&watcher, &watched_script)) {
-                            log::warn!("reload KWin monitor script: {e}");
+        let (watcher, watched_script, watched_track) =
+            (conn.clone(), script.clone(), track.clone());
+        let _ = std::thread::Builder::new()
+            .name("kwin-watch".into())
+            .spawn(move || {
+                let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&watcher) else {
+                    return;
+                };
+                let Ok(changes) = dbus.receive_name_owner_changed() else {
+                    return;
+                };
+                for change in changes {
+                    if let Ok(args) = change.args() {
+                        if args.name() == "org.kde.KWin" && args.new_owner().is_some() {
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                            let text = script_text(watched_track.load(Ordering::Relaxed));
+                            if let Err(e) = std::fs::write(&watched_script, text)
+                                .map_err(Error::Io)
+                                .and_then(|_| load(&watcher, &watched_script))
+                            {
+                                log::warn!("reload KWin monitor script: {e}");
+                            }
                         }
                     }
                 }
-            }
-        });
-        Ok(Kwin { conn, script, track })
+            });
+        Ok(Kwin {
+            conn,
+            script,
+            track,
+        })
     }
 
     /// Rewrite and reload the script with pointer streaming on or off.
@@ -167,7 +196,10 @@ impl Kwin {
         if self.track.swap(track_pointer, Ordering::Relaxed) == track_pointer {
             return;
         }
-        if let Err(e) = std::fs::write(&self.script, script_text(track_pointer)).map_err(Error::Io).and_then(|_| load(&self.conn, &self.script)) {
+        if let Err(e) = std::fs::write(&self.script, script_text(track_pointer))
+            .map_err(Error::Io)
+            .and_then(|_| load(&self.conn, &self.script))
+        {
             log::warn!("reload KWin monitor script: {e}");
         }
     }
@@ -175,14 +207,20 @@ impl Kwin {
 
 impl Drop for Kwin {
     fn drop(&mut self) {
-        if let Ok(scripting) = Proxy::new(&self.conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting") {
+        if let Ok(scripting) = Proxy::new(
+            &self.conn,
+            "org.kde.KWin",
+            "/Scripting",
+            "org.kde.kwin.Scripting",
+        ) {
             let _: std::result::Result<bool, _> = scripting.call("unloadScript", &(PLUGIN,));
         }
     }
 }
 
 fn load(conn: &Connection, script: &std::path::Path) -> Result<()> {
-    let scripting = Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").map_err(|e| Error::Platform(e.to_string()))?;
+    let scripting = Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting")
+        .map_err(|e| Error::Platform(e.to_string()))?;
     let _: std::result::Result<bool, _> = scripting.call("unloadScript", &(PLUGIN,));
     let id: i32 = scripting
         .call("loadScript", &(script.to_string_lossy().as_ref(), PLUGIN))
@@ -190,7 +228,9 @@ fn load(conn: &Connection, script: &std::path::Path) -> Result<()> {
     if id < 0 {
         return Err(Error::Platform("KWin rejected the monitor script".into()));
     }
-    scripting.call_method("start", &()).map_err(|e| Error::Platform(format!("start scripts: {e}")))?;
+    scripting
+        .call_method("start", &())
+        .map_err(|e| Error::Platform(format!("start scripts: {e}")))?;
     log::info!("KWin window monitor script loaded");
     Ok(())
 }

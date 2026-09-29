@@ -8,8 +8,12 @@ use std::collections::HashMap;
 use wayland_backend::client::ObjectId;
 use wayland_client::protocol::{wl_output, wl_registry};
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
-use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_handle_v1::{self, ZwlrForeignToplevelHandleV1};
-use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_manager_v1::{self, ZwlrForeignToplevelManagerV1};
+use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_handle_v1::{
+    self, ZwlrForeignToplevelHandleV1,
+};
+use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_manager_v1::{
+    self, ZwlrForeignToplevelManagerV1,
+};
 
 #[derive(Default)]
 struct Toplevel {
@@ -30,8 +34,20 @@ struct State {
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for State {
-    fn event(state: &mut Self, registry: &wl_registry::WlRegistry, event: wl_registry::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
-        if let wl_registry::Event::Global { name, interface, version } = event {
+    fn event(
+        state: &mut Self,
+        registry: &wl_registry::WlRegistry,
+        event: wl_registry::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = event
+        {
             match interface.as_str() {
                 "zwlr_foreign_toplevel_manager_v1" => {
                     state.manager = Some(registry.bind(name, version.min(3), qh, ()));
@@ -47,7 +63,14 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
 }
 
 impl Dispatch<wl_output::WlOutput, ()> for State {
-    fn event(state: &mut Self, output: &wl_output::WlOutput, event: wl_output::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        state: &mut Self,
+        output: &wl_output::WlOutput,
+        event: wl_output::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         if let wl_output::Event::Geometry { x, y, .. } = event {
             state.outputs.insert(output.id(), (x, y));
             state.dirty = true;
@@ -56,7 +79,14 @@ impl Dispatch<wl_output::WlOutput, ()> for State {
 }
 
 impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for State {
-    fn event(state: &mut Self, _: &ZwlrForeignToplevelManagerV1, event: zwlr_foreign_toplevel_manager_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        state: &mut Self,
+        _: &ZwlrForeignToplevelManagerV1,
+        event: zwlr_foreign_toplevel_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         if let zwlr_foreign_toplevel_manager_v1::Event::Toplevel { toplevel } = event {
             state.toplevels.insert(toplevel.id(), Toplevel::default());
         }
@@ -68,7 +98,14 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for State {
 }
 
 impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for State {
-    fn event(state: &mut Self, handle: &ZwlrForeignToplevelHandleV1, event: zwlr_foreign_toplevel_handle_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        state: &mut Self,
+        handle: &ZwlrForeignToplevelHandleV1,
+        event: zwlr_foreign_toplevel_handle_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         use zwlr_foreign_toplevel_handle_v1::Event;
         let id = handle.id();
         match event {
@@ -84,13 +121,18 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for State {
             }
             _ => {}
         }
-        let Some(t) = state.toplevels.get_mut(&id) else { return };
+        let Some(t) = state.toplevels.get_mut(&id) else {
+            return;
+        };
         match event {
             Event::AppId { app_id } => t.app = app_id,
             Event::OutputEnter { output } => t.outputs.push(output.id()),
             Event::OutputLeave { output } => t.outputs.retain(|o| *o != output.id()),
             Event::State { state: bytes } => {
-                let flags: Vec<u32> = bytes.chunks_exact(4).map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]])).collect();
+                let flags: Vec<u32> = bytes
+                    .chunks_exact(4)
+                    .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
                 t.maximized = flags.contains(&0);
                 t.minimized = flags.contains(&1);
                 t.activated = flags.contains(&2);
@@ -103,7 +145,9 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for State {
 
 /// Start the monitor thread; `false` when the compositor lacks the protocol.
 pub fn start(tx: MsgSender) -> bool {
-    let Ok(conn) = Connection::connect_to_env() else { return false };
+    let Ok(conn) = Connection::connect_to_env() else {
+        return false;
+    };
     let mut queue = conn.new_event_queue::<State>();
     let qh = queue.handle();
     let _registry = conn.display().get_registry(&qh, ());
@@ -126,7 +170,12 @@ pub fn start(tx: MsgSender) -> bool {
                         .values()
                         .filter(|t| !t.minimized)
                         .map(|t| WindowInfo {
-                            placement: WindowPlacement::Outputs(t.outputs.iter().filter_map(|o| state.outputs.get(o).copied()).collect()),
+                            placement: WindowPlacement::Outputs(
+                                t.outputs
+                                    .iter()
+                                    .filter_map(|o| state.outputs.get(o).copied())
+                                    .collect(),
+                            ),
                             fullscreen: t.fullscreen,
                             maximized: t.maximized,
                             focused: t.activated,

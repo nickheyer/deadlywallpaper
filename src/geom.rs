@@ -54,11 +54,18 @@ impl Rect {
         }
         let x = self.x.min(o.x);
         let y = self.y.min(o.y);
-        Rect::new(x, y, self.right().max(o.right()) - x, self.bottom().max(o.bottom()) - y)
+        Rect::new(
+            x,
+            y,
+            self.right().max(o.right()) - x,
+            self.bottom().max(o.bottom()) - y,
+        )
     }
 
     pub fn bounds<'a>(rects: impl IntoIterator<Item = &'a Rect>) -> Rect {
-        rects.into_iter().fold(Rect::default(), |acc, r| acc.union(r))
+        rects
+            .into_iter()
+            .fold(Rect::default(), |acc, r| acc.union(r))
     }
 
     /// Fraction of `self` covered by the union of `covers`, exact via scanline decomposition.

@@ -9,7 +9,9 @@ use std::sync::OnceLock;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetForegroundWindow, GetSystemMetrics, HHOOK, MSLLHOOKSTRUCT, SM_SWAPBUTTON, SetWindowsHookExW, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    CallNextHookEx, GetForegroundWindow, GetSystemMetrics, HHOOK, MSLLHOOKSTRUCT, SM_SWAPBUTTON,
+    SetWindowsHookExW, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN,
+    WM_RBUTTONUP,
 };
 
 static TX: OnceLock<MsgSender> = OnceLock::new();
@@ -34,7 +36,10 @@ pub fn desktop_foreground() -> bool {
     if fg.0.is_null() {
         return true;
     }
-    matches!(class_name(fg).as_str(), "WorkerW" | "Progman" | "DeadlyWallpaperSurface")
+    matches!(
+        class_name(fg).as_str(),
+        "WorkerW" | "Progman" | "DeadlyWallpaperSurface"
+    )
 }
 
 unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -53,10 +58,21 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
         };
         if let (Some(kind), Some(tx)) = (kind, TX.get()) {
             if kind == PointerKind::Move || desktop_foreground() {
-                tx.send(Msg::Pointer { x: info.pt.x, y: info.pt.y, kind });
+                tx.send(Msg::Pointer {
+                    x: info.pt.x,
+                    y: info.pt.y,
+                    kind,
+                });
             }
         }
     }
     // SAFETY: standard hook chaining.
-    unsafe { CallNextHookEx(Some(HHOOK(HOOK.get().copied().unwrap_or(0) as *mut _)), code, wparam, lparam) }
+    unsafe {
+        CallNextHookEx(
+            Some(HHOOK(HOOK.get().copied().unwrap_or(0) as *mut _)),
+            code,
+            wparam,
+            lparam,
+        )
+    }
 }

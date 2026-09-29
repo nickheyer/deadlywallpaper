@@ -20,14 +20,18 @@ pub enum UiMsg {
     Connected(Box<Client>),
     ConnectFailed(String),
     Event(Event),
-    Done { label: String, result: Box<Result<Response>> },
+    Done {
+        label: String,
+        result: Box<Result<Response>>,
+    },
     Disconnected,
 }
 
 pub fn run() -> Result<()> {
     let paths = Paths::discover()?;
     crate::logger::init(None, true);
-    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../../assets/icon.png")).map_err(|e| Error::Platform(format!("icon: {e}")))?;
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../../assets/icon.png"))
+        .map_err(|e| Error::Platform(format!("icon: {e}")))?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(crate::paths::APP_NAME)
@@ -62,7 +66,12 @@ pub struct Backend {
 impl Backend {
     pub fn new() -> Backend {
         let (tx, rx) = channel();
-        Backend { client: None, connecting: false, tx, rx }
+        Backend {
+            client: None,
+            connecting: false,
+            tx,
+            rx,
+        }
     }
 
     /// Connect on a worker thread; report success or failure through UiMsg.
@@ -73,7 +82,8 @@ impl Backend {
         self.connecting = true;
         let (tx, ctx) = (self.tx.clone(), ctx.clone());
         std::thread::spawn(move || {
-            let result = crate::ensure_daemon().and_then(|_| Client::connect_within(Duration::from_secs(5)));
+            let result =
+                crate::ensure_daemon().and_then(|_| Client::connect_within(Duration::from_secs(5)));
             let msg = match result {
                 Ok(client) => UiMsg::Connected(Box::new(client)),
                 Err(e) => UiMsg::ConnectFailed(e.to_string()),
@@ -122,7 +132,9 @@ impl Backend {
 
     /// Blocking request.
     pub fn call(&mut self, req: Request) -> Result<Response> {
-        let Some(client) = self.client.as_mut() else { return Err(Error::Ipc("not connected".into())) };
+        let Some(client) = self.client.as_mut() else {
+            return Err(Error::Ipc("not connected".into()));
+        };
         match client.call(&req) {
             Err(Error::Ipc(m)) => {
                 self.client = None;
@@ -137,7 +149,10 @@ impl Backend {
         let (tx, ctx, label) = (self.tx.clone(), ctx.clone(), label.into());
         std::thread::spawn(move || {
             let result = Client::connect().and_then(|mut c| c.call(&req));
-            let _ = tx.send(UiMsg::Done { label, result: Box::new(result) });
+            let _ = tx.send(UiMsg::Done {
+                label,
+                result: Box::new(result),
+            });
             ctx.request_repaint();
         });
     }
@@ -145,7 +160,13 @@ impl Backend {
 
 /// Reveal a file or folder in the system file manager.
 pub fn reveal(path: &std::path::Path) {
-    let target = if path.is_dir() { path.to_path_buf() } else { path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.to_path_buf()) };
+    let target = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| path.to_path_buf())
+    };
     open_target(&target.to_string_lossy());
 }
 

@@ -52,8 +52,15 @@ pub struct Memory {
 
 impl Memory {
     fn load(path: PathBuf) -> Memory {
-        let file = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        Memory { path, file: Mutex::new(file), restoring: Mutex::new(HashSet::new()) }
+        let file = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        Memory {
+            path,
+            file: Mutex::new(file),
+            restoring: Mutex::new(HashSet::new()),
+        }
     }
 
     fn save(&self, file: &StateFile) {
@@ -72,7 +79,9 @@ impl Memory {
         if previous == PLUGIN {
             return;
         }
-        let Ok(mut file) = self.file.lock() else { return };
+        let Ok(mut file) = self.file.lock() else {
+            return;
+        };
         let key = containment.to_string();
         if file.previous.contains_key(&key) {
             return;
@@ -93,11 +102,22 @@ impl Memory {
     }
 
     fn previous(&self) -> Vec<(i32, String)> {
-        self.file.lock().map(|f| f.previous.iter().filter_map(|(k, v)| k.parse().ok().map(|id| (id, v.clone()))).collect()).unwrap_or_default()
+        self.file
+            .lock()
+            .map(|f| {
+                f.previous
+                    .iter()
+                    .filter_map(|(k, v)| k.parse().ok().map(|id| (id, v.clone())))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn begin_restore(&self, containment: i32) -> bool {
-        self.restoring.lock().map(|mut r| r.insert(containment)).unwrap_or(false)
+        self.restoring
+            .lock()
+            .map(|mut r| r.insert(containment))
+            .unwrap_or(false)
     }
 
     fn end_restore(&self, containment: i32) {
@@ -148,13 +168,23 @@ struct Dismissal {
 
 impl Dismissal {
     fn check(&self) {
-        let snapshot: Vec<(i32, String)> = self.occupancy.lock().map(|o| o.iter().map(|(id, (_, display))| (*id, display.clone())).collect()).unwrap_or_default();
+        let snapshot: Vec<(i32, String)> = self
+            .occupancy
+            .lock()
+            .map(|o| {
+                o.iter()
+                    .map(|(id, (_, display))| (*id, display.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
         if snapshot.is_empty() {
             return;
         }
         let (tx, memory) = (self.tx.clone(), self.memory.clone());
         self.client.eval_then(script::containments(), move |r| {
-            let list: Vec<Containment> = match r.and_then(|out| serde_json::from_str(&out).map_err(|e| Error::Platform(e.to_string()))) {
+            let list: Vec<Containment> = match r.and_then(|out| {
+                serde_json::from_str(&out).map_err(|e| Error::Platform(e.to_string()))
+            }) {
                 Ok(l) => l,
                 Err(e) => {
                     log::warn!("plasma dismissal check: {e}");
@@ -166,7 +196,9 @@ impl Dismissal {
                 for (id, display) in snapshot.iter().filter(|(id, _)| *id == c.id) {
                     if seen.insert(display.clone()) {
                         memory.forget(*id);
-                        tx.send(Msg::WallpaperDismissed { display: display.clone() });
+                        tx.send(Msg::WallpaperDismissed {
+                            display: display.clone(),
+                        });
                     }
                 }
             }
@@ -180,10 +212,24 @@ impl Shell {
         let impl_name = package::install()?;
         let serve = Server::start()?;
         let memory = Arc::new(Memory::load(paths.config_dir.join("plasma.json")));
-        let mut shell = Shell { client, serve, memory, impl_name, containments: Vec::new(), map: HashMap::new(), occupancy: Arc::default(), next_serial: 0 };
+        let mut shell = Shell {
+            client,
+            serve,
+            memory,
+            impl_name,
+            containments: Vec::new(),
+            map: HashMap::new(),
+            occupancy: Arc::default(),
+            next_serial: 0,
+        };
         shell.refresh()?;
         watch_bus(tx.clone());
-        watch_config(Dismissal { client: shell.client.clone(), occupancy: shell.occupancy.clone(), memory: shell.memory.clone(), tx });
+        watch_config(Dismissal {
+            client: shell.client.clone(),
+            occupancy: shell.occupancy.clone(),
+            memory: shell.memory.clone(),
+            tx,
+        });
         Ok(shell)
     }
 
@@ -204,8 +250,11 @@ impl Shell {
     }
 
     fn refresh(&mut self) -> Result<()> {
-        let out = self.client.eval_sync(script::containments(), Duration::from_secs(8))?;
-        self.containments = serde_json::from_str(&out).map_err(|e| Error::Platform(format!("plasmashell containment list: {e}")))?;
+        let out = self
+            .client
+            .eval_sync(script::containments(), Duration::from_secs(8))?;
+        self.containments = serde_json::from_str(&out)
+            .map_err(|e| Error::Platform(format!("plasmashell containment list: {e}")))?;
         Ok(())
     }
 
@@ -230,7 +279,9 @@ impl Drop for Shell {
     /// Restores queued by the final `settle` run on the worker thread; wait for them (and
     /// their bookkeeping) before the process ends.
     fn drop(&mut self) {
-        let _ = self.client.eval_sync("print('OK|done')".into(), Duration::from_secs(5));
+        let _ = self
+            .client
+            .eval_sync("print('OK|done')".into(), Duration::from_secs(5));
     }
 }
 
@@ -243,8 +294,14 @@ impl ShellApi for Shell {
 
     fn sync_displays(&mut self, displays: &[Display]) -> Result<bool> {
         self.refresh()?;
-        let map: HashMap<String, Vec<i32>> = displays.iter().map(|d| (d.id.clone(), self.containments_for(d))).collect();
-        let changed = self.map.iter().any(|(id, old)| map.get(id).is_some_and(|new| new != old));
+        let map: HashMap<String, Vec<i32>> = displays
+            .iter()
+            .map(|d| (d.id.clone(), self.containments_for(d)))
+            .collect();
+        let changed = self
+            .map
+            .iter()
+            .any(|(id, old)| map.get(id).is_some_and(|new| new != old));
         self.map = map;
         Ok(changed)
     }
@@ -253,7 +310,10 @@ impl ShellApi for Shell {
     fn slot(&mut self, display: &Display, _region: Rect) -> Result<Slot> {
         let containments = self.map.get(&display.id).cloned().unwrap_or_default();
         if containments.is_empty() {
-            return Err(Error::Platform(format!("Plasma has no desktop on {} ({}x{} at {},{})", display.name, display.rect.w, display.rect.h, display.rect.x, display.rect.y)));
+            return Err(Error::Platform(format!(
+                "Plasma has no desktop on {} ({}x{} at {},{})",
+                display.name, display.rect.w, display.rect.h, display.rect.x, display.rect.y
+            )));
         }
         self.next_serial += 1;
         let serial = self.next_serial;
@@ -262,62 +322,102 @@ impl ShellApi for Shell {
                 o.insert(*c, (serial, display.id.clone()));
             }
         }
-        Ok(Slot { containments, serial, occupancy: self.occupancy.clone() })
+        Ok(Slot {
+            containments,
+            serial,
+            occupancy: self.occupancy.clone(),
+        })
     }
 
     fn settle(&mut self) {
-        let occupied: HashSet<i32> = self.occupancy.lock().map(|o| o.keys().copied().collect()).unwrap_or_default();
+        let occupied: HashSet<i32> = self
+            .occupancy
+            .lock()
+            .map(|o| o.keys().copied().collect())
+            .unwrap_or_default();
         for (id, previous) in self.memory.previous() {
             if occupied.contains(&id) || !self.memory.begin_restore(id) {
                 continue;
             }
             let memory = self.memory.clone();
-            self.client.eval_then(script::restore(id, &previous), move |r| match r {
-                Ok(_) => memory.forget(id),
-                Err(e) => {
-                    log::warn!("hand desktop containment {id} back to {previous}: {e}");
-                    memory.end_restore(id);
-                }
-            });
+            self.client
+                .eval_then(script::restore(id, &previous), move |r| match r {
+                    Ok(_) => memory.forget(id),
+                    Err(e) => {
+                        log::warn!("hand desktop containment {id} back to {previous}: {e}");
+                        memory.end_restore(id);
+                    }
+                });
         }
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { presenter: "plasma".into(), pointer_motion: true, pointer_clicks: false, global_pointer: true, programs: false, web_devtools: false, rotate_web: true }
+        Capabilities {
+            presenter: "plasma".into(),
+            pointer_motion: true,
+            pointer_clicks: false,
+            global_pointer: true,
+            programs: false,
+            web_devtools: false,
+            rotate_web: true,
+        }
     }
 }
 
 /// plasmashell restarting or the current activity changing reassigns containments to screens.
 fn watch_bus(tx: MsgSender) {
     let owner_tx = tx.clone();
-    let _ = std::thread::Builder::new().name("plasma-owner".into()).spawn(move || {
-        let Ok(conn) = zbus::blocking::Connection::session() else { return };
-        let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&conn) else { return };
-        let Ok(changes) = dbus.receive_name_owner_changed() else { return };
-        for change in changes {
-            if let Ok(args) = change.args() {
-                if args.name() == "org.kde.plasmashell" && args.new_owner().is_some() {
-                    std::thread::sleep(Duration::from_secs(3));
-                    owner_tx.send(Msg::DesktopChanged);
+    let _ = std::thread::Builder::new()
+        .name("plasma-owner".into())
+        .spawn(move || {
+            let Ok(conn) = zbus::blocking::Connection::session() else {
+                return;
+            };
+            let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&conn) else {
+                return;
+            };
+            let Ok(changes) = dbus.receive_name_owner_changed() else {
+                return;
+            };
+            for change in changes {
+                if let Ok(args) = change.args() {
+                    if args.name() == "org.kde.plasmashell" && args.new_owner().is_some() {
+                        std::thread::sleep(Duration::from_secs(3));
+                        owner_tx.send(Msg::DesktopChanged);
+                    }
                 }
             }
-        }
-    });
-    let _ = std::thread::Builder::new().name("plasma-activity".into()).spawn(move || {
-        let Ok(conn) = zbus::blocking::Connection::session() else { return };
-        let Ok(proxy) = zbus::blocking::Proxy::new(&conn, "org.kde.ActivityManager", "/ActivityManager/Activities", "org.kde.ActivityManager.Activities") else { return };
-        let Ok(signals) = proxy.receive_signal("CurrentActivityChanged") else { return };
-        for _ in signals {
-            std::thread::sleep(Duration::from_millis(400));
-            tx.send(Msg::DesktopChanged);
-        }
-    });
+        });
+    let _ = std::thread::Builder::new()
+        .name("plasma-activity".into())
+        .spawn(move || {
+            let Ok(conn) = zbus::blocking::Connection::session() else {
+                return;
+            };
+            let Ok(proxy) = zbus::blocking::Proxy::new(
+                &conn,
+                "org.kde.ActivityManager",
+                "/ActivityManager/Activities",
+                "org.kde.ActivityManager.Activities",
+            ) else {
+                return;
+            };
+            let Ok(signals) = proxy.receive_signal("CurrentActivityChanged") else {
+                return;
+            };
+            for _ in signals {
+                std::thread::sleep(Duration::from_millis(400));
+                tx.send(Msg::DesktopChanged);
+            }
+        });
 }
 
 /// Plasma writes its desktop configuration whenever a wallpaper plugin changes, including
 /// when the user picks another one in the desktop settings dialog.
 fn watch_config(dismissal: Dismissal) {
-    let Some(config) = dirs::config_dir() else { return };
+    let Some(config) = dirs::config_dir() else {
+        return;
+    };
     let file = gio::File::for_path(config.join("plasma-org.kde.plasma.desktop-appletsrc"));
     let monitor = match file.monitor_file(gio::FileMonitorFlags::NONE, None::<&gio::Cancellable>) {
         Ok(m) => m,
@@ -328,7 +428,12 @@ fn watch_config(dismissal: Dismissal) {
     };
     let pending: std::rc::Rc<std::cell::RefCell<Option<glib::SourceId>>> = std::rc::Rc::default();
     monitor.connect_changed(move |_, _, _, event| {
-        if !matches!(event, gio::FileMonitorEvent::ChangesDoneHint | gio::FileMonitorEvent::Created | gio::FileMonitorEvent::Changed) {
+        if !matches!(
+            event,
+            gio::FileMonitorEvent::ChangesDoneHint
+                | gio::FileMonitorEvent::Created
+                | gio::FileMonitorEvent::Changed
+        ) {
             return;
         }
         if let Some(id) = pending.borrow_mut().take() {

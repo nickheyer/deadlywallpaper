@@ -6,7 +6,9 @@ use crate::model::display;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default, clap::ValueEnum)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default, clap::ValueEnum,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Arrangement {
     /// A different wallpaper on each display.
@@ -46,7 +48,12 @@ pub struct Pose {
 
 impl Default for Pose {
     fn default() -> Pose {
-        Pose { x: 0.0, y: 0.0, scale: 1.0, rotation: 0.0 }
+        Pose {
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            rotation: 0.0,
+        }
     }
 }
 
@@ -67,7 +74,12 @@ impl Pose {
         } else if rotation > 180.0 {
             rotation -= 360.0;
         }
-        Pose { x: finite(self.x, 0.0), y: finite(self.y, 0.0), scale: finite(self.scale, 1.0).clamp(Pose::MIN_SCALE, Pose::MAX_SCALE), rotation }
+        Pose {
+            x: finite(self.x, 0.0),
+            y: finite(self.y, 0.0),
+            scale: finite(self.scale, 1.0).clamp(Pose::MIN_SCALE, Pose::MAX_SCALE),
+            rotation,
+        }
     }
 }
 
@@ -126,7 +138,10 @@ impl Layout {
         match self.arrangement {
             Arrangement::Per => match self.per.iter_mut().find(|a| a.display == display) {
                 Some(a) => a.wallpaper = wallpaper.to_string(),
-                None => self.per.push(Assignment { display: display.into(), wallpaper: wallpaper.into() }),
+                None => self.per.push(Assignment {
+                    display: display.into(),
+                    wallpaper: wallpaper.into(),
+                }),
             },
             _ => self.shared = Some(wallpaper.to_string()),
         }
@@ -153,13 +168,21 @@ impl Layout {
 
     pub fn wallpaper_for(&self, display: &str) -> Option<&str> {
         match self.arrangement {
-            Arrangement::Per => self.per.iter().find(|a| a.display == display).map(|a| a.wallpaper.as_str()),
+            Arrangement::Per => self
+                .per
+                .iter()
+                .find(|a| a.display == display)
+                .map(|a| a.wallpaper.as_str()),
             _ => self.shared.as_deref(),
         }
     }
 
     pub fn pose(&self, display: &str) -> Pose {
-        self.alignment.iter().find(|a| a.display == display).map(|a| a.pose).unwrap_or_default()
+        self.alignment
+            .iter()
+            .find(|a| a.display == display)
+            .map(|a| a.pose)
+            .unwrap_or_default()
     }
 
     pub fn set_image_pose(&mut self, pose: Pose) {
@@ -171,7 +194,10 @@ impl Layout {
         let pose = pose.normalized();
         self.alignment.retain(|a| a.display != display);
         if !pose.is_identity() {
-            self.alignment.push(Alignment { display: display.into(), pose });
+            self.alignment.push(Alignment {
+                display: display.into(),
+                pose,
+            });
         }
     }
 
@@ -195,11 +221,24 @@ impl Layout {
     pub fn view_for(&self, d: &Display, bounds: Rect) -> View {
         let image = self.image;
         let own = self.pose(&d.id);
-        let (ci_x, ci_y) = (bounds.x as f64 + bounds.w as f64 / 2.0 + image.x, bounds.y as f64 + bounds.h as f64 / 2.0 + image.y);
-        let (cd_x, cd_y) = (d.rect.x as f64 + d.rect.w as f64 / 2.0 + own.x, d.rect.y as f64 + d.rect.h as f64 / 2.0 + own.y);
+        let (ci_x, ci_y) = (
+            bounds.x as f64 + bounds.w as f64 / 2.0 + image.x,
+            bounds.y as f64 + bounds.h as f64 / 2.0 + image.y,
+        );
+        let (cd_x, cd_y) = (
+            d.rect.x as f64 + d.rect.w as f64 / 2.0 + own.x,
+            d.rect.y as f64 + d.rect.h as f64 / 2.0 + own.y,
+        );
         let (dx, dy) = ((ci_x - cd_x) / own.scale, (ci_y - cd_y) / own.scale);
         let (s, c) = (-own.rotation).to_radians().sin_cos();
-        View { width: bounds.w, height: bounds.h, scale: image.scale / own.scale, rotation: image.rotation - own.rotation, x: dx * c - dy * s, y: dx * s + dy * c }
+        View {
+            width: bounds.w,
+            height: bounds.h,
+            scale: image.scale / own.scale,
+            rotation: image.rotation - own.rotation,
+            x: dx * c - dy * s,
+            y: dx * s + dy * c,
+        }
     }
 
     /// Switch arrangement, carrying the most relevant wallpaper over.
@@ -233,33 +272,67 @@ impl Layout {
 
     /// Use one spanning surface when supported and untransformed; otherwise crop per display.
     pub fn plan(&self, displays: &[Display], spans: bool) -> Vec<Placement> {
-        let Some(primary) = display::primary(displays) else { return Vec::new() };
+        let Some(primary) = display::primary(displays) else {
+            return Vec::new();
+        };
         match self.arrangement {
             Arrangement::Per => self
                 .per
                 .iter()
                 .filter_map(|a| {
                     let d = displays.iter().find(|d| d.id == a.display)?;
-                    Some(Placement { display: d.id.clone(), wallpaper: a.wallpaper.clone(), region: d.rect, slot: d.id.clone(), audio: true, spanning: false })
+                    Some(Placement {
+                        display: d.id.clone(),
+                        wallpaper: a.wallpaper.clone(),
+                        region: d.rect,
+                        slot: d.id.clone(),
+                        audio: true,
+                        spanning: false,
+                    })
                 })
                 .collect(),
             Arrangement::Span => {
-                let Some(w) = &self.shared else { return Vec::new() };
+                let Some(w) = &self.shared else {
+                    return Vec::new();
+                };
                 if spans && !self.is_aligned(displays) {
                     let region = Layout::span_bounds(displays);
-                    vec![Placement { display: primary.id.clone(), wallpaper: w.clone(), region, slot: "span".into(), audio: true, spanning: false }]
+                    vec![Placement {
+                        display: primary.id.clone(),
+                        wallpaper: w.clone(),
+                        region,
+                        slot: "span".into(),
+                        audio: true,
+                        spanning: false,
+                    }]
                 } else {
                     displays
                         .iter()
-                        .map(|d| Placement { display: d.id.clone(), wallpaper: w.clone(), region: d.rect, slot: "span".into(), audio: d.id == primary.id, spanning: true })
+                        .map(|d| Placement {
+                            display: d.id.clone(),
+                            wallpaper: w.clone(),
+                            region: d.rect,
+                            slot: "span".into(),
+                            audio: d.id == primary.id,
+                            spanning: true,
+                        })
                         .collect()
                 }
             }
             Arrangement::Duplicate => {
-                let Some(w) = &self.shared else { return Vec::new() };
+                let Some(w) = &self.shared else {
+                    return Vec::new();
+                };
                 displays
                     .iter()
-                    .map(|d| Placement { display: d.id.clone(), wallpaper: w.clone(), region: d.rect, slot: "duplicate".into(), audio: d.id == primary.id, spanning: false })
+                    .map(|d| Placement {
+                        display: d.id.clone(),
+                        wallpaper: w.clone(),
+                        region: d.rect,
+                        slot: "duplicate".into(),
+                        audio: d.id == primary.id,
+                        spanning: false,
+                    })
                     .collect()
             }
         }
@@ -272,8 +345,22 @@ mod tests {
 
     fn displays() -> Vec<Display> {
         vec![
-            Display { id: "a".into(), name: "A".into(), rect: Rect::new(0, 0, 1920, 1080), workarea: Rect::new(0, 0, 1920, 1040), scale: 1.0, primary: true },
-            Display { id: "b".into(), name: "B".into(), rect: Rect::new(1920, 0, 1080, 1920), workarea: Rect::new(1920, 0, 1080, 1920), scale: 1.0, primary: false },
+            Display {
+                id: "a".into(),
+                name: "A".into(),
+                rect: Rect::new(0, 0, 1920, 1080),
+                workarea: Rect::new(0, 0, 1920, 1040),
+                scale: 1.0,
+                primary: true,
+            },
+            Display {
+                id: "b".into(),
+                name: "B".into(),
+                rect: Rect::new(1920, 0, 1080, 1920),
+                workarea: Rect::new(1920, 0, 1080, 1920),
+                scale: 1.0,
+                primary: false,
+            },
         ]
     }
 
@@ -291,7 +378,10 @@ mod tests {
 
     #[test]
     fn span_depends_on_platform_capability() {
-        let mut l = Layout { arrangement: Arrangement::Span, ..Layout::default() };
+        let mut l = Layout {
+            arrangement: Arrangement::Span,
+            ..Layout::default()
+        };
         l.assign("a", "w");
         let one = l.plan(&displays(), true);
         assert_eq!(one.len(), 1);
@@ -300,7 +390,10 @@ mod tests {
         let many = l.plan(&displays(), false);
         assert_eq!(many.len(), 2);
         assert!(many.iter().all(|p| p.slot == "span" && p.spanning));
-        assert_eq!(many.iter().find(|p| p.display == "b").unwrap().region, Rect::new(1920, 0, 1080, 1920));
+        assert_eq!(
+            many.iter().find(|p| p.display == "b").unwrap().region,
+            Rect::new(1920, 0, 1080, 1920)
+        );
         assert_eq!(many.iter().filter(|p| p.audio).count(), 1);
     }
 
@@ -308,8 +401,14 @@ mod tests {
     fn views_show_each_display_its_part_of_the_image() {
         let ds = displays();
         let b = &ds[1];
-        let slot = crate::geom::Size { w: b.rect.w, h: b.rect.h };
-        let mut l = Layout { arrangement: Arrangement::Span, ..Layout::default() };
+        let slot = crate::geom::Size {
+            w: b.rect.w,
+            h: b.rect.h,
+        };
+        let mut l = Layout {
+            arrangement: Arrangement::Span,
+            ..Layout::default()
+        };
         l.assign("a", "w");
         let bounds = Layout::span_bounds(&ds);
         assert_eq!(bounds, Rect::new(0, 0, 3000, 1920));
@@ -320,28 +419,56 @@ mod tests {
         assert_eq!(v.to_image(slot, 0.0, 0.0), (1920.0, 0.0));
 
         // b sits 200 px lower than the desktop says: its corner shows the image 200 px down.
-        l.set_display_pose("b", Pose { y: 200.0, ..Pose::default() });
+        l.set_display_pose(
+            "b",
+            Pose {
+                y: 200.0,
+                ..Pose::default()
+            },
+        );
         assert!(l.is_aligned(&ds));
-        assert_eq!(l.plan(&ds, true).len(), 2, "posed displays need one instance each");
-        assert_eq!(l.view_for(b, bounds).to_image(slot, 0.0, 0.0), (1920.0, 200.0));
+        assert_eq!(
+            l.plan(&ds, true).len(),
+            2,
+            "posed displays need one instance each"
+        );
+        assert_eq!(
+            l.view_for(b, bounds).to_image(slot, 0.0, 0.0),
+            (1920.0, 200.0)
+        );
 
         // b rotated a quarter turn: its centre still shows the same image pixel, its corner
         // shows what lies a quarter turn away.
-        l.set_display_pose("b", Pose { rotation: 90.0, ..Pose::default() });
+        l.set_display_pose(
+            "b",
+            Pose {
+                rotation: 90.0,
+                ..Pose::default()
+            },
+        );
         let v = l.view_for(b, bounds);
         assert_eq!(v.rotation, -90.0);
         let (cx, cy) = v.to_image(slot, 540.0, 960.0);
         assert!((cx - 2460.0).abs() < 1e-6 && (cy - 960.0).abs() < 1e-6);
         let (x, y) = v.to_image(slot, 0.0, 0.0);
-        assert!((x - 3420.0).abs() < 1e-6 && (y - 420.0).abs() < 1e-6, "{x},{y}");
+        assert!(
+            (x - 3420.0).abs() < 1e-6 && (y - 420.0).abs() < 1e-6,
+            "{x},{y}"
+        );
 
         // The image scaled up twice shows half as much per display.
         l.reset_alignment();
-        l.set_image_pose(Pose { scale: 2.0, ..Pose::default() });
+        l.set_image_pose(Pose {
+            scale: 2.0,
+            ..Pose::default()
+        });
         let v = l.view_for(b, bounds);
         assert_eq!(v.scale, 2.0);
         let (x, y) = v.to_image(slot, 540.0, 960.0);
-        assert!((x - 1980.0).abs() < 1e-6 && (y - 960.0).abs() < 1e-6, "{x},{y}");
+        assert!(
+            (x - 1980.0).abs() < 1e-6 && (y - 960.0).abs() < 1e-6,
+            "{x},{y}"
+        );
 
         l.reset_alignment();
         assert!(!l.is_aligned(&ds));
@@ -350,18 +477,57 @@ mod tests {
 
     #[test]
     fn poses_are_normalized() {
-        let p = Pose { x: f64::NAN, y: 5.0, scale: 0.0, rotation: 540.0 }.normalized();
-        assert_eq!(p, Pose { x: 0.0, y: 5.0, scale: Pose::MIN_SCALE, rotation: 180.0 });
-        assert_eq!(Pose { rotation: -180.0, ..Pose::default() }.normalized().rotation, 180.0);
-        assert_eq!(Pose { rotation: -190.0, ..Pose::default() }.normalized().rotation, 170.0);
+        let p = Pose {
+            x: f64::NAN,
+            y: 5.0,
+            scale: 0.0,
+            rotation: 540.0,
+        }
+        .normalized();
+        assert_eq!(
+            p,
+            Pose {
+                x: 0.0,
+                y: 5.0,
+                scale: Pose::MIN_SCALE,
+                rotation: 180.0
+            }
+        );
+        assert_eq!(
+            Pose {
+                rotation: -180.0,
+                ..Pose::default()
+            }
+            .normalized()
+            .rotation,
+            180.0
+        );
+        assert_eq!(
+            Pose {
+                rotation: -190.0,
+                ..Pose::default()
+            }
+            .normalized()
+            .rotation,
+            170.0
+        );
         let mut l = Layout::default();
-        l.set_display_pose("a", Pose { rotation: 360.0, ..Pose::default() });
+        l.set_display_pose(
+            "a",
+            Pose {
+                rotation: 360.0,
+                ..Pose::default()
+            },
+        );
         assert!(l.alignment.is_empty(), "a full turn is the identity");
     }
 
     #[test]
     fn duplicate_mutes_secondary() {
-        let mut l = Layout { arrangement: Arrangement::Duplicate, ..Layout::default() };
+        let mut l = Layout {
+            arrangement: Arrangement::Duplicate,
+            ..Layout::default()
+        };
         l.assign("b", "w");
         let p = l.plan(&displays(), true);
         assert_eq!(p.len(), 2);

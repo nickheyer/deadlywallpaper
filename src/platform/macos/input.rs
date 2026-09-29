@@ -10,7 +10,10 @@ use objc2_app_kit::{NSEvent, NSEventMask, NSEventType};
 use std::ptr::NonNull;
 
 pub fn install(tx: MsgSender) {
-    let mask = NSEventMask::MouseMoved | NSEventMask::LeftMouseDown | NSEventMask::LeftMouseUp | NSEventMask::LeftMouseDragged;
+    let mask = NSEventMask::MouseMoved
+        | NSEventMask::LeftMouseDown
+        | NSEventMask::LeftMouseUp
+        | NSEventMask::LeftMouseDragged;
     let block = RcBlock::new(move |event: NonNull<NSEvent>| {
         // SAFETY: AppKit passes a live event for the duration of the callback.
         let event = unsafe { event.as_ref() };
@@ -25,7 +28,11 @@ pub fn install(tx: MsgSender) {
         }
         let p = NSEvent::mouseLocation();
         let y = displays::primary_height() - p.y;
-        tx.send(Msg::Pointer { x: p.x.round() as i32, y: y.round() as i32, kind });
+        tx.send(Msg::Pointer {
+            x: p.x.round() as i32,
+            y: y.round() as i32,
+            kind,
+        });
     });
     // The returned token is intentionally leaked so the monitor lives as long as the daemon.
     let token = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &block);

@@ -12,15 +12,27 @@ use wayland_backend::client::{Backend, ObjectId};
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{wl_output::WlOutput, wl_registry, wl_surface::WlSurface};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
-use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::{self, Layer, ZwlrLayerShellV1};
-use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::{self, Anchor, KeyboardInteractivity, ZwlrLayerSurfaceV1};
+use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::{
+    self, Layer, ZwlrLayerShellV1,
+};
+use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::{
+    self, Anchor, KeyboardInteractivity, ZwlrLayerSurfaceV1,
+};
 
 const LAYER_SHELL: &str = "zwlr_layer_shell_v1";
 
 struct Probe;
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Probe {
-    fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &wl_registry::WlRegistry,
+        _: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 /// Before GTK starts: `None` when not on Wayland, otherwise whether the compositor offers a
@@ -29,7 +41,11 @@ pub fn probe() -> Option<bool> {
     std::env::var_os("WAYLAND_DISPLAY")?;
     let conn = Connection::connect_to_env().ok()?;
     let (globals, _queue) = registry_queue_init::<Probe>(&conn).ok()?;
-    Some(globals.contents().with_list(|l| l.iter().any(|g| g.interface == LAYER_SHELL)))
+    Some(
+        globals
+            .contents()
+            .with_list(|l| l.iter().any(|g| g.interface == LAYER_SHELL)),
+    )
 }
 
 #[derive(Default)]
@@ -40,21 +56,52 @@ struct State {
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for State {
-    fn event(state: &mut Self, _: &wl_registry::WlRegistry, event: wl_registry::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if let wl_registry::Event::Global { name, interface, version } = event {
+    fn event(
+        state: &mut Self,
+        _: &wl_registry::WlRegistry,
+        event: wl_registry::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = event
+        {
             state.globals.push((name, interface, version));
         }
     }
 }
 
 impl Dispatch<ZwlrLayerShellV1, ()> for State {
-    fn event(_: &mut Self, _: &ZwlrLayerShellV1, _: zwlr_layer_shell_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &ZwlrLayerShellV1,
+        _: zwlr_layer_shell_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 impl Dispatch<ZwlrLayerSurfaceV1, ()> for State {
-    fn event(state: &mut Self, surface: &ZwlrLayerSurfaceV1, event: zwlr_layer_surface_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        state: &mut Self,
+        surface: &ZwlrLayerSurfaceV1,
+        event: zwlr_layer_surface_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         match event {
-            zwlr_layer_surface_v1::Event::Configure { serial, width, height } => {
+            zwlr_layer_surface_v1::Event::Configure {
+                serial,
+                width,
+                height,
+            } => {
                 surface.ack_configure(serial);
                 let (w, h) = (width as i32, height as i32);
                 state.configured.insert(surface.id(), (w, h));
@@ -66,7 +113,11 @@ impl Dispatch<ZwlrLayerSurfaceV1, ()> for State {
                 }
             }
             zwlr_layer_surface_v1::Event::Closed => {
-                if let Some(win) = state.windows.remove(&surface.id()).and_then(|w| w.upgrade()) {
+                if let Some(win) = state
+                    .windows
+                    .remove(&surface.id())
+                    .and_then(|w| w.upgrade())
+                {
                     win.hide();
                 }
             }
@@ -83,7 +134,11 @@ pub struct LayerSurface {
 
 impl Drop for LayerSurface {
     fn drop(&mut self) {
-        self.shell.state.borrow_mut().windows.remove(&self.proxy.id());
+        self.shell
+            .state
+            .borrow_mut()
+            .windows
+            .remove(&self.proxy.id());
         self.proxy.destroy();
         let _ = self.shell.conn.flush();
     }
@@ -130,7 +185,9 @@ impl LayerShell {
         let qh = queue.handle();
         let registry = conn.display().get_registry(&qh, ());
         let mut state = State::default();
-        queue.roundtrip(&mut state).map_err(|e| Error::Platform(format!("wayland registry: {e}")))?;
+        queue
+            .roundtrip(&mut state)
+            .map_err(|e| Error::Platform(format!("wayland registry: {e}")))?;
         let (name, version) = state
             .globals
             .iter()
@@ -139,56 +196,104 @@ impl LayerShell {
             .ok_or_else(|| Error::Platform("compositor does not offer wlr-layer-shell".into()))?;
         let shell: ZwlrLayerShellV1 = registry.bind(name, version.min(4), &qh, ());
         let raw = std::os::fd::AsRawFd::as_raw_fd(&conn.backend().poll_fd());
-        let inner = Rc::new(Inner { conn, queue: RefCell::new(queue), qh, state: RefCell::new(state), shell });
+        let inner = Rc::new(Inner {
+            conn,
+            queue: RefCell::new(queue),
+            qh,
+            state: RefCell::new(state),
+            shell,
+        });
         let watched = inner.clone();
         let watch = glib::unix_fd_add_local(raw, glib::IOCondition::IN, move |_, _| {
             watched.dispatch();
             glib::ControlFlow::Continue
         });
         let layer = Layer::Background;
-        log::info!("wayland layer shell v{} on the background layer", version.min(4));
-        Ok(Some(LayerShell { inner, layer, _watch: watch }))
+        log::info!(
+            "wayland layer shell v{} on the background layer",
+            version.min(4)
+        );
+        Ok(Some(LayerShell {
+            inner,
+            layer,
+            _watch: watch,
+        }))
     }
 
     /// Turn a realized, unmapped toplevel into a background layer surface on `monitor`, then
     /// show it once the compositor has configured its size.
-    pub fn make_layer_surface(&self, window: &gtk::Window, monitor: &gdk::Monitor) -> Result<LayerSurface> {
+    pub fn make_layer_surface(
+        &self,
+        window: &gtk::Window,
+        monitor: &gdk::Monitor,
+    ) -> Result<LayerSurface> {
         window.realize();
-        let gdk_window = window.window().ok_or_else(|| Error::Platform("window has no GDK surface".into()))?;
+        let gdk_window = window
+            .window()
+            .ok_or_else(|| Error::Platform("window has no GDK surface".into()))?;
         set_custom_surface(&gdk_window);
         let inner = &self.inner;
         // SAFETY: both pointers are live proxies owned by GDK; the ids only wrap them.
         let (surface, output) = unsafe {
-            let s = ObjectId::from_ptr(WlSurface::interface(), wl_surface_ptr(&gdk_window) as *mut _).map_err(|e| Error::Platform(format!("wl_surface: {e}")))?;
-            let o = ObjectId::from_ptr(WlOutput::interface(), wl_output_ptr(monitor) as *mut _).map_err(|e| Error::Platform(format!("wl_output: {e}")))?;
-            (WlSurface::from_id(&inner.conn, s), WlOutput::from_id(&inner.conn, o))
+            let s = ObjectId::from_ptr(
+                WlSurface::interface(),
+                wl_surface_ptr(&gdk_window) as *mut _,
+            )
+            .map_err(|e| Error::Platform(format!("wl_surface: {e}")))?;
+            let o = ObjectId::from_ptr(WlOutput::interface(), wl_output_ptr(monitor) as *mut _)
+                .map_err(|e| Error::Platform(format!("wl_output: {e}")))?;
+            (
+                WlSurface::from_id(&inner.conn, s),
+                WlOutput::from_id(&inner.conn, o),
+            )
         };
         let surface = surface.map_err(|e| Error::Platform(format!("wl_surface proxy: {e}")))?;
         let output = output.map_err(|e| Error::Platform(format!("wl_output proxy: {e}")))?;
-        let proxy = inner.shell.get_layer_surface(&surface, Some(&output), self.layer, crate::paths::APP_ID.into(), &inner.qh, ());
+        let proxy = inner.shell.get_layer_surface(
+            &surface,
+            Some(&output),
+            self.layer,
+            crate::paths::APP_ID.into(),
+            &inner.qh,
+            (),
+        );
         proxy.set_anchor(Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right);
         proxy.set_exclusive_zone(-1);
         proxy.set_keyboard_interactivity(KeyboardInteractivity::None);
         proxy.set_size(0, 0);
-        inner.state.borrow_mut().windows.insert(proxy.id(), window.downgrade());
+        inner
+            .state
+            .borrow_mut()
+            .windows
+            .insert(proxy.id(), window.downgrade());
         surface.commit();
-        inner.conn.flush().map_err(|e| Error::Platform(format!("wayland flush: {e}")))?;
+        inner
+            .conn
+            .flush()
+            .map_err(|e| Error::Platform(format!("wayland flush: {e}")))?;
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
             {
                 let mut state = inner.state.borrow_mut();
                 let mut queue = inner.queue.borrow_mut();
-                queue.blocking_dispatch(&mut state).map_err(|e| Error::Platform(format!("layer surface configure: {e}")))?;
+                queue
+                    .blocking_dispatch(&mut state)
+                    .map_err(|e| Error::Platform(format!("layer surface configure: {e}")))?;
                 if state.configured.contains_key(&proxy.id()) {
                     break;
                 }
             }
             if Instant::now() > deadline {
                 proxy.destroy();
-                return Err(Error::Platform("compositor did not configure the background surface".into()));
+                return Err(Error::Platform(
+                    "compositor did not configure the background surface".into(),
+                ));
             }
         }
         window.show_all();
-        Ok(LayerSurface { proxy, shell: inner.clone() })
+        Ok(LayerSurface {
+            proxy,
+            shell: inner.clone(),
+        })
     }
 }

@@ -77,7 +77,12 @@ impl Capture {
     }
 
     /// Render through `draw(fbo, w, h)` into a fresh texture and return its RGBA rows.
-    pub fn render_offscreen(&self, w: i32, h: i32, draw: impl FnOnce(i32, i32, i32)) -> Option<Vec<u8>> {
+    pub fn render_offscreen(
+        &self,
+        w: i32,
+        h: i32,
+        draw: impl FnOnce(i32, i32, i32),
+    ) -> Option<Vec<u8>> {
         // SAFETY: plain GL calls on the current context with valid buffers; every object
         // created here is deleted before returning and the previous binding is restored.
         unsafe {
@@ -86,13 +91,30 @@ impl Capture {
             let mut fbo: u32 = 0;
             (self.gen_textures)(1, &mut tex);
             (self.bind_texture)(GL_TEXTURE_2D, tex);
-            (self.tex_image_2d)(GL_TEXTURE_2D, 0, GL_RGBA8 as i32, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, std::ptr::null());
+            (self.tex_image_2d)(
+                GL_TEXTURE_2D,
+                0,
+                GL_RGBA8 as i32,
+                w,
+                h,
+                0,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                std::ptr::null(),
+            );
             (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             (self.gen_framebuffers)(1, &mut fbo);
             (self.bind_framebuffer)(GL_FRAMEBUFFER, fbo);
-            (self.framebuffer_texture_2d)(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
-            let complete = (self.check_framebuffer_status)(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+            (self.framebuffer_texture_2d)(
+                GL_FRAMEBUFFER,
+                GL_COLOR_ATTACHMENT0,
+                GL_TEXTURE_2D,
+                tex,
+                0,
+            );
+            let complete =
+                (self.check_framebuffer_status)(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
             let mut pixels = None;
             if complete {
                 draw(fbo as i32, w, h);
@@ -100,7 +122,15 @@ impl Capture {
                 (self.finish)();
                 (self.pixel_storei)(GL_PACK_ALIGNMENT, 1);
                 let mut buf = vec![0u8; (w * h * 4) as usize];
-                (self.read_pixels)(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf.as_mut_ptr() as *mut c_void);
+                (self.read_pixels)(
+                    0,
+                    0,
+                    w,
+                    h,
+                    GL_RGBA,
+                    GL_UNSIGNED_BYTE,
+                    buf.as_mut_ptr() as *mut c_void,
+                );
                 pixels = Some(buf);
             }
             (self.bind_framebuffer)(GL_FRAMEBUFFER, previous as u32);

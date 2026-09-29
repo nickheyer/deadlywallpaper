@@ -4,11 +4,13 @@ use crate::content::{Content, View};
 use crate::error::{Error, Result};
 use crate::geom::Size;
 use crate::media::glquad::{Quad, render_view};
-use crate::media::mpv::{Handle, RENDER_PARAM_WL_DISPLAY, RENDER_PARAM_X11_DISPLAY, RENDER_UPDATE_FRAME, RenderContext};
+use crate::media::mpv::{
+    Handle, RENDER_PARAM_WL_DISPLAY, RENDER_PARAM_X11_DISPLAY, RENDER_UPDATE_FRAME, RenderContext,
+};
 use crate::media::player::{MediaContent, MediaSurface, Player, PlayerOptions, Vo, event_bridge};
 use crate::platform::ContentSpec;
-use crate::platform::linux::gl;
 use crate::platform::linux::canvas::Slot;
+use crate::platform::linux::gl;
 use crate::platform::linux::{MsgSender, is_wayland, wl_display_ptr, x11_display_ptr};
 use glib::SendWeakRef;
 use gtk::prelude::*;
@@ -17,7 +19,12 @@ use std::ffi::c_void;
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, display: &gdk::Display) -> Result<Box<dyn Content>> {
+pub fn spawn(
+    spec: &ContentSpec<'_>,
+    slot: &Slot,
+    tx: MsgSender,
+    display: &gdk::Display,
+) -> Result<Box<dyn Content>> {
     let wp = spec.wallpaper;
     if !wp.kind().is_online() && !std::path::Path::new(&wp.source).is_file() {
         return Err(Error::NotFound(format!("{} does not exist", wp.source)));
@@ -39,7 +46,13 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, display: &gdk::
     )?;
     let view = MediaView::new(player.handle().clone(), slot, display)?;
     player.load()?;
-    Ok(Box::new(MediaContent::new(Box::new(view), player, pending, spec.id, tx)))
+    Ok(Box::new(MediaContent::new(
+        Box::new(view),
+        player,
+        pending,
+        spec.id,
+        tx,
+    )))
 }
 
 struct Render {
@@ -69,7 +82,9 @@ const RENDER_KEY: &str = "deadlywp-render";
 fn pump(area: &gtk::GLArea) {
     // SAFETY: the key holds an `Rc<RefCell<Render>>` stored in `MediaView::new` for the
     // lifetime of the widget and is only read on the main thread.
-    let Some(render) = (unsafe { area.data::<Rc<RefCell<Render>>>(RENDER_KEY) }) else { return };
+    let Some(render) = (unsafe { area.data::<Rc<RefCell<Render>>>(RENDER_KEY) }) else {
+        return;
+    };
     let render = unsafe { render.as_ref() }.clone();
     let r = render.borrow();
     if let Some(ctx) = &r.ctx {
@@ -103,7 +118,11 @@ impl MediaView {
             view: View::whole(slot.size),
             slot: slot.size,
             callback_ctx: std::ptr::null_mut(),
-            prefer: if wayland { gl::PREFER_EGL } else { gl::PREFER_GLX },
+            prefer: if wayland {
+                gl::PREFER_EGL
+            } else {
+                gl::PREFER_GLX
+            },
             x11: x11_display_ptr(display),
             wl: wl_display_ptr(display),
         }));
@@ -117,12 +136,32 @@ impl MediaView {
         area.connect_render(move |area, _| {
             let mut r = r.borrow_mut();
             let scale = area.scale_factor();
-            let (w, h) = (area.allocated_width() * scale, area.allocated_height() * scale);
-            let Render { ctx, capture, quad, view, slot, .. } = &mut *r;
+            let (w, h) = (
+                area.allocated_width() * scale,
+                area.allocated_height() * scale,
+            );
+            let Render {
+                ctx,
+                capture,
+                quad,
+                view,
+                slot,
+                ..
+            } = &mut *r;
             if let (Some(ctx), Some(gl)) = (ctx.as_ref(), *capture) {
                 ctx.update();
                 if w > 0 && h > 0 {
-                    render_view(ctx, quad, view, *slot, gl.current_fbo(), w, h, scale as f64, true);
+                    render_view(
+                        ctx,
+                        quad,
+                        view,
+                        *slot,
+                        gl.current_fbo(),
+                        w,
+                        h,
+                        scale as f64,
+                        true,
+                    );
                 }
             }
             glib::Propagation::Stop
@@ -139,7 +178,9 @@ impl MediaView {
         ensure_context(&area, &render);
         if render.borrow().ctx.is_none() {
             slot.container.remove(&area);
-            return Err(Error::Media("OpenGL rendering is unavailable for this display".into()));
+            return Err(Error::Media(
+                "OpenGL rendering is unavailable for this display".into(),
+            ));
         }
         Ok(MediaView { area, render })
     }
@@ -156,7 +197,10 @@ fn ensure_context(area: &gtk::GLArea, render: &Rc<RefCell<Render>>) {
         return;
     }
     let mut r = render.borrow_mut();
-    let extra = [(RENDER_PARAM_X11_DISPLAY, r.x11), (RENDER_PARAM_WL_DISPLAY, r.wl)];
+    let extra = [
+        (RENDER_PARAM_X11_DISPLAY, r.x11),
+        (RENDER_PARAM_WL_DISPLAY, r.wl),
+    ];
     match RenderContext::new(&r.handle, gl::get_proc_address, r.prefer, &extra) {
         Ok(ctx) => {
             let weak: Box<SendWeakRef<gtk::GLArea>> = Box::new(area.downgrade().into());
@@ -166,7 +210,10 @@ fn ensure_context(area: &gtk::GLArea, render: &Rc<RefCell<Render>>) {
             r.capture = gl::Capture::load(gl::get_proc_address, r.prefer);
             r.quad = Quad::load(gl::get_proc_address, r.prefer);
             r.ctx = Some(ctx);
-            log::debug!("mpv render context ready ({:?})", area.context().map(|c| c.version()));
+            log::debug!(
+                "mpv render context ready ({:?})",
+                area.context().map(|c| c.version())
+            );
         }
         Err(e) => log::error!("mpv render context: {e}"),
     }
@@ -192,18 +239,30 @@ impl MediaSurface for MediaView {
     /// work with hardware-decoded frames and while the surface is occluded.
     fn capture(&self, path: &std::path::Path) -> Option<Result<()>> {
         let mut r = self.render.borrow_mut();
-        let Render { ctx, capture, quad, view, slot, .. } = &mut *r;
+        let Render {
+            ctx,
+            capture,
+            quad,
+            view,
+            slot,
+            ..
+        } = &mut *r;
         let (ctx, gl) = (ctx.as_ref()?, (*capture)?);
         if !self.area.is_realized() {
             return Some(Err(Error::Media("wallpaper surface is not ready".into())));
         }
         let scale = self.area.scale_factor();
-        let (w, h) = (self.area.allocated_width() * scale, self.area.allocated_height() * scale);
+        let (w, h) = (
+            self.area.allocated_width() * scale,
+            self.area.allocated_height() * scale,
+        );
         if w <= 0 || h <= 0 {
             return Some(Err(Error::Media("wallpaper surface has no size".into())));
         }
         self.area.make_current();
-        let pixels = gl.render_offscreen(w, h, |fbo, w, h| render_view(ctx, quad, view, *slot, fbo, w, h, scale as f64, false));
+        let pixels = gl.render_offscreen(w, h, |fbo, w, h| {
+            render_view(ctx, quad, view, *slot, fbo, w, h, scale as f64, false)
+        });
         let image = pixels.and_then(|p| crate::capture::from_gl_pixels(w as u32, h as u32, &p));
         Some(match image {
             Some(img) => crate::capture::save_rgba(img, path),
@@ -228,7 +287,11 @@ impl Drop for MediaView {
             self.area.make_current();
         }
         release(&mut self.render.borrow_mut());
-        if let Some(parent) = self.area.parent().and_then(|p| p.downcast::<gtk::Container>().ok()) {
+        if let Some(parent) = self
+            .area
+            .parent()
+            .and_then(|p| p.downcast::<gtk::Container>().ok())
+        {
             parent.remove(&self.area);
         }
     }

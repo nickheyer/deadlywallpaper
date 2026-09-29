@@ -25,7 +25,9 @@ pub struct Inputs<'a> {
 fn on_display(w: &WindowInfo, d: &Display) -> bool {
     match &w.placement {
         WindowPlacement::Rect(r) => r.intersects(&d.rect),
-        WindowPlacement::Outputs(origins) => origins.iter().any(|(x, y)| *x == d.rect.x && *y == d.rect.y),
+        WindowPlacement::Outputs(origins) => origins
+            .iter()
+            .any(|(x, y)| *x == d.rect.x && *y == d.rect.y),
     }
 }
 
@@ -34,23 +36,41 @@ fn is_ours(w: &WindowInfo) -> bool {
 }
 
 pub fn decide(input: &Inputs<'_>) -> HashMap<String, Decision> {
-    let windows: Vec<&WindowInfo> = input.windows.map(|s| s.windows.iter().filter(|w| !is_ours(w)).collect()).unwrap_or_default();
+    let windows: Vec<&WindowInfo> = input
+        .windows
+        .map(|s| s.windows.iter().filter(|w| !is_ours(w)).collect())
+        .unwrap_or_default();
     let app_pause = windows.iter().any(|w| {
-        input.rules.app_pause.iter().any(|rule| !rule.is_empty() && w.app.to_ascii_lowercase().contains(&rule.to_ascii_lowercase()))
+        input.rules.app_pause.iter().any(|rule| {
+            !rule.is_empty()
+                && w.app
+                    .to_ascii_lowercase()
+                    .contains(&rule.to_ascii_lowercase())
+        })
     });
     let desktop_focused = !windows.iter().any(|w| w.focused);
     let mut per: HashMap<String, bool> = HashMap::new();
     for d in input.displays {
-        let here: Vec<&WindowInfo> = windows.iter().copied().filter(|w| on_display(w, d)).collect();
-        let rects: Vec<_> = here.iter().filter_map(|w| match &w.placement {
-            WindowPlacement::Rect(r) => Some(*r),
-            WindowPlacement::Outputs(_) => None,
-        }).collect();
+        let here: Vec<&WindowInfo> = windows
+            .iter()
+            .copied()
+            .filter(|w| on_display(w, d))
+            .collect();
+        let rects: Vec<_> = here
+            .iter()
+            .filter_map(|w| match &w.placement {
+                WindowPlacement::Rect(r) => Some(*r),
+                WindowPlacement::Outputs(_) => None,
+            })
+            .collect();
         let covered = here.iter().any(|w| w.fullscreen)
             || (!rects.is_empty() && d.workarea.coverage(&rects) >= input.rules.coverage)
-            || here.iter().any(|w| matches!(w.placement, WindowPlacement::Outputs(_)) && w.maximized);
+            || here
+                .iter()
+                .any(|w| matches!(w.placement, WindowPlacement::Outputs(_)) && w.maximized);
         let focused_here = here.iter().any(|w| w.focused);
-        let pause = input.rules.fullscreen_pause && (covered || (input.rules.focus_pause && focused_here));
+        let pause =
+            input.rules.fullscreen_pause && (covered || (input.rules.focus_pause && focused_here));
         per.insert(d.id.clone(), pause);
     }
     let any_pause = per.values().any(|p| *p);
@@ -91,56 +111,116 @@ mod tests {
 
     fn displays() -> Vec<Display> {
         vec![
-            Display { id: "a".into(), name: "A".into(), rect: Rect::new(0, 0, 1000, 1000), workarea: Rect::new(0, 0, 1000, 950), scale: 1.0, primary: true },
-            Display { id: "b".into(), name: "B".into(), rect: Rect::new(1000, 0, 1000, 1000), workarea: Rect::new(1000, 0, 1000, 1000), scale: 1.0, primary: false },
+            Display {
+                id: "a".into(),
+                name: "A".into(),
+                rect: Rect::new(0, 0, 1000, 1000),
+                workarea: Rect::new(0, 0, 1000, 950),
+                scale: 1.0,
+                primary: true,
+            },
+            Display {
+                id: "b".into(),
+                name: "B".into(),
+                rect: Rect::new(1000, 0, 1000, 1000),
+                workarea: Rect::new(1000, 0, 1000, 1000),
+                scale: 1.0,
+                primary: false,
+            },
         ]
     }
 
     fn win(rect: Rect, fullscreen: bool, focused: bool, app: &str) -> WindowInfo {
-        WindowInfo { placement: WindowPlacement::Rect(rect), fullscreen, maximized: false, focused, app: app.into(), pid: None }
+        WindowInfo {
+            placement: WindowPlacement::Rect(rect),
+            fullscreen,
+            maximized: false,
+            focused,
+            app: app.into(),
+            pid: None,
+        }
     }
 
     fn run(rules: &Rules, snap: &Snapshot, audio_only: bool) -> HashMap<String, Decision> {
-        decide(&Inputs { rules, volume: 80, audio_only_on_desktop: audio_only, audio_output: &AudioOutput::All, displays: &displays(), windows: Some(snap), global_pause: false })
+        decide(&Inputs {
+            rules,
+            volume: 80,
+            audio_only_on_desktop: audio_only,
+            audio_output: &AudioOutput::All,
+            displays: &displays(),
+            windows: Some(snap),
+            global_pause: false,
+        })
     }
 
     #[test]
     fn fullscreen_pauses_only_its_display() {
-        let snap = Snapshot { windows: vec![win(Rect::new(0, 0, 1000, 1000), true, true, "game")] };
+        let snap = Snapshot {
+            windows: vec![win(Rect::new(0, 0, 1000, 1000), true, true, "game")],
+        };
         let d = run(&Rules::default(), &snap, true);
         assert!(d["a"].pause);
         assert!(!d["b"].pause);
-        assert_eq!(d["a"].volume, 0, "focused app mutes audio when audio-only-on-desktop");
+        assert_eq!(
+            d["a"].volume, 0,
+            "focused app mutes audio when audio-only-on-desktop"
+        );
     }
 
     #[test]
     fn coverage_counts_as_covered() {
-        let snap = Snapshot { windows: vec![win(Rect::new(0, 0, 1000, 930), false, false, "editor")] };
+        let snap = Snapshot {
+            windows: vec![win(Rect::new(0, 0, 1000, 930), false, false, "editor")],
+        };
         let d = run(&Rules::default(), &snap, false);
         assert!(d["a"].pause, "930/950 of the work area is covered");
         assert_eq!(d["a"].volume, 80);
-        let small = Snapshot { windows: vec![win(Rect::new(0, 0, 500, 500), false, false, "editor")] };
+        let small = Snapshot {
+            windows: vec![win(Rect::new(0, 0, 500, 500), false, false, "editor")],
+        };
         assert!(!run(&Rules::default(), &small, false)["a"].pause);
     }
 
     #[test]
     fn scope_all_and_app_rules() {
-        let snap = Snapshot { windows: vec![win(Rect::new(0, 0, 1000, 1000), true, false, "game")] };
-        let rules = Rules { scope: PauseScope::All, ..Rules::default() };
+        let snap = Snapshot {
+            windows: vec![win(Rect::new(0, 0, 1000, 1000), true, false, "game")],
+        };
+        let rules = Rules {
+            scope: PauseScope::All,
+            ..Rules::default()
+        };
         assert!(run(&rules, &snap, false)["b"].pause);
-        let rules = Rules { fullscreen_pause: false, app_pause: vec!["Game".into()], ..Rules::default() };
+        let rules = Rules {
+            fullscreen_pause: false,
+            app_pause: vec!["Game".into()],
+            ..Rules::default()
+        };
         assert!(run(&rules, &snap, false)["b"].pause);
-        let rules = Rules { fullscreen_pause: false, ..Rules::default() };
+        let rules = Rules {
+            fullscreen_pause: false,
+            ..Rules::default()
+        };
         assert!(!run(&rules, &snap, false)["a"].pause);
     }
 
     #[test]
     fn own_windows_and_global_pause() {
-        let snap = Snapshot { windows: vec![win(Rect::new(0, 0, 1000, 1000), true, true, "deadlywp")] };
+        let snap = Snapshot {
+            windows: vec![win(Rect::new(0, 0, 1000, 1000), true, true, "deadlywp")],
+        };
         let d = run(&Rules::default(), &snap, true);
         assert!(!d["a"].pause);
         assert_eq!(d["a"].volume, 80);
-        let g = decide(&Inputs { rules: &Rules::default(), volume: 80, audio_only_on_desktop: true, audio_output: &AudioOutput::Primary, displays: &displays(), windows: None, global_pause: true });
+        let g = decide(&Inputs {
+            rules: &Rules::default(),
+            volume: 80,
+            audio_only_on_desktop: true,
+            audio_output: &AudioOutput::Primary,
+            displays: &displays(),
+            windows: None,
+            global_pause: true,
+        });
         assert!(g["a"].pause && g["b"].pause);
         assert_eq!(g["b"].volume, 0, "audio routed to primary only");
     }

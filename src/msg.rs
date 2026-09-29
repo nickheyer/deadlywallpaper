@@ -11,19 +11,35 @@ pub enum Msg {
     Tick,
     Displays(Vec<Display>),
     Windows(Snapshot),
-    Session { locked: bool },
+    Session {
+        locked: bool,
+    },
     Content(ContentId, ContentEvent),
     Tray(TrayAction),
     /// Global pointer event in desktop coordinates (platforms that track the pointer).
-    Pointer { x: i32, y: i32, kind: PointerKind },
+    Pointer {
+        x: i32,
+        y: i32,
+        kind: PointerKind,
+    },
     /// The desktop reassigned its wallpaper areas (Plasma restarted or switched activity).
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "sent by the Plasma presenter"))]
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "sent by the Plasma presenter")
+    )]
     DesktopChanged,
     /// The desktop's own settings replaced the wallpaper on a display.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code, reason = "sent by the Plasma presenter"))]
-    WallpaperDismissed { display: String },
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "sent by the Plasma presenter")
+    )]
+    WallpaperDismissed {
+        display: String,
+    },
     /// The system colour scheme changed.
-    ColorScheme { dark: bool },
+    ColorScheme {
+        dark: bool,
+    },
     /// Audio spectrum bins for visualizer wallpapers.
     Audio(Vec<f32>),
     /// Result of background work, applied on the engine thread.

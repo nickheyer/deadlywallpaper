@@ -114,7 +114,8 @@ mod tests {
 
     #[test]
     fn tolerates_missing_and_string_types() {
-        let info: Info = serde_json::from_str(r#"{"Title":"x","Type":"godot","FileName":"g.exe"}"#).unwrap();
+        let info: Info =
+            serde_json::from_str(r#"{"Title":"x","Type":"godot","FileName":"g.exe"}"#).unwrap();
         assert_eq!(info.kind, Kind::Program);
         let info: Info = serde_json::from_str(r#"{"FileName":"index.html"}"#).unwrap();
         assert_eq!(info.kind, Kind::Web);
@@ -122,7 +123,10 @@ mod tests {
 
     #[test]
     fn splits_arguments() {
-        let info = Info { arguments: Some(r#"--a "two words" -b 'c d'"#.into()), ..Info::default() };
+        let info = Info {
+            arguments: Some(r#"--a "two words" -b 'c d'"#.into()),
+            ..Info::default()
+        };
         assert_eq!(info.args(), vec!["--a", "two words", "-b", "c d"]);
     }
 }

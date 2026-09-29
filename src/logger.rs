@@ -11,7 +11,11 @@ struct Logger {
 
 impl Log for Logger {
     fn enabled(&self, m: &Metadata) -> bool {
-        let level = if m.target().starts_with("deadlywp") { log::max_level() } else { LevelFilter::Warn };
+        let level = if m.target().starts_with("deadlywp") {
+            log::max_level()
+        } else {
+            LevelFilter::Warn
+        };
         m.level() <= level
     }
 
@@ -27,7 +31,9 @@ impl Log for Logger {
             "{:.3} {:5} [{}] {}\n",
             now,
             r.level(),
-            r.module_path().unwrap_or("?").trim_start_matches("deadlywp::"),
+            r.module_path()
+                .unwrap_or("?")
+                .trim_start_matches("deadlywp::"),
             r.args()
         );
         if self.stderr || r.level() <= Level::Warn {
@@ -56,7 +62,12 @@ pub fn init(file: Option<&Path>, stderr: bool) {
                 let _ = std::fs::rename(p, p.with_extension("log.old"));
             }
         }
-        OpenOptions::new().create(true).append(true).open(p).ok().map(Mutex::new)
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .ok()
+            .map(Mutex::new)
     });
     let _ = log::set_boxed_logger(Box::new(Logger { file, stderr }));
     log::set_max_level(level);

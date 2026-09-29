@@ -58,7 +58,9 @@ fn bind() -> Result<Listener> {
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 if Stream::connect(name.clone()).is_ok() {
                     if std::time::Instant::now() > deadline {
-                        return Err(Error::Ipc("another Deadly Wallpaper daemon is already running".into()));
+                        return Err(Error::Ipc(
+                            "another Deadly Wallpaper daemon is already running".into(),
+                        ));
                     }
                     std::thread::sleep(std::time::Duration::from_millis(200));
                     continue;
@@ -67,7 +69,10 @@ fn bind() -> Result<Listener> {
                 {
                     let _ = std::fs::remove_file(crate::paths::socket_path());
                 }
-                return ListenerOptions::new().name(name).create_sync().map_err(|e| Error::Ipc(format!("bind daemon socket: {e}")));
+                return ListenerOptions::new()
+                    .name(name)
+                    .create_sync()
+                    .map_err(|e| Error::Ipc(format!("bind daemon socket: {e}")));
             }
             Err(e) => return Err(Error::Ipc(format!("bind daemon socket: {e}"))),
         }
@@ -75,55 +80,59 @@ fn bind() -> Result<Listener> {
 }
 
 fn serve(stream: Stream, dispatch: Dispatch, subs: Arc<Mutex<Vec<Sender<Event>>>>) {
-    let spawned = std::thread::Builder::new().name("ipc-conn".into()).spawn(move || {
-        let (rx, tx) = stream.split();
-        let mut rx = BufReader::new(rx);
-        let tx: Arc<Mutex<SendHalf>> = Arc::new(Mutex::new(tx));
-        loop {
-            let req = match read_line::<_, Request>(&mut rx) {
-                Ok(Some(r)) => r,
-                Ok(None) => return,
-                Err(e) => {
-                    log::debug!("ipc read: {e}");
-                    return;
-                }
-            };
-            if let Request::Subscribe = req {
-                let (etx, erx) = channel::<Event>();
-                if let Ok(mut s) = subs.lock() {
-                    s.push(etx);
-                }
-                if send(&tx, &Response::Ok).is_err() {
-                    return;
-                }
-                for ev in erx {
-                    if send(&tx, &ev).is_err() {
+    let spawned = std::thread::Builder::new()
+        .name("ipc-conn".into())
+        .spawn(move || {
+            let (rx, tx) = stream.split();
+            let mut rx = BufReader::new(rx);
+            let tx: Arc<Mutex<SendHalf>> = Arc::new(Mutex::new(tx));
+            loop {
+                let req = match read_line::<_, Request>(&mut rx) {
+                    Ok(Some(r)) => r,
+                    Ok(None) => return,
+                    Err(e) => {
+                        log::debug!("ipc read: {e}");
                         return;
                     }
+                };
+                if let Request::Subscribe = req {
+                    let (etx, erx) = channel::<Event>();
+                    if let Ok(mut s) = subs.lock() {
+                        s.push(etx);
+                    }
+                    if send(&tx, &Response::Ok).is_err() {
+                        return;
+                    }
+                    for ev in erx {
+                        if send(&tx, &ev).is_err() {
+                            return;
+                        }
+                    }
+                    return;
                 }
-                return;
+                log::debug!("ipc: request {req:?}");
+                let out = tx.clone();
+                let (done_tx, done_rx) = channel::<()>();
+                dispatch(
+                    req,
+                    Box::new(move |resp| {
+                        let _ = send(&out, &resp);
+                        let _ = done_tx.send(());
+                    }),
+                );
+                if done_rx.recv().is_err() {
+                    return;
+                }
             }
-            log::debug!("ipc: request {req:?}");
-            let out = tx.clone();
-            let (done_tx, done_rx) = channel::<()>();
-            dispatch(
-                req,
-                Box::new(move |resp| {
-                    let _ = send(&out, &resp);
-                    let _ = done_tx.send(());
-                }),
-            );
-            if done_rx.recv().is_err() {
-                return;
-            }
-        }
-    });
+        });
     if let Err(e) = spawned {
         log::warn!("ipc: connection thread: {e}");
     }
 }
 
 fn send<T: serde::Serialize>(tx: &Arc<Mutex<SendHalf>>, msg: &T) -> std::io::Result<()> {
-    let mut guard = tx.lock().map_err(|_| std::io::Error::other("ipc writer poisoned"))?;
+    let mut guard = tx
+        .lock()
+        .map_err(|_| std::io::Error::other("ipc writer poisoned"))?;
     write_line(&mut *guard, msg).inspect_err(|e| log::debug!("ipc write: {e}"))
 }

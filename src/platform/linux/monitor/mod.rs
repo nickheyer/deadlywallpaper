@@ -38,7 +38,13 @@ impl Monitor {
 
 /// Pick the richest backend the session offers: KWin scripting, then wlroots' foreign
 /// toplevel protocol on Wayland, then EWMH on X11.
-pub fn start(tx: MsgSender, interval: Arc<AtomicU64>, wayland: bool, paths: &Paths, track_pointer: bool) -> Monitor {
+pub fn start(
+    tx: MsgSender,
+    interval: Arc<AtomicU64>,
+    wayland: bool,
+    paths: &Paths,
+    track_pointer: bool,
+) -> Monitor {
     if kwin::available() {
         match kwin::Kwin::start(tx.clone(), paths, track_pointer) {
             Ok(k) => return Monitor::Kwin(k),
@@ -51,5 +57,9 @@ pub fn start(tx: MsgSender, interval: Arc<AtomicU64>, wayland: bool, paths: &Pat
         }
         return Monitor::None;
     }
-    if ewmh::start(tx, interval) { Monitor::Ewmh } else { Monitor::None }
+    if ewmh::start(tx, interval) {
+        Monitor::Ewmh
+    } else {
+        Monitor::None
+    }
 }

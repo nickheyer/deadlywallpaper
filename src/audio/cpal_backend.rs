@@ -9,7 +9,11 @@ use std::sync::{Arc, Mutex};
 
 fn pick(host: &cpal::Host, device: Option<&str>) -> Result<cpal::Device> {
     if let Some(name) = device.filter(|d| !d.is_empty()) {
-        let all = host.input_devices().into_iter().flatten().chain(host.output_devices().into_iter().flatten());
+        let all = host
+            .input_devices()
+            .into_iter()
+            .flatten()
+            .chain(host.output_devices().into_iter().flatten());
         for d in all {
             if d.description().is_ok_and(|desc| desc.name() == name) {
                 return Ok(d);
@@ -17,7 +21,11 @@ fn pick(host: &cpal::Host, device: Option<&str>) -> Result<cpal::Device> {
         }
         return Err(Error::NotFound(format!("audio device '{name}' not found")));
     }
-    let default = if cfg!(windows) { host.default_output_device() } else { host.default_input_device() };
+    let default = if cfg!(windows) {
+        host.default_output_device()
+    } else {
+        host.default_input_device()
+    };
     default.ok_or_else(|| Error::Platform("no default audio device".into()))
 }
 
@@ -35,7 +43,10 @@ pub fn start(device: Option<String>, stop: Arc<AtomicBool>, sink: Sink) -> Resul
         .build_input_stream(
             config.config(),
             move |data: &[f32], _| {
-                let bins = analyzer.lock().ok().and_then(|mut a| a.push(&downmix(data, channels)));
+                let bins = analyzer
+                    .lock()
+                    .ok()
+                    .and_then(|mut a| a.push(&downmix(data, channels)));
                 if let Some(bins) = bins {
                     if let Ok(mut s) = sink.lock() {
                         s(bins);
@@ -46,7 +57,9 @@ pub fn start(device: Option<String>, stop: Arc<AtomicBool>, sink: Sink) -> Resul
             None,
         )
         .map_err(|e| Error::Platform(format!("audio stream: {e}")))?;
-    stream.play().map_err(|e| Error::Platform(format!("audio start: {e}")))?;
+    stream
+        .play()
+        .map_err(|e| Error::Platform(format!("audio start: {e}")))?;
     std::thread::Builder::new()
         .name("audio-capture".into())
         .spawn(move || {
@@ -61,15 +74,29 @@ pub fn start(device: Option<String>, stop: Arc<AtomicBool>, sink: Sink) -> Resul
 
 pub fn devices() -> Vec<AudioDevice> {
     let host = cpal::default_host();
-    let default_label = if cfg!(windows) { "System output (default loopback)" } else { "Default input device" };
-    let mut out = vec![AudioDevice { id: String::new(), name: default_label.into() }];
+    let default_label = if cfg!(windows) {
+        "System output (default loopback)"
+    } else {
+        "Default input device"
+    };
+    let mut out = vec![AudioDevice {
+        id: String::new(),
+        name: default_label.into(),
+    }];
     let inputs = host.input_devices().into_iter().flatten();
-    let outputs: Box<dyn Iterator<Item = cpal::Device>> = if cfg!(windows) { Box::new(host.output_devices().into_iter().flatten()) } else { Box::new(std::iter::empty()) };
+    let outputs: Box<dyn Iterator<Item = cpal::Device>> = if cfg!(windows) {
+        Box::new(host.output_devices().into_iter().flatten())
+    } else {
+        Box::new(std::iter::empty())
+    };
     for d in inputs.chain(outputs) {
         if let Ok(desc) = d.description() {
             let name = desc.name().to_string();
             if !out.iter().any(|o| o.id == name) {
-                out.push(AudioDevice { id: name.clone(), name });
+                out.push(AudioDevice {
+                    id: name.clone(),
+                    name,
+                });
             }
         }
     }

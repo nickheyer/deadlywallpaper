@@ -4,7 +4,10 @@ use crate::geom::Rect as GeomRect;
 use crate::model::{Display, Kind, Layout, Pose};
 use crate::ui::{theme, widgets};
 use eframe::egui::load::{SizeHint, TexturePoll};
-use eframe::egui::{self, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, TextureOptions, Vec2};
+use eframe::egui::{
+    self, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
+    TextureOptions, Vec2,
+};
 use eframe::epaint::{Mesh, Vertex, WHITE_UV};
 
 pub struct Scene<'a> {
@@ -61,7 +64,14 @@ struct Placed {
 
 impl Placed {
     fn new(base: GeomRect, pose: Pose) -> Placed {
-        Placed { cx: base.x as f64 + base.w as f64 / 2.0 + pose.x, cy: base.y as f64 + base.h as f64 / 2.0 + pose.y, w: base.w as f64, h: base.h as f64, scale: pose.scale, rotation: pose.rotation }
+        Placed {
+            cx: base.x as f64 + base.w as f64 / 2.0 + pose.x,
+            cy: base.y as f64 + base.h as f64 / 2.0 + pose.y,
+            w: base.w as f64,
+            h: base.h as f64,
+            scale: pose.scale,
+            rotation: pose.rotation,
+        }
     }
 
     /// Local (centred, unscaled, unturned) to span space.
@@ -74,13 +84,21 @@ impl Placed {
     fn local(&self, x: f64, y: f64) -> (f64, f64) {
         let (dx, dy) = (x - self.cx, y - self.cy);
         let (s, c) = (-self.rotation).to_radians().sin_cos();
-        ((dx * c - dy * s) / self.scale, (dx * s + dy * c) / self.scale)
+        (
+            (dx * c - dy * s) / self.scale,
+            (dx * s + dy * c) / self.scale,
+        )
     }
 
     /// Corners clockwise from the top-left.
     fn corners(&self) -> [(f64, f64); 4] {
         let (hw, hh) = (self.w / 2.0, self.h / 2.0);
-        [self.out(-hw, -hh), self.out(hw, -hh), self.out(hw, hh), self.out(-hw, hh)]
+        [
+            self.out(-hw, -hh),
+            self.out(hw, -hh),
+            self.out(hw, hh),
+            self.out(-hw, hh),
+        ]
     }
 
     fn contains(&self, x: f64, y: f64) -> bool {
@@ -111,22 +129,46 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
 
     // Committed placements set the scale of the scene, so nothing jumps while dragging.
     let image_home = Placed::new(bounds, scene.layout.image);
-    let homes: Vec<Placed> = scene.displays.iter().map(|d| Placed::new(d.rect, scene.layout.pose(&d.id))).collect();
+    let homes: Vec<Placed> = scene
+        .displays
+        .iter()
+        .map(|d| Placed::new(d.rect, scene.layout.pose(&d.id)))
+        .collect();
     let (mut min, mut max) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
-    for (x, y) in homes.iter().chain(std::iter::once(&image_home)).flat_map(Placed::corners) {
+    for (x, y) in homes
+        .iter()
+        .chain(std::iter::once(&image_home))
+        .flat_map(Placed::corners)
+    {
         min = (min.0.min(x), min.1.min(y));
         max = (max.0.max(x), max.1.max(y));
     }
     let margin = 44.0_f32;
     let span_w = (max.0 - min.0).max(1.0);
     let span_h = (max.1 - min.1).max(1.0);
-    let scale = (((max_size.x - 2.0 * margin) as f64) / span_w).min(((max_size.y - 2.0 * margin) as f64) / span_h);
-    let size = egui::vec2((span_w * scale) as f32 + 2.0 * margin, (span_h * scale) as f32 + 2.0 * margin);
+    let scale = (((max_size.x - 2.0 * margin) as f64) / span_w)
+        .min(((max_size.y - 2.0 * margin) as f64) / span_h);
+    let size = egui::vec2(
+        (span_w * scale) as f32 + 2.0 * margin,
+        (span_h * scale) as f32 + 2.0 * margin,
+    );
     let (area, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
     let origin = area.min + egui::vec2(margin, margin);
-    let to_screen = move |x: f64, y: f64| Pos2::new(origin.x + ((x - min.0) * scale) as f32, origin.y + ((y - min.1) * scale) as f32);
-    let to_span = move |pos: Pos2| (min.0 + (pos.x - origin.x) as f64 / scale, min.1 + (pos.y - origin.y) as f64 / scale);
-    let pointer = resp.interact_pointer_pos().or_else(|| ui.input(|i| i.pointer.hover_pos()));
+    let to_screen = move |x: f64, y: f64| {
+        Pos2::new(
+            origin.x + ((x - min.0) * scale) as f32,
+            origin.y + ((y - min.1) * scale) as f32,
+        )
+    };
+    let to_span = move |pos: Pos2| {
+        (
+            min.0 + (pos.x - origin.x) as f64 / scale,
+            min.1 + (pos.y - origin.y) as f64 / scale,
+        )
+    };
+    let pointer = resp
+        .interact_pointer_pos()
+        .or_else(|| ui.input(|i| i.pointer.hover_pos()));
 
     // Poses as shown this frame: the committed ones, with the dragged one following the pointer.
     let live = |drag: &Drag, pointer: Pos2| -> Pose {
@@ -137,7 +179,10 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
         let center = to_screen(home.cx, home.cy);
         match drag.mode {
             Mode::Move => {
-                let shift = (drag.pose.x + (pointer.x - drag.start.x) as f64 / scale, drag.pose.y + (pointer.y - drag.start.y) as f64 / scale);
+                let shift = (
+                    drag.pose.x + (pointer.x - drag.start.x) as f64 / scale,
+                    drag.pose.y + (pointer.y - drag.start.y) as f64 / scale,
+                );
                 let (x, y) = snap_shift(drag.target, shift, scene, &homes, SNAP_PX / scale);
                 Pose { x, y, ..drag.pose }
             }
@@ -147,7 +192,11 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
                 if (k - 1.0).abs() < 0.04 {
                     k = 1.0;
                 }
-                Pose { scale: k, ..drag.pose }.normalized()
+                Pose {
+                    scale: k,
+                    ..drag.pose
+                }
+                .normalized()
             }
             Mode::Rotate => {
                 let angle = |q: Pos2| (q.y - center.y).atan2(q.x - center.x) as f64;
@@ -156,12 +205,20 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
                 if (r - step).abs() < 3.0 {
                     r = step;
                 }
-                Pose { rotation: r, ..drag.pose }.normalized()
+                Pose {
+                    rotation: r,
+                    ..drag.pose
+                }
+                .normalized()
             }
         }
     };
     let mut image_pose = scene.layout.image;
-    let mut poses: Vec<Pose> = scene.displays.iter().map(|d| scene.layout.pose(&d.id)).collect();
+    let mut poses: Vec<Pose> = scene
+        .displays
+        .iter()
+        .map(|d| scene.layout.pose(&d.id))
+        .collect();
     if let (Some(d), Some(pos)) = (drag, pointer) {
         let pose = live(&d, pos);
         match d.target {
@@ -171,8 +228,20 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
         ui.ctx().request_repaint();
     }
     let image = Placed::new(bounds, image_pose);
-    let placed: Vec<Placed> = scene.displays.iter().zip(&poses).map(|(d, pose)| Placed::new(d.rect, *pose)).collect();
-    let selected_target = if image_selected { Some(Target::Image) } else { scene.selected.and_then(|id| scene.displays.iter().position(|d| d.id == id)).map(Target::Display) };
+    let placed: Vec<Placed> = scene
+        .displays
+        .iter()
+        .zip(&poses)
+        .map(|(d, pose)| Placed::new(d.rect, *pose))
+        .collect();
+    let selected_target = if image_selected {
+        Some(Target::Image)
+    } else {
+        scene
+            .selected
+            .and_then(|id| scene.displays.iter().position(|d| d.id == id))
+            .map(Target::Display)
+    };
 
     let handle_points = |placed: &Placed| -> ([Pos2; 4], Pos2) {
         let corners = placed.corners().map(|(x, y)| to_screen(x, y));
@@ -180,7 +249,11 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
         let top = to_screen(tx, ty);
         let center = to_screen(placed.cx, placed.cy);
         let dir = top - center;
-        let dir = if dir.length() > 0.0 { dir.normalized() } else { egui::vec2(0.0, -1.0) };
+        let dir = if dir.length() > 0.0 {
+            dir.normalized()
+        } else {
+            egui::vec2(0.0, -1.0)
+        };
         (corners, top + dir * ROTATE_ARM)
     };
     let hit = |pos: Pos2| -> Option<(Target, Mode)> {
@@ -217,7 +290,17 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
                     Target::Image => scene.layout.image,
                     Target::Display(i) => scene.layout.pose(&scene.displays[i].id),
                 };
-                ui.data_mut(|m| m.insert_temp(id.with("drag"), Drag { target, mode, start, pose }));
+                ui.data_mut(|m| {
+                    m.insert_temp(
+                        id.with("drag"),
+                        Drag {
+                            target,
+                            mode,
+                            start,
+                            pose,
+                        },
+                    )
+                });
                 ui.data_mut(|m| m.insert_temp(id.with("image"), target == Target::Image));
                 if let Target::Display(i) = target {
                     event = Some(Event::Clicked(scene.displays[i].id.clone()));
@@ -235,7 +318,10 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
             if pose != committed {
                 event = Some(match d.target {
                     Target::Image => Event::Image(pose),
-                    Target::Display(i) => Event::Display { id: scene.displays[i].id.clone(), pose },
+                    Target::Display(i) => Event::Display {
+                        id: scene.displays[i].id.clone(),
+                        pose,
+                    },
                 });
             }
         }
@@ -255,11 +341,18 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
     }
 
     let painter = ui.painter();
-    let texture = scene.thumbnail.and_then(|uri| match ui.ctx().try_load_texture(uri, TextureOptions::LINEAR, SizeHint::default()) {
-        Ok(TexturePoll::Ready { texture }) => Some(texture),
-        _ => None,
+    let texture = scene.thumbnail.and_then(|uri| {
+        match ui
+            .ctx()
+            .try_load_texture(uri, TextureOptions::LINEAR, SizeHint::default())
+        {
+            Ok(TexturePoll::Ready { texture }) => Some(texture),
+            _ => None,
+        }
     });
-    let uv_rect = texture.map(|t| widgets::cover_uv(t.size, egui::vec2(bounds.w as f32, bounds.h as f32))).unwrap_or(Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)));
+    let uv_rect = texture
+        .map(|t| widgets::cover_uv(t.size, egui::vec2(bounds.w as f32, bounds.h as f32)))
+        .unwrap_or(Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)));
     let fill = theme::kind_color(scene.kind.unwrap_or(Kind::Picture), p.dark);
     let mesh_of = |points: &[(f64, f64)], brightness: f32| -> Mesh {
         let mut mesh = match texture {
@@ -272,21 +365,41 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
                     let (lx, ly) = image.local(x, y);
                     let u = (lx / image.w + 0.5) as f32;
                     let v = (ly / image.h + 0.5) as f32;
-                    (Pos2::new(uv_rect.min.x + u * uv_rect.width(), uv_rect.min.y + v * uv_rect.height()), Color32::from_gray((brightness * 255.0) as u8))
+                    (
+                        Pos2::new(
+                            uv_rect.min.x + u * uv_rect.width(),
+                            uv_rect.min.y + v * uv_rect.height(),
+                        ),
+                        Color32::from_gray((brightness * 255.0) as u8),
+                    )
                 }
                 None => (WHITE_UV, dim(fill, brightness)),
             };
-            mesh.vertices.push(Vertex { pos: to_screen(x, y), uv, color });
+            mesh.vertices.push(Vertex {
+                pos: to_screen(x, y),
+                uv,
+                color,
+            });
         }
         for i in 1..points.len().saturating_sub(1) {
             mesh.add_triangle(0, i as u32, i as u32 + 1);
         }
         mesh
     };
-    let screen_poly = |placed: &Placed| -> Vec<Pos2> { placed.corners().iter().map(|&(x, y)| to_screen(x, y)).collect() };
+    let screen_poly = |placed: &Placed| -> Vec<Pos2> {
+        placed
+            .corners()
+            .iter()
+            .map(|&(x, y)| to_screen(x, y))
+            .collect()
+    };
 
     // Blank screens under everything, the whole image dimmed, then each screen's part bright.
-    let blank = if p.dark { Color32::from_rgb(12, 12, 14) } else { Color32::from_rgb(210, 212, 220) };
+    let blank = if p.dark {
+        Color32::from_rgb(12, 12, 14)
+    } else {
+        Color32::from_rgb(210, 212, 220)
+    };
     for d in &placed {
         painter.add(Shape::convex_polygon(screen_poly(d), blank, Stroke::NONE));
     }
@@ -299,11 +412,27 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
         }
     }
     if texture.is_none() {
-        painter.text(to_screen(image.cx, image.cy), Align2::CENTER_CENTER, theme::kind_glyph(scene.kind.unwrap_or(Kind::Picture)), FontId::proportional(28.0), theme::kind_glyph_color(p.dark));
+        painter.text(
+            to_screen(image.cx, image.cy),
+            Align2::CENTER_CENTER,
+            theme::kind_glyph(scene.kind.unwrap_or(Kind::Picture)),
+            FontId::proportional(28.0),
+            theme::kind_glyph_color(p.dark),
+        );
     }
 
-    let hover = if drag.is_some() { None } else { pointer.filter(|pos| area.contains(*pos)).and_then(|pos| hit(pos)) };
-    let image_stroke = if selected_target == Some(Target::Image) { Stroke::new(2.0, p.accent) } else { Stroke::new(1.0, p.stroke_strong) };
+    let hover = if drag.is_some() {
+        None
+    } else {
+        pointer
+            .filter(|pos| area.contains(*pos))
+            .and_then(|pos| hit(pos))
+    };
+    let image_stroke = if selected_target == Some(Target::Image) {
+        Stroke::new(2.0, p.accent)
+    } else {
+        Stroke::new(1.0, p.stroke_strong)
+    };
     painter.add(Shape::closed_line(screen_poly(&image), image_stroke));
     for (i, d) in placed.iter().enumerate() {
         let is_selected = selected_target == Some(Target::Display(i));
@@ -318,7 +447,18 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
         painter.add(Shape::closed_line(screen_poly(d), stroke));
         let inset = 16.0 / scale / d.scale;
         let (bx, by) = d.out(-d.w / 2.0 + inset, -d.h / 2.0 + inset);
-        widgets::badge(painter, to_screen(bx, by), Align2::CENTER_CENTER, &format!("{}", i + 1), if is_selected { p.accent } else { Color32::from_black_alpha(170) }, Color32::WHITE);
+        widgets::badge(
+            painter,
+            to_screen(bx, by),
+            Align2::CENTER_CENTER,
+            &format!("{}", i + 1),
+            if is_selected {
+                p.accent
+            } else {
+                Color32::from_black_alpha(170)
+            },
+            Color32::WHITE,
+        );
     }
 
     if let Some(t) = selected_target {
@@ -329,7 +469,13 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
         let (corners, rotate) = handle_points(&target);
         if scene.scalable {
             for c in corners {
-                painter.rect(Rect::from_center_size(c, egui::vec2(HANDLE, HANDLE)), 2.0, p.elevated, Stroke::new(1.5, p.accent), StrokeKind::Inside);
+                painter.rect(
+                    Rect::from_center_size(c, egui::vec2(HANDLE, HANDLE)),
+                    2.0,
+                    p.elevated,
+                    Stroke::new(1.5, p.accent),
+                    StrokeKind::Inside,
+                );
             }
         }
         if scene.rotatable {
@@ -355,7 +501,13 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
     match hover {
         Some((Target::Display(i), Mode::Move)) => {
             let d = &scene.displays[i];
-            let mut tip = format!("{}{}\n{}×{}", d.name, if d.primary { " (primary)" } else { "" }, d.rect.w, d.rect.h);
+            let mut tip = format!(
+                "{}{}\n{}×{}",
+                d.name,
+                if d.primary { " (primary)" } else { "" },
+                d.rect.w,
+                d.rect.h
+            );
             if !poses[i].is_identity() {
                 tip.push_str(&format!("\n{}", describe(&poses[i])));
             }
@@ -370,7 +522,10 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
 }
 
 fn describe(pose: &Pose) -> String {
-    format!("{:+.0}, {:+.0} · ×{:.2} · {:.1}°", pose.x, pose.y, pose.scale, pose.rotation)
+    format!(
+        "{:+.0}, {:+.0} · ×{:.2} · {:.1}°",
+        pose.x, pose.y, pose.scale, pose.rotation
+    )
 }
 
 fn dim(color: Color32, factor: f32) -> Color32 {
@@ -380,28 +535,58 @@ fn dim(color: Color32, factor: f32) -> Color32 {
 
 /// Snap a moving target's shift: back to its own place, and a plain display onto the edges of
 /// other plain displays.
-fn snap_shift(target: Target, shift: (f64, f64), scene: &Scene<'_>, homes: &[Placed], threshold: f64) -> (f64, f64) {
+fn snap_shift(
+    target: Target,
+    shift: (f64, f64),
+    scene: &Scene<'_>,
+    homes: &[Placed],
+    threshold: f64,
+) -> (f64, f64) {
     let near = |a: f64, b: f64| (a - b).abs() <= threshold;
     let (x, y) = shift;
     if let Target::Display(i) = target {
         if homes[i].plain() {
             let base = scene.displays[i].rect;
-            let (wx, wy, w, h) = (base.x as f64 + x, base.y as f64 + y, base.w as f64, base.h as f64);
+            let (wx, wy, w, h) = (
+                base.x as f64 + x,
+                base.y as f64 + y,
+                base.w as f64,
+                base.h as f64,
+            );
             let mut xs = vec![base.x as f64];
             let mut ys = vec![base.y as f64];
             for (j, o) in homes.iter().enumerate() {
                 if j == i || !o.plain() {
                     continue;
                 }
-                let (l, t, r, b) = (o.cx - o.w / 2.0, o.cy - o.h / 2.0, o.cx + o.w / 2.0, o.cy + o.h / 2.0);
+                let (l, t, r, b) = (
+                    o.cx - o.w / 2.0,
+                    o.cy - o.h / 2.0,
+                    o.cx + o.w / 2.0,
+                    o.cy + o.h / 2.0,
+                );
                 xs.extend([l, r, l - w, r - w]);
                 ys.extend([t, b, t - h, b - h]);
             }
-            let nearest = |v: f64, candidates: &[f64]| candidates.iter().copied().filter(|c| near(*c, v)).min_by(|a, b| (a - v).abs().total_cmp(&(b - v).abs())).unwrap_or(v);
-            return (nearest(wx, &xs) - base.x as f64, nearest(wy, &ys) - base.y as f64);
+            let nearest = |v: f64, candidates: &[f64]| {
+                candidates
+                    .iter()
+                    .copied()
+                    .filter(|c| near(*c, v))
+                    .min_by(|a, b| (a - v).abs().total_cmp(&(b - v).abs()))
+                    .unwrap_or(v)
+            };
+            return (
+                nearest(wx, &xs) - base.x as f64,
+                nearest(wy, &ys) - base.y as f64,
+            );
         }
     }
-    if near(x, 0.0) && near(y, 0.0) { (0.0, 0.0) } else { (x, y) }
+    if near(x, 0.0) && near(y, 0.0) {
+        (0.0, 0.0)
+    } else {
+        (x, y)
+    }
 }
 
 /// The part of convex `subject` inside convex `clip` (Sutherland–Hodgman), in either winding.
@@ -414,7 +599,8 @@ fn clip_convex(subject: &[(f64, f64)], clip: &[(f64, f64)]) -> Vec<(f64, f64)> {
         if input.is_empty() {
             break;
         }
-        let side = |q: (f64, f64)| ((b.0 - a.0) * (q.1 - a.1) - (b.1 - a.1) * (q.0 - a.0)) * orientation;
+        let side =
+            |q: (f64, f64)| ((b.0 - a.0) * (q.1 - a.1) - (b.1 - a.1) * (q.0 - a.0)) * orientation;
         for j in 0..input.len() {
             let cur = input[j];
             let prev = input[(j + input.len() - 1) % input.len()];
@@ -462,14 +648,25 @@ mod tests {
         let far = [(20.0, 20.0), (30.0, 20.0), (30.0, 30.0), (20.0, 30.0)];
         assert!(clip_convex(&a, &far).is_empty());
         let reversed: Vec<_> = b.iter().rev().copied().collect();
-        assert!((signed_area(&clip_convex(&a, &reversed)).abs() - 25.0).abs() < 1e-9, "winding must not matter");
+        assert!(
+            (signed_area(&clip_convex(&a, &reversed)).abs() - 25.0).abs() < 1e-9,
+            "winding must not matter"
+        );
         let inside = [(2.0, 2.0), (4.0, 2.0), (4.0, 4.0), (2.0, 4.0)];
         assert!((signed_area(&clip_convex(&inside, &a)).abs() - 4.0).abs() < 1e-9);
     }
 
     #[test]
     fn placed_maps_both_ways() {
-        let placed = Placed::new(GeomRect::new(100, 200, 1920, 1080), Pose { x: 10.0, y: -20.0, scale: 1.5, rotation: 30.0 });
+        let placed = Placed::new(
+            GeomRect::new(100, 200, 1920, 1080),
+            Pose {
+                x: 10.0,
+                y: -20.0,
+                scale: 1.5,
+                rotation: 30.0,
+            },
+        );
         let (x, y) = placed.out(300.0, -100.0);
         let (lx, ly) = placed.local(x, y);
         assert!((lx - 300.0).abs() < 1e-9 && (ly + 100.0).abs() < 1e-9);

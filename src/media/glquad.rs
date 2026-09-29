@@ -167,9 +167,18 @@ impl Quad {
         // every object is released on the error path.
         unsafe {
             let version = (self.get_string)(GL_VERSION);
-            let es = !version.is_null() && CStr::from_ptr(version as *const c_char).to_string_lossy().starts_with("OpenGL ES");
-            let (vs_src, fs_src) = if es { (VERTEX_ES, FRAGMENT_ES) } else { (VERTEX_GL, FRAGMENT_GL) };
-            let Some(vs) = self.shader(GL_VERTEX_SHADER, vs_src) else { return false };
+            let es = !version.is_null()
+                && CStr::from_ptr(version as *const c_char)
+                    .to_string_lossy()
+                    .starts_with("OpenGL ES");
+            let (vs_src, fs_src) = if es {
+                (VERTEX_ES, FRAGMENT_ES)
+            } else {
+                (VERTEX_GL, FRAGMENT_GL)
+            };
+            let Some(vs) = self.shader(GL_VERTEX_SHADER, vs_src) else {
+                return false;
+            };
             let Some(fs) = self.shader(GL_FRAGMENT_SHADER, fs_src) else {
                 (self.delete_shader)(vs);
                 return false;
@@ -195,7 +204,12 @@ impl Quad {
             (self.bind_vertex_array)(self.vao);
             (self.gen_buffers)(1, &mut self.vbo);
             (self.bind_buffer)(GL_ARRAY_BUFFER, self.vbo);
-            (self.buffer_data)(GL_ARRAY_BUFFER, std::mem::size_of_val(&VERTICES) as isize, VERTICES.as_ptr() as *const c_void, GL_STATIC_DRAW);
+            (self.buffer_data)(
+                GL_ARRAY_BUFFER,
+                std::mem::size_of_val(&VERTICES) as isize,
+                VERTICES.as_ptr() as *const c_void,
+                GL_STATIC_DRAW,
+            );
             (self.enable_vertex_attrib_array)(a_pos as u32);
             (self.vertex_attrib_pointer)(a_pos as u32, 2, GL_FLOAT, 0, 0, std::ptr::null());
             (self.bind_vertex_array)(0);
@@ -237,18 +251,38 @@ impl Quad {
         // restored before returning.
         unsafe {
             let mut previous = 0;
-            (self.get_integerv)(crate::media::glcap::GL_DRAW_FRAMEBUFFER_BINDING, &mut previous);
+            (self.get_integerv)(
+                crate::media::glcap::GL_DRAW_FRAMEBUFFER_BINDING,
+                &mut previous,
+            );
             (self.gen_textures)(1, &mut self.texture);
             (self.bind_texture)(GL_TEXTURE_2D, self.texture);
-            (self.tex_image_2d)(GL_TEXTURE_2D, 0, GL_RGBA8 as i32, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, std::ptr::null());
+            (self.tex_image_2d)(
+                GL_TEXTURE_2D,
+                0,
+                GL_RGBA8 as i32,
+                w,
+                h,
+                0,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                std::ptr::null(),
+            );
             (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             (self.gen_framebuffers)(1, &mut self.fbo);
             (self.bind_framebuffer)(GL_FRAMEBUFFER, self.fbo);
-            (self.framebuffer_texture_2d)(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self.texture, 0);
-            let complete = (self.check_framebuffer_status)(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+            (self.framebuffer_texture_2d)(
+                GL_FRAMEBUFFER,
+                GL_COLOR_ATTACHMENT0,
+                GL_TEXTURE_2D,
+                self.texture,
+                0,
+            );
+            let complete =
+                (self.check_framebuffer_status)(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
             (self.bind_framebuffer)(GL_FRAMEBUFFER, previous as u32);
             if !complete {
                 log::error!("image framebuffer {w}x{h} is incomplete");
@@ -268,7 +302,11 @@ impl Quad {
         let k = view.scale;
         let (iw, ih) = (view.width as f64, view.height as f64);
         let ax = 2.0 * dpi / w as f64;
-        let ay = if flip_y { -2.0 * dpi / h as f64 } else { 2.0 * dpi / h as f64 };
+        let ay = if flip_y {
+            -2.0 * dpi / h as f64
+        } else {
+            2.0 * dpi / h as f64
+        };
         let oy = if flip_y { 1.0 } else { -1.0 };
         // Unit square → image pixels → slot pixels (scaled, turned, shifted) → device → clip.
         let tx = slot.w as f64 / 2.0 + view.x - k * (cos * iw / 2.0 - sin * ih / 2.0);
@@ -346,13 +384,26 @@ impl Quad {
 /// whole image, otherwise through `quad`. Nothing is drawn when the view needs the quad and
 /// there is none.
 #[allow(clippy::too_many_arguments)]
-pub fn render_view(ctx: &RenderContext, quad: &mut Option<Quad>, view: &View, slot: Size, fbo: i32, w: i32, h: i32, dpi: f64, flip_y: bool) {
+pub fn render_view(
+    ctx: &RenderContext,
+    quad: &mut Option<Quad>,
+    view: &View,
+    slot: Size,
+    fbo: i32,
+    w: i32,
+    h: i32,
+    dpi: f64,
+    flip_y: bool,
+) {
     if view.is_whole(slot) {
         ctx.render(fbo, w, h, flip_y);
         return;
     }
     let Some(q) = quad else { return };
-    let (tw, th) = (((view.width as f64) * dpi).round() as i32, ((view.height as f64) * dpi).round() as i32);
+    let (tw, th) = (
+        ((view.width as f64) * dpi).round() as i32,
+        ((view.height as f64) * dpi).round() as i32,
+    );
     if let Some(target) = q.target(tw.max(1), th.max(1)) {
         ctx.render(target, tw.max(1), th.max(1), flip_y);
         q.draw(fbo, w, h, view, slot, dpi, flip_y);
@@ -368,15 +419,27 @@ mod tests {
         let slot = Size { w: 1920, h: 1080 };
         let whole = View::whole(slot);
         let m = matrix(&whole, slot, 1920, 1080, 1.0, true);
-        let apply = |m: &[f32; 9], x: f32, y: f32| (m[0] * x + m[3] * y + m[6], m[1] * x + m[4] * y + m[7]);
+        let apply =
+            |m: &[f32; 9], x: f32, y: f32| (m[0] * x + m[3] * y + m[6], m[1] * x + m[4] * y + m[7]);
         assert_eq!(apply(&m, 0.0, 0.0), (-1.0, 1.0));
         assert_eq!(apply(&m, 1.0, 1.0), (1.0, -1.0));
-        let shifted = View { x: 480.0, y: -270.0, scale: 0.5, ..whole };
+        let shifted = View {
+            x: 480.0,
+            y: -270.0,
+            scale: 0.5,
+            ..whole
+        };
         let m = matrix(&shifted, slot, 1920, 1080, 1.0, true);
         let (cx, cy) = apply(&m, 0.5, 0.5);
-        assert!((cx - 0.5).abs() < 1e-5 && (cy - 0.5).abs() < 1e-5, "{cx},{cy}");
+        assert!(
+            (cx - 0.5).abs() < 1e-5 && (cy - 0.5).abs() < 1e-5,
+            "{cx},{cy}"
+        );
         let (x0, y0) = apply(&m, 0.0, 0.0);
-        assert!((x0 - 0.0).abs() < 1e-5 && (y0 - 1.0).abs() < 1e-5, "{x0},{y0}");
+        assert!(
+            (x0 - 0.0).abs() < 1e-5 && (y0 - 1.0).abs() < 1e-5,
+            "{x0},{y0}"
+        );
     }
 
     fn matrix(view: &View, slot: Size, w: i32, h: i32, dpi: f64, flip_y: bool) -> [f32; 9] {
@@ -384,10 +447,24 @@ mod tests {
         let k = view.scale;
         let (iw, ih) = (view.width as f64, view.height as f64);
         let ax = 2.0 * dpi / w as f64;
-        let ay = if flip_y { -2.0 * dpi / h as f64 } else { 2.0 * dpi / h as f64 };
+        let ay = if flip_y {
+            -2.0 * dpi / h as f64
+        } else {
+            2.0 * dpi / h as f64
+        };
         let oy = if flip_y { 1.0 } else { -1.0 };
         let tx = slot.w as f64 / 2.0 + view.x - k * (cos * iw / 2.0 - sin * ih / 2.0);
         let ty = slot.h as f64 / 2.0 + view.y - k * (sin * iw / 2.0 + cos * ih / 2.0);
-        [(ax * k * cos * iw) as f32, (ay * k * sin * iw) as f32, 0.0, (ax * -k * sin * ih) as f32, (ay * k * cos * ih) as f32, 0.0, (ax * tx - 1.0) as f32, (ay * ty + oy) as f32, 1.0]
+        [
+            (ax * k * cos * iw) as f32,
+            (ay * k * sin * iw) as f32,
+            0.0,
+            (ax * -k * sin * ih) as f32,
+            (ay * k * cos * ih) as f32,
+            0.0,
+            (ax * tx - 1.0) as f32,
+            (ay * ty + oy) as f32,
+            1.0,
+        ]
     }
 }

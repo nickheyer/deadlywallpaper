@@ -36,9 +36,14 @@ impl Kind {
     /// from a URL or a Lively package.
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
-            Kind::Video => &["wmv", "avi", "flv", "m4v", "mkv", "mov", "mp4", "mp4v", "mpeg4", "mpg", "mpeg", "webm", "ogm", "ogv", "ogx", "ts", "m2ts"],
+            Kind::Video => &[
+                "wmv", "avi", "flv", "m4v", "mkv", "mov", "mp4", "mp4v", "mpeg4", "mpg", "mpeg",
+                "webm", "ogm", "ogv", "ogx", "ts", "m2ts",
+            ],
             Kind::Gif => &["gif"],
-            Kind::Picture => &["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp", "jfif", "avif", "heic"],
+            Kind::Picture => &[
+                "jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp", "jfif", "avif", "heic",
+            ],
             Kind::Web => &["html", "htm"],
             Kind::Program => &["exe", "appimage", "sh", "run"],
             Kind::VideoStream | Kind::WebAudio | Kind::Url => &[],
@@ -47,13 +52,26 @@ impl Kind {
 
     /// Every extension the file picker offers: each kind's files plus Lively packages.
     pub fn importable_extensions() -> Vec<&'static str> {
-        let kinds = [Kind::Video, Kind::Gif, Kind::Picture, Kind::Web, Kind::Program];
-        kinds.iter().flat_map(|k| k.extensions().iter().copied()).chain(PACKAGE_EXTENSIONS.iter().copied()).collect()
+        let kinds = [
+            Kind::Video,
+            Kind::Gif,
+            Kind::Picture,
+            Kind::Web,
+            Kind::Program,
+        ];
+        kinds
+            .iter()
+            .flat_map(|k| k.extensions().iter().copied())
+            .chain(PACKAGE_EXTENSIONS.iter().copied())
+            .collect()
     }
 
     /// Played through libmpv.
     pub fn is_media(self) -> bool {
-        matches!(self, Kind::Video | Kind::Gif | Kind::Picture | Kind::VideoStream)
+        matches!(
+            self,
+            Kind::Video | Kind::Gif | Kind::Picture | Kind::VideoStream
+        )
     }
 
     /// Can carry sound: everything but still and animated pictures.
@@ -87,7 +105,15 @@ impl Kind {
 
     pub fn from_extension(ext: &str) -> Option<Kind> {
         let e = ext.trim_start_matches('.').to_ascii_lowercase();
-        [Kind::Video, Kind::Gif, Kind::Picture, Kind::Web, Kind::Program].into_iter().find(|k| k.extensions().contains(&e.as_str()))
+        [
+            Kind::Video,
+            Kind::Gif,
+            Kind::Picture,
+            Kind::Web,
+            Kind::Program,
+        ]
+        .into_iter()
+        .find(|k| k.extensions().contains(&e.as_str()))
     }
 }
 
@@ -97,15 +123,30 @@ mod tests {
 
     #[test]
     fn extensions_map_back_to_their_kind() {
-        for kind in [Kind::Video, Kind::Gif, Kind::Picture, Kind::Web, Kind::Program] {
+        for kind in [
+            Kind::Video,
+            Kind::Gif,
+            Kind::Picture,
+            Kind::Web,
+            Kind::Program,
+        ] {
             for ext in kind.extensions() {
                 assert_eq!(Kind::from_extension(ext), Some(kind), "{ext}");
-                assert_eq!(Kind::from_extension(&format!(".{}", ext.to_ascii_uppercase())), Some(kind), "{ext}");
+                assert_eq!(
+                    Kind::from_extension(&format!(".{}", ext.to_ascii_uppercase())),
+                    Some(kind),
+                    "{ext}"
+                );
             }
         }
         assert_eq!(Kind::from_extension("txt"), None);
         let all = Kind::importable_extensions();
-        assert!(all.contains(&"mp4") && all.contains(&"html") && all.contains(&"zip") && all.contains(&"appimage"));
+        assert!(
+            all.contains(&"mp4")
+                && all.contains(&"html")
+                && all.contains(&"zip")
+                && all.contains(&"appimage")
+        );
     }
 }
 
@@ -192,8 +233,11 @@ pub mod lively {
         }
         match Option::<Raw>::deserialize(d)? {
             None => Ok(Kind::Web),
-            Some(Raw::Code(c)) => from_code(c).ok_or_else(|| serde::de::Error::custom(format!("unknown wallpaper type code {c}"))),
-            Some(Raw::Name(n)) => from_name(&n).ok_or_else(|| serde::de::Error::custom(format!("unknown wallpaper type '{n}'"))),
+            Some(Raw::Code(c)) => from_code(c).ok_or_else(|| {
+                serde::de::Error::custom(format!("unknown wallpaper type code {c}"))
+            }),
+            Some(Raw::Name(n)) => from_name(&n)
+                .ok_or_else(|| serde::de::Error::custom(format!("unknown wallpaper type '{n}'"))),
         }
     }
 }

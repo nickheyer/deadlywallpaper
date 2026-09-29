@@ -1,12 +1,15 @@
-use gtk::prelude::*;
 use crate::content::Content;
 use crate::error::{Error, Result};
 use crate::model::{Display, Kind};
 use crate::msg::Msg;
 use crate::paths::Paths;
-use crate::platform::linux::{canvas, displays, is_wayland, layer, media_view, monitor, plasma, program, session, shell::Shell, shell::Slot};
+use crate::platform::linux::{
+    canvas, displays, is_wayland, layer, media_view, monitor, plasma, program, session,
+    shell::Shell, shell::Slot,
+};
 use crate::platform::{ContentSpec, MainLoopApi, MsgSenderApi, RuntimeApi};
 use crate::web::WebContent;
+use gtk::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use wry::WebViewBuilderExtUnix;
@@ -61,15 +64,27 @@ impl RuntimeApi for Runtime {
             gdk::set_allowed_backends("x11");
         }
         gtk::init().map_err(|e| Error::Platform(format!("gtk init: {e}")))?;
-        let display = gdk::Display::default().ok_or_else(|| Error::Platform("no display connection".into()))?;
+        let display = gdk::Display::default()
+            .ok_or_else(|| Error::Platform("no display connection".into()))?;
         #[allow(deprecated)]
         let (tx, rx) = glib::MainContext::channel(glib::Priority::DEFAULT);
         let tx = MsgSender(tx);
         displays::watch(&display, tx.clone());
         session::watch(tx.clone());
-        let shell = if on_plasma { Shell::Plasma(plasma::Shell::new(paths, tx.clone())?) } else { Shell::Canvas(canvas::Shell::new(&display)?) };
+        let shell = if on_plasma {
+            Shell::Plasma(plasma::Shell::new(paths, tx.clone())?)
+        } else {
+            Shell::Canvas(canvas::Shell::new(&display)?)
+        };
         log::info!("presenting wallpapers through {}", shell.presenter());
-        let rt = Runtime { tx, display, shell, monitor: monitor::Monitor::None, interval: Arc::new(AtomicU64::new(500)), paths: paths.clone() };
+        let rt = Runtime {
+            tx,
+            display,
+            shell,
+            monitor: monitor::Monitor::None,
+            interval: Arc::new(AtomicU64::new(500)),
+            paths: paths.clone(),
+        };
         Ok((rt, MainLoop { rx }))
     }
 
@@ -86,12 +101,22 @@ impl RuntimeApi for Runtime {
     }
 
     fn session(&self) -> String {
-        if is_wayland(&self.display) { "wayland".into() } else { "x11".into() }
+        if is_wayland(&self.display) {
+            "wayland".into()
+        } else {
+            "x11".into()
+        }
     }
 
     fn start_window_monitor(&mut self, interval_ms: u64, track_pointer: bool) -> String {
         self.interval.store(interval_ms, Ordering::Relaxed);
-        self.monitor = monitor::start(self.tx.clone(), self.interval.clone(), is_wayland(&self.display), &self.paths, track_pointer);
+        self.monitor = monitor::start(
+            self.tx.clone(),
+            self.interval.clone(),
+            is_wayland(&self.display),
+            &self.paths,
+            track_pointer,
+        );
         self.monitor.name().to_string()
     }
 
@@ -106,18 +131,23 @@ impl RuntimeApi for Runtime {
     fn spawn_content(&mut self, spec: &ContentSpec<'_>, slot: &Slot) -> Result<Box<dyn Content>> {
         let kind = spec.wallpaper.kind();
         match (&mut self.shell, slot) {
-            (Shell::Plasma(shell), Slot::Plasma(slot)) => plasma::content::spawn(spec, slot, self.tx.clone(), shell),
+            (Shell::Plasma(shell), Slot::Plasma(slot)) => {
+                plasma::content::spawn(spec, slot, self.tx.clone(), shell)
+            }
             (Shell::Canvas(shell), Slot::Canvas(slot)) => match kind {
                 k if k.is_media() => media_view::spawn(spec, slot, self.tx.clone(), &self.display),
                 k if k.is_web() => {
                     let builder = crate::web::builder(spec, self.tx.clone())?;
                     // The page keeps the image's size and moves inside this layout, which
                     // clips it to the display.
-                    let inner = gtk::Layout::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+                    let inner =
+                        gtk::Layout::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
                     inner.set_size_request(slot.size.w, slot.size.h);
                     slot.container.pack_start(&inner, true, true, 0);
                     inner.show();
-                    let webview = builder.build_gtk(&inner).map_err(|e| Error::Web(format!("web view: {e}")))?;
+                    let webview = builder
+                        .build_gtk(&inner)
+                        .map_err(|e| Error::Web(format!("web view: {e}")))?;
                     tune_webkit(&webview);
                     let page = {
                         use wry::WebViewExtUnix;
@@ -126,22 +156,35 @@ impl RuntimeApi for Runtime {
                     let slot_size = slot.size;
                     let hook = move |v: &crate::content::View| -> Result<()> {
                         if v.rotation != 0.0 {
-                            return Err(Error::Unsupported("web wallpapers cannot be rotated on this desktop".into()));
+                            return Err(Error::Unsupported(
+                                "web wallpapers cannot be rotated on this desktop".into(),
+                            ));
                         }
                         use webkit2gtk::WebViewExt;
                         let (x, y) = v.origin(slot_size);
-                        let (w, h) = ((v.width as f64 * v.scale).round().max(1.0) as i32, (v.height as f64 * v.scale).round().max(1.0) as i32);
+                        let (w, h) = (
+                            (v.width as f64 * v.scale).round().max(1.0) as i32,
+                            (v.height as f64 * v.scale).round().max(1.0) as i32,
+                        );
                         page.set_size_request(w, h);
                         inner.move_(&page, x.round() as i32, y.round() as i32);
                         page.set_zoom_level(v.scale);
                         Ok(())
                     };
-                    Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone(), slot.size).with_view_hook(Box::new(hook))))
+                    Ok(Box::new(
+                        WebContent::new(webview, kind, spec.id, self.tx.clone(), slot.size)
+                            .with_view_hook(Box::new(hook)),
+                    ))
                 }
                 Kind::Program => program::spawn(spec, slot, self.tx.clone(), !shell.is_wayland()),
-                _ => Err(Error::Unsupported(format!("{} wallpapers are not supported", kind.label()))),
+                _ => Err(Error::Unsupported(format!(
+                    "{} wallpapers are not supported",
+                    kind.label()
+                ))),
             },
-            _ => Err(Error::Platform("the wallpaper slot belongs to another presenter".into())),
+            _ => Err(Error::Platform(
+                "the wallpaper slot belongs to another presenter".into(),
+            )),
         }
     }
 }

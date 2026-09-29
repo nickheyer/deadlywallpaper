@@ -20,7 +20,9 @@ pub fn run() -> Result<()> {
     let settings = Settings::load(&paths.settings_file(), &paths.default_library_dir());
     let layout = Layout::load(&paths.layout_file());
     let tx = rt.sender();
-    let server = Server::start(Arc::new(move |req, reply| tx.send(Msg::Request(req, reply))))?;
+    let server = Server::start(Arc::new(move |req, reply| {
+        tx.send(Msg::Request(req, reply))
+    }))?;
     let mut engine = Engine::new(rt, paths, settings, layout, server)?;
     install_signal_handlers();
     let interval = Arc::new(AtomicU64::new(engine.interval()));
@@ -30,7 +32,9 @@ pub fn run() -> Result<()> {
         .name("tick".into())
         .spawn(move || {
             loop {
-                std::thread::sleep(Duration::from_millis(tick_interval.load(Ordering::Relaxed).max(100)));
+                std::thread::sleep(Duration::from_millis(
+                    tick_interval.load(Ordering::Relaxed).max(100),
+                ));
                 if STOP.load(Ordering::Relaxed) {
                     tick_tx.send(Msg::Quit);
                     return;

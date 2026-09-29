@@ -30,7 +30,10 @@ fn render(source: &Path, kind: Kind, work: &Path, out: &Path) -> Result<()> {
         ("audio", "no".into()),
         ("ytdl", "no".into()),
         ("vf", format!("scale=w={WIDTH}:h=-2")),
-        ("start", if kind == Kind::Video { "10%" } else { "0" }.into()),
+        (
+            "start",
+            if kind == Kind::Video { "10%" } else { "0" }.into(),
+        ),
         ("idle", "once".into()),
     ];
     for (k, v) in &options {
@@ -52,14 +55,22 @@ fn render(source: &Path, kind: Kind, work: &Path, out: &Path) -> Result<()> {
             _ => {}
         }
         if Instant::now() > deadline {
-            return Err(Error::Media(format!("thumbnail timed out for {}", source.display())));
+            return Err(Error::Media(format!(
+                "thumbnail timed out for {}",
+                source.display()
+            )));
         }
     }
     let produced = std::fs::read_dir(work)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .find(|p| p.extension().is_some_and(|x| x == "jpg"))
-        .ok_or_else(|| Error::Media(failure.unwrap_or_else(|| format!("mpv produced no frame for {}", source.display()))))?;
+        .ok_or_else(|| {
+            Error::Media(
+                failure
+                    .unwrap_or_else(|| format!("mpv produced no frame for {}", source.display())),
+            )
+        })?;
     if std::fs::rename(&produced, out).is_err() {
         ctx(std::fs::copy(&produced, out).map(|_| ()), out.display())?;
     }

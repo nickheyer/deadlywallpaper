@@ -18,7 +18,10 @@ pub enum Vo {
     #[cfg_attr(windows, allow(dead_code, reason = "Windows embeds mpv by window id"))]
     Render,
     /// mpv creates its own child window inside this native window id.
-    #[cfg_attr(not(windows), allow(dead_code, reason = "render-API backends never embed by window id"))]
+    #[cfg_attr(
+        not(windows),
+        allow(dead_code, reason = "render-API backends never embed by window id")
+    )]
     Wid(i64),
 }
 
@@ -61,7 +64,10 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Player {
-    pub fn new(opts: PlayerOptions<'_>, on_event: impl Fn(PlayerEvent) + Send + 'static) -> Result<Player> {
+    pub fn new(
+        opts: PlayerOptions<'_>,
+        on_event: impl Fn(PlayerEvent) + Send + 'static,
+    ) -> Result<Player> {
         let handle = Arc::new(Handle::new(mpv::lib()?)?);
         let mut options: Vec<(&str, String)> = vec![
             ("config", "no".into()),
@@ -81,7 +87,10 @@ impl Player {
             ("image-display-duration", "inf".into()),
             ("volume", opts.volume.to_string()),
             ("aid", if opts.audio { "auto" } else { "no" }.into()),
-            ("hwdec", if opts.hw_accel { "auto-safe" } else { "no" }.into()),
+            (
+                "hwdec",
+                if opts.hw_accel { "auto-safe" } else { "no" }.into(),
+            ),
             ("ytdl", "yes".into()),
         ];
         match opts.vo {
@@ -108,7 +117,15 @@ impl Player {
         handle.initialize()?;
         handle.request_log("warn");
         spawn_event_thread(handle.clone(), on_event);
-        Ok(Player { handle, kind: opts.kind, source: opts.source.to_string(), slot: opts.slot, scaler: Mutex::new(opts.scaler), view: Mutex::new(None), next_id: 1 })
+        Ok(Player {
+            handle,
+            kind: opts.kind,
+            source: opts.source.to_string(),
+            slot: opts.slot,
+            scaler: Mutex::new(opts.scaler),
+            view: Mutex::new(None),
+            next_id: 1,
+        })
     }
 
     pub fn slot(&self) -> Size {
@@ -135,7 +152,10 @@ impl Player {
 
     /// Engine mute disables the audio track so a user "mute" control stays independent.
     pub fn set_engine_muted(&self, muted: bool) {
-        report(self.handle.set_str("aid", if muted { "no" } else { "auto" }));
+        report(
+            self.handle
+                .set_str("aid", if muted { "no" } else { "auto" }),
+        );
     }
 
     pub fn seek(&self, seek: Seek) {
@@ -185,22 +205,41 @@ impl Player {
         let (w, h) = (view.width.max(1), view.height.max(1));
         let fit = match scaler {
             Scaler::Fill => format!("scale={w}:{h}"),
-            Scaler::Uniform => format!("scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"),
-            Scaler::UniformFill => format!("scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"),
-            Scaler::None => format!("crop='min(iw,{w})':'min(ih,{h})',pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"),
+            Scaler::Uniform => format!(
+                "scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
+            ),
+            Scaler::UniformFill => {
+                format!("scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}")
+            }
+            Scaler::None => {
+                format!("crop='min(iw,{w})':'min(ih,{h})',pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black")
+            }
         };
         let radians = view.rotation.to_radians();
-        let graph = if view.rotation == 0.0 { fit } else { format!("{fit},rotate={radians}:ow=rotw({radians}):oh=roth({radians}):c=black") };
+        let graph = if view.rotation == 0.0 {
+            fit
+        } else {
+            format!("{fit},rotate={radians}:ow=rotw({radians}):oh=roth({radians}):c=black")
+        };
         report(self.handle.set_str("vf", &format!("lavfi=[{graph}]")));
         // The turned frame's bounding box, which mpv now shows one to one before zoom and pan.
         let (sin, cos) = radians.sin_cos();
-        let (bw, bh) = (w as f64 * cos.abs() + h as f64 * sin.abs(), w as f64 * sin.abs() + h as f64 * cos.abs());
+        let (bw, bh) = (
+            w as f64 * cos.abs() + h as f64 * sin.abs(),
+            w as f64 * sin.abs() + h as f64 * cos.abs(),
+        );
         report(self.handle.set_str("video-unscaled", "yes"));
         report(self.handle.set_str("keepaspect", "yes"));
         report(self.handle.set_str("panscan", "0.0"));
         report(self.handle.set_f64("video-zoom", view.scale.log2()));
-        report(self.handle.set_f64("video-pan-x", view.x / (bw * view.scale)));
-        report(self.handle.set_f64("video-pan-y", view.y / (bh * view.scale)));
+        report(
+            self.handle
+                .set_f64("video-pan-x", view.x / (bw * view.scale)),
+        );
+        report(
+            self.handle
+                .set_f64("video-pan-y", view.y / (bh * view.scale)),
+        );
     }
 
     /// Map a property control onto an mpv property of the same name.
@@ -231,7 +270,9 @@ impl Player {
                     report(self.handle.set_i64(name, i));
                 }
             }
-            ControlKind::Textbox { .. } | ControlKind::Color { .. } | ControlKind::FolderDropdown { .. } => {
+            ControlKind::Textbox { .. }
+            | ControlKind::Color { .. }
+            | ControlKind::FolderDropdown { .. } => {
                 if let Some(s) = value.as_str() {
                     report(self.handle.set_str(name, s));
                 }
@@ -244,7 +285,10 @@ impl Player {
     pub fn screenshot(&mut self, path: &std::path::Path) -> Result<u64> {
         let id = self.next_id;
         self.next_id += 1;
-        self.handle.command_async(id, &["screenshot-to-file", &path.to_string_lossy(), "window"])?;
+        self.handle.command_async(
+            id,
+            &["screenshot-to-file", &path.to_string_lossy(), "window"],
+        )?;
         Ok(id)
     }
 }
@@ -262,42 +306,55 @@ fn report(r: Result<()>) {
 }
 
 fn spawn_event_thread(handle: Arc<Handle>, on_event: impl Fn(PlayerEvent) + Send + 'static) {
-    let _ = std::thread::Builder::new().name("mpv-events".into()).spawn(move || {
-        loop {
-            match handle.wait_event(1.0) {
-                mpv::Event::Shutdown => {
-                    on_event(PlayerEvent::Shutdown);
-                    break;
-                }
-                mpv::Event::FileLoaded => on_event(PlayerEvent::Loaded),
-                mpv::Event::EndFile { reason, error } => {
-                    if reason == 4 {
-                        on_event(PlayerEvent::Ended { error: Some(handle.error_string(error)) });
+    let _ = std::thread::Builder::new()
+        .name("mpv-events".into())
+        .spawn(move || {
+            loop {
+                match handle.wait_event(1.0) {
+                    mpv::Event::Shutdown => {
+                        on_event(PlayerEvent::Shutdown);
+                        break;
                     }
+                    mpv::Event::FileLoaded => on_event(PlayerEvent::Loaded),
+                    mpv::Event::EndFile { reason, error } => {
+                        if reason == 4 {
+                            on_event(PlayerEvent::Ended {
+                                error: Some(handle.error_string(error)),
+                            });
+                        }
+                    }
+                    mpv::Event::CommandReply { id, error } => {
+                        let error = (error < 0).then(|| handle.error_string(error));
+                        on_event(PlayerEvent::CommandDone { id, error });
+                    }
+                    mpv::Event::Log {
+                        prefix,
+                        level,
+                        text,
+                    } => match level.as_str() {
+                        "fatal" | "error" => log::warn!("mpv[{prefix}]: {text}"),
+                        _ => log::debug!("mpv[{prefix}]: {text}"),
+                    },
+                    mpv::Event::None | mpv::Event::Other => {}
                 }
-                mpv::Event::CommandReply { id, error } => {
-                    let error = (error < 0).then(|| handle.error_string(error));
-                    on_event(PlayerEvent::CommandDone { id, error });
-                }
-                mpv::Event::Log { prefix, level, text } => match level.as_str() {
-                    "fatal" | "error" => log::warn!("mpv[{prefix}]: {text}"),
-                    _ => log::debug!("mpv[{prefix}]: {text}"),
-                },
-                mpv::Event::None | mpv::Event::Other => {}
             }
-        }
-    });
+        });
 }
 
 type Pending = Arc<Mutex<HashMap<u64, PathBuf>>>;
 
 /// Route player events to the engine as content events for `id`.
-pub fn event_bridge(id: ContentId, tx: MsgSender) -> (impl Fn(PlayerEvent) + Send + 'static, Pending) {
+pub fn event_bridge(
+    id: ContentId,
+    tx: MsgSender,
+) -> (impl Fn(PlayerEvent) + Send + 'static, Pending) {
     let pending: Pending = Arc::default();
     let p2 = pending.clone();
     let f = move |ev: PlayerEvent| match ev {
         PlayerEvent::Loaded => tx.send(Msg::Content(id, ContentEvent::Loaded)),
-        PlayerEvent::Ended { error: Some(e) } => tx.send(Msg::Content(id, ContentEvent::Exited { reason: e })),
+        PlayerEvent::Ended { error: Some(e) } => {
+            tx.send(Msg::Content(id, ContentEvent::Exited { reason: e }))
+        }
         PlayerEvent::Ended { error: None } | PlayerEvent::Shutdown => {}
         PlayerEvent::CommandDone { id: cmd, error } => {
             let path = p2.lock().ok().and_then(|mut m| m.remove(&cmd));
@@ -339,8 +396,20 @@ pub struct MediaContent {
 }
 
 impl MediaContent {
-    pub fn new(view: Box<dyn MediaSurface>, player: Player, pending: Pending, id: ContentId, tx: MsgSender) -> MediaContent {
-        MediaContent { view, player, pending, id, tx }
+    pub fn new(
+        view: Box<dyn MediaSurface>,
+        player: Player,
+        pending: Pending,
+        id: ContentId,
+        tx: MsgSender,
+    ) -> MediaContent {
+        MediaContent {
+            view,
+            player,
+            pending,
+            id,
+            tx,
+        }
     }
 }
 
@@ -367,7 +436,10 @@ impl Content for MediaContent {
 
     fn screenshot(&mut self, path: PathBuf) {
         if let Some(result) = self.view.capture(&path) {
-            self.tx.send(Msg::Content(self.id, ContentEvent::Screenshot { path, result }));
+            self.tx.send(Msg::Content(
+                self.id,
+                ContentEvent::Screenshot { path, result },
+            ));
             return;
         }
         match self.player.screenshot(&path) {
@@ -376,7 +448,13 @@ impl Content for MediaContent {
                     m.insert(cmd, path);
                 }
             }
-            Err(e) => self.tx.send(Msg::Content(self.id, ContentEvent::Screenshot { path, result: Err(e) })),
+            Err(e) => self.tx.send(Msg::Content(
+                self.id,
+                ContentEvent::Screenshot {
+                    path,
+                    result: Err(e),
+                },
+            )),
         }
     }
 

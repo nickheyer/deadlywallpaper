@@ -51,7 +51,10 @@ impl Wallpaper {
     pub fn load(dir: &Path) -> Result<Wallpaper> {
         let info_path = dir.join(FILE_NAME);
         if !info_path.is_file() {
-            return Err(Error::NotFound(format!("{} has no {FILE_NAME}", dir.display())));
+            return Err(Error::NotFound(format!(
+                "{} has no {FILE_NAME}",
+                dir.display()
+            )));
         }
         let info = Info::load(&info_path)?;
         Ok(Wallpaper::from_info(dir, info))
@@ -76,15 +79,25 @@ impl Wallpaper {
             PropertySource::None
         } else {
             let root = if info.is_absolute_path {
-                Path::new(&source).parent().map(Path::to_path_buf).unwrap_or_else(|| dir.to_path_buf())
+                Path::new(&source)
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| dir.to_path_buf())
             } else {
                 dir.to_path_buf()
             };
             let candidate = root.join(PROPERTIES_FILE_NAME);
-            if candidate.is_file() { PropertySource::File(candidate) } else { PropertySource::None }
+            if candidate.is_file() {
+                PropertySource::File(candidate)
+            } else {
+                PropertySource::None
+            }
         };
         Wallpaper {
-            id: dir.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+            id: dir
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
             dir: dir.to_path_buf(),
             info,
             source,
@@ -102,9 +115,18 @@ impl Wallpaper {
             return self.info.title.trim().to_string();
         }
         if self.kind().is_online() {
-            return self.source.split("://").nth(1).unwrap_or(&self.source).trim_start_matches("www.").to_string();
+            return self
+                .source
+                .split("://")
+                .nth(1)
+                .unwrap_or(&self.source)
+                .trim_start_matches("www.")
+                .to_string();
         }
-        Path::new(&self.source).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| self.id.clone())
+        Path::new(&self.source)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.id.clone())
     }
 
     /// Local content file, when the wallpaper is not online.

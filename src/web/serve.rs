@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{RecvTimeoutError, SyncSender, sync_channel};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 struct Entry {
@@ -27,8 +27,12 @@ pub struct Server {
 impl Server {
     /// Bind an ephemeral loopback port and serve on background threads.
     pub fn start() -> Result<Server> {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| Error::Web(format!("bind loopback server: {e}")))?;
-        let port = listener.local_addr().map_err(|e| Error::Web(e.to_string()))?.port();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .map_err(|e| Error::Web(format!("bind loopback server: {e}")))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| Error::Web(e.to_string()))?
+            .port();
         let entries: Arc<Mutex<HashMap<ContentId, Entry>>> = Arc::default();
         let accept_entries = entries.clone();
         std::thread::Builder::new()
@@ -38,7 +42,9 @@ impl Server {
                     match conn {
                         Ok(stream) => {
                             let entries = accept_entries.clone();
-                            let _ = std::thread::Builder::new().name("web-conn".into()).spawn(move || handle(stream, &entries));
+                            let _ = std::thread::Builder::new()
+                                .name("web-conn".into())
+                                .spawn(move || handle(stream, &entries));
                         }
                         Err(e) => log::warn!("web serve accept: {e}"),
                     }
@@ -54,7 +60,15 @@ impl Server {
     pub fn register(&self, id: ContentId, root: Option<PathBuf>) -> String {
         let token = format!("{}{}", crate::paths::nonce(), crate::paths::nonce());
         if let Ok(mut all) = self.entries.lock() {
-            all.insert(id, Entry { root, token: token.clone(), subscribers: Vec::new(), retained: Vec::new() });
+            all.insert(
+                id,
+                Entry {
+                    root,
+                    token: token.clone(),
+                    subscribers: Vec::new(),
+                    retained: Vec::new(),
+                },
+            );
         }
         token
     }
@@ -68,22 +82,38 @@ impl Server {
     /// Send `event` with `data` to the content's page. With `retain`, the event is also kept
     /// under that key and replayed to pages that connect later.
     pub fn push(&self, id: ContentId, event: &str, data: &str, retain: Option<&str>) {
-        let Ok(mut all) = self.entries.lock() else { return };
-        let Some(entry) = all.get_mut(&id) else { return };
+        let Ok(mut all) = self.entries.lock() else {
+            return;
+        };
+        let Some(entry) = all.get_mut(&id) else {
+            return;
+        };
         if let Some(key) = retain {
             entry.retained.retain(|(k, _, _)| k != key);
-            entry.retained.push((key.to_string(), event.to_string(), data.to_string()));
+            entry
+                .retained
+                .push((key.to_string(), event.to_string(), data.to_string()));
         }
         let frame = format_event(event, data);
-        entry.subscribers.retain(|s| s.try_send(frame.clone()).is_ok());
+        entry
+            .subscribers
+            .retain(|s| s.try_send(frame.clone()).is_ok());
     }
 
     pub fn page_url(&self, id: ContentId, relative: &str) -> String {
-        format!("http://127.0.0.1:{}/c/{}/{}", self.port, id, super::encode_path(relative))
+        format!(
+            "http://127.0.0.1:{}/c/{}/{}",
+            self.port,
+            id,
+            super::encode_path(relative)
+        )
     }
 
     pub fn events_url(&self, id: ContentId, token: &str) -> String {
-        format!("http://127.0.0.1:{}/c/{}/__events?token={}", self.port, id, token)
+        format!(
+            "http://127.0.0.1:{}/c/{}/__events?token={}",
+            self.port, id, token
+        )
     }
 }
 
@@ -139,7 +169,10 @@ fn handle(mut stream: TcpStream, entries: &Arc<Mutex<HashMap<ContentId, Entry>>>
         subscribe(stream, entries, id, query);
         return;
     }
-    let root = entries.lock().ok().and_then(|all| all.get(&id).and_then(|e| e.root.clone()));
+    let root = entries
+        .lock()
+        .ok()
+        .and_then(|all| all.get(&id).and_then(|e| e.root.clone()));
     let Some(root) = root else {
         let _ = respond(&mut stream, 404, "text/plain", b"not found");
         return;
@@ -157,7 +190,15 @@ fn handle(mut stream: TcpStream, entries: &Arc<Mutex<HashMap<ContentId, Entry>>>
     };
     match std::fs::File::open(&file).and_then(|f| f.metadata().map(|m| (f, m))) {
         Ok((mut body, metadata)) if metadata.is_file() => {
-            if headers(&mut stream, 200, &super::content_type(&file), metadata.len()).is_ok() && method != "HEAD" {
+            if headers(
+                &mut stream,
+                200,
+                &super::content_type(&file),
+                metadata.len(),
+            )
+            .is_ok()
+                && method != "HEAD"
+            {
                 let _ = std::io::copy(&mut body, &mut stream);
             }
         }
@@ -167,8 +208,16 @@ fn handle(mut stream: TcpStream, entries: &Arc<Mutex<HashMap<ContentId, Entry>>>
     }
 }
 
-fn subscribe(mut stream: TcpStream, entries: &Arc<Mutex<HashMap<ContentId, Entry>>>, id: ContentId, query: &str) {
-    let token = query.split('&').find_map(|kv| kv.strip_prefix("token=")).unwrap_or("");
+fn subscribe(
+    mut stream: TcpStream,
+    entries: &Arc<Mutex<HashMap<ContentId, Entry>>>,
+    id: ContentId,
+    query: &str,
+) {
+    let token = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("token="))
+        .unwrap_or("");
     let Ok(mut all) = entries.lock() else { return };
     let Some(entry) = all.get_mut(&id) else {
         drop(all);
@@ -189,7 +238,11 @@ fn subscribe(mut stream: TcpStream, entries: &Arc<Mutex<HashMap<ContentId, Entry
     drop(all);
     let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
     let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
-    if stream.write_all(head.as_bytes()).and_then(|_| stream.write_all(replay.as_bytes())).is_err() {
+    if stream
+        .write_all(head.as_bytes())
+        .and_then(|_| stream.write_all(replay.as_bytes()))
+        .is_err()
+    {
         return;
     }
     loop {
@@ -204,12 +257,22 @@ fn subscribe(mut stream: TcpStream, entries: &Arc<Mutex<HashMap<ContentId, Entry
     }
 }
 
-fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8]) -> std::io::Result<()> {
+fn respond(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+) -> std::io::Result<()> {
     headers(stream, status, content_type, body.len() as u64)?;
     stream.write_all(body)
 }
 
-fn headers(stream: &mut TcpStream, status: u16, content_type: &str, length: u64) -> std::io::Result<()> {
+fn headers(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    length: u64,
+) -> std::io::Result<()> {
     let reason = match status {
         200 => "OK",
         403 => "Forbidden",
@@ -233,9 +296,15 @@ mod tests {
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         let mut buf = [0u8; 1024];
         while !text.contains(needle) {
-            assert!(std::time::Instant::now() < deadline, "timed out waiting for {needle:?}; got {text:?}");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for {needle:?}; got {text:?}"
+            );
             let n = s.read(&mut buf).unwrap();
-            assert!(n > 0, "connection closed while waiting for {needle:?}; got {text:?}");
+            assert!(
+                n > 0,
+                "connection closed while waiting for {needle:?}; got {text:?}"
+            );
             text.push_str(&String::from_utf8_lossy(&buf[..n]));
         }
         text
@@ -250,14 +319,16 @@ mod tests {
         let token = server.register(7, Some(root.clone()));
 
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
-        s.write_all(b"GET /c/7/index.html HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        s.write_all(b"GET /c/7/index.html HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
         let mut body = String::new();
         s.read_to_string(&mut body).unwrap();
         assert!(body.starts_with("HTTP/1.1 200"), "{body}");
         assert!(body.ends_with("<html>hi</html>"));
 
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
-        s.write_all(b"HEAD /c/7/index.html HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        s.write_all(b"HEAD /c/7/index.html HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
         let mut body = String::new();
         s.read_to_string(&mut body).unwrap();
         assert!(body.contains("Content-Length: 15\r\n"), "{body}");
@@ -266,13 +337,15 @@ mod tests {
         std::fs::write(root.join("space #100%.html"), "encoded").unwrap();
         let url: http::Uri = server.page_url(7, "space #100%.html").parse().unwrap();
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
-        s.write_all(format!("GET {} HTTP/1.1\r\n\r\n", url.path()).as_bytes()).unwrap();
+        s.write_all(format!("GET {} HTTP/1.1\r\n\r\n", url.path()).as_bytes())
+            .unwrap();
         let mut body = String::new();
         s.read_to_string(&mut body).unwrap();
         assert!(body.ends_with("encoded"), "{body}");
 
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
-        s.write_all(b"GET /c/7/../etc/passwd HTTP/1.1\r\n\r\n").unwrap();
+        s.write_all(b"GET /c/7/../etc/passwd HTTP/1.1\r\n\r\n")
+            .unwrap();
         let mut body = String::new();
         s.read_to_string(&mut body).unwrap();
         assert!(body.starts_with("HTTP/1.1 403"));
@@ -280,15 +353,20 @@ mod tests {
         server.push(7, "prop", r#"{"name":"hue","value":3}"#, Some("prop:hue"));
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
         s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        s.write_all(format!("GET /c/7/__events?token={token} HTTP/1.1\r\n\r\n").as_bytes()).unwrap();
-        let mut text = read_until(&mut s, "event: prop\ndata: {\"name\":\"hue\",\"value\":3}\n\n");
+        s.write_all(format!("GET /c/7/__events?token={token} HTTP/1.1\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut text = read_until(
+            &mut s,
+            "event: prop\ndata: {\"name\":\"hue\",\"value\":3}\n\n",
+        );
         assert!(text.contains("text/event-stream"), "{text}");
         server.push(7, "audio", "[1,2]", None);
         text = read_until(&mut s, "event: audio\ndata: [1,2]\n\n");
         assert!(text.ends_with("event: audio\ndata: [1,2]\n\n"), "{text}");
 
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
-        s.write_all(b"GET /c/7/__events?token=wrong HTTP/1.1\r\n\r\n").unwrap();
+        s.write_all(b"GET /c/7/__events?token=wrong HTTP/1.1\r\n\r\n")
+            .unwrap();
         let mut body = String::new();
         s.read_to_string(&mut body).unwrap();
         assert!(body.starts_with("HTTP/1.1 403"));

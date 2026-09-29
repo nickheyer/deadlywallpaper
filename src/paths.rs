@@ -1,6 +1,6 @@
 use crate::error::{Error, Result, ctx};
-use std::path::{Path, PathBuf};
 use std::io::Write;
+use std::path::{Path, PathBuf};
 
 pub const APP_ID: &str = "deadlywp";
 pub const APP_NAME: &str = "Deadly Wallpaper";
@@ -23,7 +23,13 @@ impl Paths {
             data_dir: base(dirs::data_dir(), "data")?,
             cache_dir: base(dirs::cache_dir(), "cache")?,
         };
-        for d in [&paths.config_dir, &paths.data_dir, &paths.cache_dir, &paths.temp_dir(), &paths.properties_dir()] {
+        for d in [
+            &paths.config_dir,
+            &paths.data_dir,
+            &paths.cache_dir,
+            &paths.temp_dir(),
+            &paths.properties_dir(),
+        ] {
             ctx(std::fs::create_dir_all(d), d.display())?;
         }
         Ok(paths)
@@ -53,7 +59,6 @@ impl Paths {
     pub fn temp_dir(&self) -> PathBuf {
         self.cache_dir.join("tmp")
     }
-
 }
 
 /// Name of the daemon's local socket, unique per user.
@@ -80,16 +85,24 @@ fn uid() -> u32 {
 }
 
 pub fn file_name(p: &Path) -> String {
-    p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+    p.file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// Replace a file only after its complete contents have been written.
 pub fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let mut file = ctx(tempfile::NamedTempFile::new_in(parent), path.display())?;
     ctx(file.write_all(contents.as_ref()), path.display())?;
     ctx(file.as_file().sync_all(), path.display())?;
-    ctx(file.persist(path).map(|_| ()).map_err(|e| e.error), path.display())
+    ctx(
+        file.persist(path).map(|_| ()).map_err(|e| e.error),
+        path.display(),
+    )
 }
 
 /// Filesystem-safe, ASCII-only slug of a title, used for library directory names.
@@ -109,7 +122,11 @@ pub fn slug(s: &str) -> String {
         }
     }
     let out = out.trim_end_matches('-').to_string();
-    if out.is_empty() { "wallpaper".into() } else { out }
+    if out.is_empty() {
+        "wallpaper".into()
+    } else {
+        out
+    }
 }
 
 /// Random suffix for temporary files and library entries.

@@ -53,11 +53,19 @@ pub const BRIDGE: &str = r#"(() => {
 /// URL under which a local wallpaper file is served.
 pub fn page_url(relative: &str) -> String {
     let rel = encode_path(relative);
-    if cfg!(windows) { format!("http://{SCHEME}.localhost/{rel}") } else { format!("{SCHEME}://localhost/{rel}") }
+    if cfg!(windows) {
+        format!("http://{SCHEME}.localhost/{rel}")
+    } else {
+        format!("{SCHEME}://localhost/{rel}")
+    }
 }
 
 fn origin() -> String {
-    if cfg!(windows) { format!("http://{SCHEME}.localhost") } else { format!("{SCHEME}://localhost") }
+    if cfg!(windows) {
+        format!("http://{SCHEME}.localhost")
+    } else {
+        format!("{SCHEME}://localhost")
+    }
 }
 
 /// Configure a builder for `spec`; the platform attaches it to a slot.
@@ -70,10 +78,16 @@ pub fn builder(spec: &ContentSpec<'_>, tx: MsgSender) -> Result<WebViewBuilder<'
     } else {
         let file = PathBuf::from(&wp.source);
         if !file.is_file() {
-            return Err(Error::NotFound(format!("{} does not exist", file.display())));
+            return Err(Error::NotFound(format!(
+                "{} does not exist",
+                file.display()
+            )));
         }
         let root = wp.root_dir();
-        let rel = file.strip_prefix(&root).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| crate::paths::file_name(&file));
+        let rel = file
+            .strip_prefix(&root)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| crate::paths::file_name(&file));
         (page_url(&rel), Some(root))
     };
     let load_tx = tx.clone();
@@ -96,7 +110,9 @@ pub fn builder(spec: &ContentSpec<'_>, tx: MsgSender) -> Result<WebViewBuilder<'
     if let Some(root) = root {
         b = b
             .with_custom_protocol(SCHEME.into(), move |_, req| serve(&root, req))
-            .with_navigation_handler(move |u| u.starts_with(&allowed) || u.starts_with("about:") || u.starts_with("data:"));
+            .with_navigation_handler(move |u| {
+                u.starts_with(&allowed) || u.starts_with("about:") || u.starts_with("data:")
+            });
     }
     Ok(b)
 }
@@ -104,19 +120,19 @@ pub fn builder(spec: &ContentSpec<'_>, tx: MsgSender) -> Result<WebViewBuilder<'
 fn serve(root: &Path, req: http::Request<Vec<u8>>) -> http::Response<Cow<'static, [u8]>> {
     let path = match resolve(root, req.uri().path().trim_start_matches('/')) {
         Ok(path) => path,
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return status(403, "forbidden"),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            return status(403, "forbidden");
+        }
         Err(_) => return status(404, "not found"),
     };
     match std::fs::read(&path) {
-        Ok(body) => {
-            http::Response::builder()
-                .status(200)
-                .header("Content-Type", content_type(&path))
-                .header("Access-Control-Allow-Origin", "*")
-                .header("Cache-Control", "no-cache")
-                .body(Cow::Owned(body))
-                .unwrap_or_else(|_| status(500, "response"))
-        }
+        Ok(body) => http::Response::builder()
+            .status(200)
+            .header("Content-Type", content_type(&path))
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Cache-Control", "no-cache")
+            .body(Cow::Owned(body))
+            .unwrap_or_else(|_| status(500, "response")),
         Err(_) => status(404, "not found"),
     }
 }
@@ -131,7 +147,10 @@ fn status(code: u16, text: &'static str) -> http::Response<Cow<'static, [u8]>> {
 
 fn content_type(path: &Path) -> String {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
-    if mime.type_() == mime_guess::mime::TEXT || mime.subtype() == mime_guess::mime::JAVASCRIPT || mime.subtype() == mime_guess::mime::JSON {
+    if mime.type_() == mime_guess::mime::TEXT
+        || mime.subtype() == mime_guess::mime::JAVASCRIPT
+        || mime.subtype() == mime_guess::mime::JSON
+    {
         format!("{mime}; charset=utf-8")
     } else {
         mime.to_string()
@@ -156,14 +175,22 @@ fn resolve(root: &Path, relative: &str) -> std::io::Result<PathBuf> {
     use std::path::Component;
     let relative = percent_decode(relative);
     if relative.contains(['\\', ':', '\0'])
-        || Path::new(&relative).components().any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+        || Path::new(&relative)
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
     {
-        return Err(Error::new(ErrorKind::PermissionDenied, "path outside wallpaper folder"));
+        return Err(Error::new(
+            ErrorKind::PermissionDenied,
+            "path outside wallpaper folder",
+        ));
     }
     let root = root.canonicalize()?;
     let path = root.join(relative).canonicalize()?;
     if !path.starts_with(&root) {
-        return Err(Error::new(ErrorKind::PermissionDenied, "path outside wallpaper folder"));
+        return Err(Error::new(
+            ErrorKind::PermissionDenied,
+            "path outside wallpaper folder",
+        ));
     }
     Ok(path)
 }
@@ -174,7 +201,10 @@ fn percent_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
-            if let (Some(h), Some(l)) = (hex(bytes.get(i + 1).copied()), hex(bytes.get(i + 2).copied())) {
+            if let (Some(h), Some(l)) = (
+                hex(bytes.get(i + 1).copied()),
+                hex(bytes.get(i + 2).copied()),
+            ) {
                 out.push(h << 4 | l);
                 i += 3;
                 continue;
@@ -214,10 +244,24 @@ mod tests {
     #[test]
     fn rejects_paths_outside_the_wallpaper_folder() {
         let root = tempfile::tempdir().unwrap();
-        for path in ["../secret", "%2e%2e/secret", "..%5csecret", "%2Fsecret", "C%3A/secret", "%00"] {
-            assert_eq!(resolve(root.path(), path).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied, "{path}");
+        for path in [
+            "../secret",
+            "%2e%2e/secret",
+            "..%5csecret",
+            "%2Fsecret",
+            "C%3A/secret",
+            "%00",
+        ] {
+            assert_eq!(
+                resolve(root.path(), path).unwrap_err().kind(),
+                std::io::ErrorKind::PermissionDenied,
+                "{path}"
+            );
         }
-        assert_eq!(resolve(root.path(), "missing").unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(
+            resolve(root.path(), "missing").unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
     }
 
     #[cfg(unix)]
@@ -230,8 +274,14 @@ mod tests {
         std::fs::write(site.join("asset"), "asset").unwrap();
         std::os::unix::fs::symlink(root.path().join("secret"), site.join("outside")).unwrap();
         std::os::unix::fs::symlink(site.join("asset"), site.join("inside")).unwrap();
-        assert_eq!(resolve(&site, "outside").unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
-        assert_eq!(std::fs::read(resolve(&site, "inside").unwrap()).unwrap(), b"asset");
+        assert_eq!(
+            resolve(&site, "outside").unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+        assert_eq!(
+            std::fs::read(resolve(&site, "inside").unwrap()).unwrap(),
+            b"asset"
+        );
     }
 }
 
@@ -258,8 +308,24 @@ pub struct WebContent {
 }
 
 impl WebContent {
-    pub fn new(webview: WebView, kind: Kind, id: ContentId, tx: MsgSender, slot: Size) -> WebContent {
-        WebContent { webview, kind, id, tx, input: true, slot, view: View::whole(slot), hook: None, css: false }
+    pub fn new(
+        webview: WebView,
+        kind: Kind,
+        id: ContentId,
+        tx: MsgSender,
+        slot: Size,
+    ) -> WebContent {
+        WebContent {
+            webview,
+            kind,
+            id,
+            tx,
+            input: true,
+            slot,
+            view: View::whole(slot),
+            hook: None,
+            css: false,
+        }
     }
 
     pub fn with_view_hook(mut self, hook: ViewHook) -> WebContent {
@@ -267,7 +333,13 @@ impl WebContent {
         self
     }
 
-    #[cfg_attr(not(windows), allow(dead_code, reason = "only WebView2 can lay the page out at the image's size inside a smaller window"))]
+    #[cfg_attr(
+        not(windows),
+        allow(
+            dead_code,
+            reason = "only WebView2 can lay the page out at the image's size inside a smaller window"
+        )
+    )]
     pub fn with_css_view(mut self, css: bool) -> WebContent {
         self.css = css;
         self
@@ -284,7 +356,10 @@ impl WebContent {
         if v.is_whole(self.slot) {
             self.eval("__dwp.unview()");
         } else {
-            self.eval(&format!("__dwp.view({}, {}, {}, {}, {}, {}, {}, {})", v.width, v.height, v.scale, v.rotation, v.x, v.y, self.slot.w, self.slot.h));
+            self.eval(&format!(
+                "__dwp.view({}, {}, {}, {}, {}, {}, {}, {})",
+                v.width, v.height, v.scale, v.rotation, v.x, v.y, self.slot.w, self.slot.h
+            ));
         }
     }
 }
@@ -317,14 +392,27 @@ impl Content for WebContent {
             (_, Some(v)) => v.clone(),
             (_, None) => return,
         };
-        self.eval(&format!("__dwp.prop({}, {})", js(&Value::String(name.into())), js(&v)));
+        self.eval(&format!(
+            "__dwp.prop({}, {})",
+            js(&Value::String(name.into())),
+            js(&v)
+        ));
     }
 
     fn screenshot(&mut self, path: PathBuf) {
         let tx = self.tx.clone();
         let id = self.id;
         let p = path.clone();
-        snapshot(&self.webview, path, Box::new(move |result| tx.send(Msg::Content(id, ContentEvent::Screenshot { path: p, result }))));
+        snapshot(
+            &self.webview,
+            path,
+            Box::new(move |result| {
+                tx.send(Msg::Content(
+                    id,
+                    ContentEvent::Screenshot { path: p, result },
+                ))
+            }),
+        );
     }
 
     fn pointer(&mut self, ev: PointerEvent) {
@@ -364,8 +452,13 @@ impl Content for WebContent {
         #[cfg(target_os = "macos")]
         {
             // The slot view is framed for the view; the page fills the image inside it.
-            let bounds = wry::Rect { position: wry::dpi::LogicalPosition::new(0.0, 0.0).into(), size: wry::dpi::LogicalSize::new(view.width as f64, view.height as f64).into() };
-            self.webview.set_bounds(bounds).map_err(|e| Error::Web(format!("web view bounds: {e}")))?;
+            let bounds = wry::Rect {
+                position: wry::dpi::LogicalPosition::new(0.0, 0.0).into(),
+                size: wry::dpi::LogicalSize::new(view.width as f64, view.height as f64).into(),
+            };
+            self.webview
+                .set_bounds(bounds)
+                .map_err(|e| Error::Web(format!("web view bounds: {e}")))?;
         }
         self.view = *view;
         if self.css {
@@ -392,16 +485,23 @@ fn snapshot(webview: &WebView, path: PathBuf, done: Done) {
     use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
     use wry::WebViewExtUnix;
     let wv = webview.webview();
-    wv.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&webkit2gtk::gio::Cancellable>, move |res| {
-        let result = (|| -> Result<()> {
-            let surface = res.map_err(|e| Error::Web(format!("snapshot: {e}")))?;
-            let image = cairo::ImageSurface::try_from(surface).map_err(|_| Error::Web("snapshot is not an image surface".into()))?;
-            let (w, h) = (image.width(), image.height());
-            let pixbuf = gdk::pixbuf_get_from_surface(&image, 0, 0, w, h).ok_or_else(|| Error::Web("snapshot conversion failed".into()))?;
-            save_pixbuf(&pixbuf, &path)
-        })();
-        done(result);
-    });
+    wv.snapshot(
+        SnapshotRegion::Visible,
+        SnapshotOptions::NONE,
+        None::<&webkit2gtk::gio::Cancellable>,
+        move |res| {
+            let result = (|| -> Result<()> {
+                let surface = res.map_err(|e| Error::Web(format!("snapshot: {e}")))?;
+                let image = cairo::ImageSurface::try_from(surface)
+                    .map_err(|_| Error::Web("snapshot is not an image surface".into()))?;
+                let (w, h) = (image.width(), image.height());
+                let pixbuf = gdk::pixbuf_get_from_surface(&image, 0, 0, w, h)
+                    .ok_or_else(|| Error::Web("snapshot conversion failed".into()))?;
+                save_pixbuf(&pixbuf, &path)
+            })();
+            done(result);
+        },
+    );
 }
 
 /// Save a pixbuf as PNG or JPEG (by extension); JPEG drops the alpha channel.
@@ -416,7 +516,11 @@ pub fn save_pixbuf(pixbuf: &gdk_pixbuf::Pixbuf, path: &Path) -> Result<()> {
         for x in 0..w as usize {
             let i = y * stride + x * channels;
             let a = if channels == 4 { bytes[i + 3] } else { 255 };
-            rgba.put_pixel(x as u32, y as u32, image::Rgba([bytes[i], bytes[i + 1], bytes[i + 2], a]));
+            rgba.put_pixel(
+                x as u32,
+                y as u32,
+                image::Rgba([bytes[i], bytes[i + 1], bytes[i + 2], a]),
+            );
         }
     }
     crate::capture::save_rgba(rgba, path)
@@ -425,34 +529,60 @@ pub fn save_pixbuf(pixbuf: &gdk_pixbuf::Pixbuf, path: &Path) -> Result<()> {
 #[cfg(windows)]
 fn snapshot(webview: &WebView, path: PathBuf, done: Done) {
     use webview2_com::CapturePreviewCompletedHandler;
-    use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG};
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG,
+        COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+    };
     use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
     use windows::Win32::System::Com::{STGM_CREATE, STGM_WRITE};
     use windows::Win32::UI::Shell::SHCreateStreamOnFileEx;
     use windows::core::PCWSTR;
     use wry::WebViewExtWindows;
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
-    let format = if ext == "jpg" || ext == "jpeg" { COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG } else { COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG };
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_ascii_lowercase();
+    let format = if ext == "jpg" || ext == "jpeg" {
+        COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG
+    } else {
+        COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG
+    };
     use std::os::windows::ffi::OsStrExt;
     let controller = webview.controller();
-    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     let done = std::sync::Mutex::new(Some(done));
     // SAFETY: COM calls on the thread that owns the controller; WebView2 keeps the stream and
     // handler alive until the capture completes.
     let attempt: Result<()> = unsafe {
         (|| {
-            let core = controller.CoreWebView2().map_err(|e| Error::Web(format!("webview2: {e}")))?;
-            let stream = SHCreateStreamOnFileEx(PCWSTR(wide.as_ptr()), (STGM_CREATE | STGM_WRITE).0, FILE_ATTRIBUTE_NORMAL.0, true, None)
-                .map_err(|e| Error::Web(format!("create {}: {e}", path.display())))?;
+            let core = controller
+                .CoreWebView2()
+                .map_err(|e| Error::Web(format!("webview2: {e}")))?;
+            let stream = SHCreateStreamOnFileEx(
+                PCWSTR(wide.as_ptr()),
+                (STGM_CREATE | STGM_WRITE).0,
+                FILE_ATTRIBUTE_NORMAL.0,
+                true,
+                None,
+            )
+            .map_err(|e| Error::Web(format!("create {}: {e}", path.display())))?;
             let finished = std::sync::Arc::new(done);
-            let handler = CapturePreviewCompletedHandler::create(Box::new(move |hr: windows::core::Result<()>| {
-                let result = hr.map_err(|e| Error::Web(format!("capture: {e}")));
-                if let Some(d) = finished.lock().ok().and_then(|mut g| g.take()) {
-                    d(result);
-                }
-                Ok(())
-            }));
-            core.CapturePreview(format, &stream, &handler).map_err(|e| Error::Web(format!("capture preview: {e}")))
+            let handler = CapturePreviewCompletedHandler::create(Box::new(
+                move |hr: windows::core::Result<()>| {
+                    let result = hr.map_err(|e| Error::Web(format!("capture: {e}")));
+                    if let Some(d) = finished.lock().ok().and_then(|mut g| g.take()) {
+                        d(result);
+                    }
+                    Ok(())
+                },
+            ));
+            core.CapturePreview(format, &stream, &handler)
+                .map_err(|e| Error::Web(format!("capture preview: {e}")))
         })()
     };
     if let Err(e) = attempt {
@@ -469,8 +599,16 @@ fn snapshot(webview: &WebView, path: PathBuf, done: Done) {
     use objc2_foundation::{NSDictionary, NSError, NSString};
     use wry::WebViewExtMacOS;
     let wv = webview.webview();
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
-    let file_type = if ext == "jpg" || ext == "jpeg" { NSBitmapImageFileType::JPEG } else { NSBitmapImageFileType::PNG };
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_ascii_lowercase();
+    let file_type = if ext == "jpg" || ext == "jpeg" {
+        NSBitmapImageFileType::JPEG
+    } else {
+        NSBitmapImageFileType::PNG
+    };
     let done = std::sync::Mutex::new(Some(done));
     let block = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
         let result = (|| -> Result<()> {
@@ -485,13 +623,22 @@ fn snapshot(webview: &WebView, path: PathBuf, done: Done) {
             }
             // SAFETY: WebKit hands us a live NSImage for the duration of the callback.
             let image: &NSImage = unsafe { &*image };
-            let tiff = image.TIFFRepresentation().ok_or_else(|| Error::Web("snapshot has no bitmap".into()))?;
-            let rep = NSBitmapImageRep::imageRepWithData(&tiff).ok_or_else(|| Error::Web("snapshot decode failed".into()))?;
+            let tiff = image
+                .TIFFRepresentation()
+                .ok_or_else(|| Error::Web("snapshot has no bitmap".into()))?;
+            let rep = NSBitmapImageRep::imageRepWithData(&tiff)
+                .ok_or_else(|| Error::Web("snapshot decode failed".into()))?;
             let props: Retained<NSDictionary<NSString, AnyObject>> = NSDictionary::new();
             // SAFETY: valid representation and an empty (default) properties dictionary.
-            let data = unsafe { rep.representationUsingType_properties(file_type, &props) }.ok_or_else(|| Error::Web("snapshot encode failed".into()))?;
-            let ok = data.writeToFile_atomically(&NSString::from_str(&path.to_string_lossy()), true);
-            if ok { Ok(()) } else { Err(Error::Web(format!("write {}", path.display()))) }
+            let data = unsafe { rep.representationUsingType_properties(file_type, &props) }
+                .ok_or_else(|| Error::Web("snapshot encode failed".into()))?;
+            let ok =
+                data.writeToFile_atomically(&NSString::from_str(&path.to_string_lossy()), true);
+            if ok {
+                Ok(())
+            } else {
+                Err(Error::Web(format!("write {}", path.display())))
+            }
         })();
         if let Some(d) = done.lock().ok().and_then(|mut g| g.take()) {
             d(result);

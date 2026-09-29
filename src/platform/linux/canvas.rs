@@ -50,7 +50,11 @@ impl Drop for Slot {
 impl Shell {
     pub fn new(display: &gdk::Display) -> Result<Shell> {
         let layer = LayerShell::attach(display)?;
-        Ok(Shell { display: display.clone(), layer, canvases: Vec::new() })
+        Ok(Shell {
+            display: display.clone(),
+            layer,
+            canvases: Vec::new(),
+        })
     }
 
     pub fn is_wayland(&self) -> bool {
@@ -100,18 +104,34 @@ impl Shell {
         window.set_keep_below(true);
         window.resize(r.w, r.h);
         window.move_(r.x, r.y);
-        self.canvases.push(Canvas { window, layout, rect: r, display_id: Some(display.id.clone()), _layer: None });
+        self.canvases.push(Canvas {
+            window,
+            layout,
+            rect: r,
+            display_id: Some(display.id.clone()),
+            _layer: None,
+        });
         Ok(())
     }
 
     fn wayland_canvas(&mut self, display: &Display) -> Result<()> {
-        let layer = self.layer.as_ref().ok_or_else(|| Error::Platform("layer shell missing".into()))?;
-        let monitor = displays::monitor_for(&self.display, display).ok_or_else(|| Error::Platform(format!("display {} has no GDK monitor", display.id)))?;
+        let layer = self
+            .layer
+            .as_ref()
+            .ok_or_else(|| Error::Platform("layer shell missing".into()))?;
+        let monitor = displays::monitor_for(&self.display, display)
+            .ok_or_else(|| Error::Platform(format!("display {} has no GDK monitor", display.id)))?;
         let (window, layout) = self.new_window();
         window.set_default_size(display.rect.w, display.rect.h);
         layout.set_size(display.rect.w as u32, display.rect.h as u32);
         let surface = layer.make_layer_surface(&window, &monitor)?;
-        self.canvases.push(Canvas { window, layout, rect: display.rect, display_id: Some(display.id.clone()), _layer: Some(surface) });
+        self.canvases.push(Canvas {
+            window,
+            layout,
+            rect: display.rect,
+            display_id: Some(display.id.clone()),
+            _layer: Some(surface),
+        });
         Ok(())
     }
 }
@@ -124,9 +144,17 @@ impl ShellApi for Shell {
     }
 
     fn sync_displays(&mut self, displays: &[Display]) -> Result<bool> {
-        self.canvases.retain(|c| c.display_id.as_ref().is_some_and(|id| displays.iter().any(|d| &d.id == id && d.rect == c.rect)));
+        self.canvases.retain(|c| {
+            c.display_id
+                .as_ref()
+                .is_some_and(|id| displays.iter().any(|d| &d.id == id && d.rect == c.rect))
+        });
         for d in displays {
-            if self.canvases.iter().any(|c| c.display_id.as_deref() == Some(&d.id)) {
+            if self
+                .canvases
+                .iter()
+                .any(|c| c.display_id.as_deref() == Some(&d.id))
+            {
                 continue;
             }
             if self.is_wayland() {
@@ -143,12 +171,28 @@ impl ShellApi for Shell {
             .canvases
             .iter()
             .find(|c| c.display_id.as_deref() == Some(&display.id))
-            .ok_or_else(|| Error::Platform(format!("no background surface for display {}", display.name)))?;
+            .ok_or_else(|| {
+                Error::Platform(format!(
+                    "no background surface for display {}",
+                    display.name
+                ))
+            })?;
         let container = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         container.set_size_request(region.w, region.h);
-        canvas.layout.put(&container, region.x - canvas.rect.x, region.y - canvas.rect.y);
+        canvas.layout.put(
+            &container,
+            region.x - canvas.rect.x,
+            region.y - canvas.rect.y,
+        );
         container.show();
-        Ok(Slot { layout: canvas.layout.downgrade(), container, size: Size { w: region.w, h: region.h } })
+        Ok(Slot {
+            layout: canvas.layout.downgrade(),
+            container,
+            size: Size {
+                w: region.w,
+                h: region.h,
+            },
+        })
     }
 
     /// Canvases own their surfaces outright; there is nothing to hand back to the desktop.
@@ -157,7 +201,11 @@ impl ShellApi for Shell {
     fn capabilities(&self) -> Capabilities {
         let wayland = self.is_wayland();
         Capabilities {
-            presenter: if wayland { "layer-shell".into() } else { "x11".into() },
+            presenter: if wayland {
+                "layer-shell".into()
+            } else {
+                "x11".into()
+            },
             pointer_motion: true,
             pointer_clicks: true,
             global_pointer: false,
@@ -173,7 +221,14 @@ impl ShellApi for Shell {
 /// managers read it when they start managing the window.
 fn all_desktops_hint(window: &gdk::Window) {
     let all = 0xFFFF_FFFFu32.to_ne_bytes();
-    gdk::property_change(window, &gdk::Atom::intern("_NET_WM_DESKTOP"), &gdk::Atom::intern("CARDINAL"), 32, gdk::PropMode::Replace, gdk::ChangeData::UChars(&all));
+    gdk::property_change(
+        window,
+        &gdk::Atom::intern("_NET_WM_DESKTOP"),
+        &gdk::Atom::intern("CARDINAL"),
+        32,
+        gdk::PropMode::Replace,
+        gdk::ChangeData::UChars(&all),
+    );
 }
 
 /// Mapped windows require EWMH client messages to change desktop and stacking hints.
@@ -196,11 +251,20 @@ fn pin_x11(window: &gdk::Window) -> Result<()> {
             .map_err(|e| Error::Platform(e.to_string()))
     };
     let (desktop, state) = (atom("_NET_WM_DESKTOP")?, atom("_NET_WM_STATE")?);
-    let (below, skip, attention) = (atom("_NET_WM_STATE_BELOW")?, atom("_KDE_NET_WM_STATE_SKIP_SWITCHER")?, atom("_NET_WM_STATE_DEMANDS_ATTENTION")?);
+    let (below, skip, attention) = (
+        atom("_NET_WM_STATE_BELOW")?,
+        atom("_KDE_NET_WM_STATE_SKIP_SWITCHER")?,
+        atom("_NET_WM_STATE_DEMANDS_ATTENTION")?,
+    );
     let mask = EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY;
-    for data in [(desktop, [0xFFFF_FFFF, 1, 0, 0, 0]), (state, [1, below, skip, 1, 0]), (state, [0, attention, 0, 1, 0])] {
+    for data in [
+        (desktop, [0xFFFF_FFFF, 1, 0, 0, 0]),
+        (state, [1, below, skip, 1, 0]),
+        (state, [0, attention, 0, 1, 0]),
+    ] {
         let event = ClientMessageEvent::new(32, xid, data.0, data.1);
-        conn.send_event(false, root, mask, event).map_err(|e| Error::Platform(e.to_string()))?;
+        conn.send_event(false, root, mask, event)
+            .map_err(|e| Error::Platform(e.to_string()))?;
     }
     conn.flush().map_err(|e| Error::Platform(e.to_string()))?;
     Ok(())

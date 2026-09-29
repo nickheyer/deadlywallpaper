@@ -67,8 +67,20 @@ impl Page {
 const PAGE_KEY: &str = "page";
 
 pub enum Dialog {
-    Edit { id: String, title: String, author: String, desc: String, contact: String, license: String, arguments: String, program: bool },
-    Delete { id: String, title: String },
+    Edit {
+        id: String,
+        title: String,
+        author: String,
+        desc: String,
+        contact: String,
+        license: String,
+        arguments: String,
+        program: bool,
+    },
+    Delete {
+        id: String,
+        title: String,
+    },
 }
 
 pub struct App {
@@ -103,7 +115,11 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Paths) -> App {
         let mut backend = Backend::new();
         backend.connect(&cc.egui_ctx);
-        let page = cc.storage.and_then(|s| s.get_string(PAGE_KEY)).and_then(|n| Page::from_name(&n)).unwrap_or(Page::Library);
+        let page = cc
+            .storage
+            .and_then(|s| s.get_string(PAGE_KEY))
+            .and_then(|n| Page::from_name(&n))
+            .unwrap_or(Page::Library);
         App {
             backend,
             status: None,
@@ -140,8 +156,13 @@ impl App {
     fn refresh_status(&mut self) {
         match self.backend.call(Request::Status) {
             Ok(Response::Status(s)) => {
-                if self.selected_display.as_ref().is_none_or(|id| !s.displays.iter().any(|d| &d.id == id)) {
-                    self.selected_display = crate::model::display::primary(&s.displays).map(|d| d.id.clone());
+                if self
+                    .selected_display
+                    .as_ref()
+                    .is_none_or(|id| !s.displays.iter().any(|d| &d.id == id))
+                {
+                    self.selected_display =
+                        crate::model::display::primary(&s.displays).map(|d| d.id.clone());
                 }
                 self.status = Some(s);
             }
@@ -200,7 +221,9 @@ impl App {
 
     /// Send the settings draft once nothing on the page is mid-edit.
     fn commit_settings(&mut self, ctx: &egui::Context, busy: bool) {
-        let (Some(draft), Some(saved)) = (&self.draft, &self.saved) else { return };
+        let (Some(draft), Some(saved)) = (&self.draft, &self.saved) else {
+            return;
+        };
         if saved.theme != draft.theme {
             self.apply_theme(ctx, draft.theme);
         }
@@ -209,7 +232,9 @@ impl App {
         }
         let mut draft = draft.clone();
         draft.normalize();
-        match self.backend.call(Request::SetSettings { settings: draft.clone() }) {
+        match self.backend.call(Request::SetSettings {
+            settings: draft.clone(),
+        }) {
             Ok(_) => {
                 self.saved = Some(draft.clone());
                 self.draft = Some(draft);
@@ -247,7 +272,9 @@ impl App {
                 UiMsg::Event(Event::Error { message }) => self.toasts.error(message),
                 UiMsg::Event(Event::Info { message }) => self.toasts.info(message),
                 UiMsg::Done { label, result } => match *result {
-                    Ok(Response::Wallpaper(w)) => self.toasts.success(format!("{label} {}", w.title)),
+                    Ok(Response::Wallpaper(w)) => {
+                        self.toasts.success(format!("{label} {}", w.title))
+                    }
                     Ok(Response::Wallpapers(ws)) => self.toasts.success(match ws.as_slice() {
                         [w] => format!("{label} {}", w.title),
                         ws => format!("{label} {} wallpapers", ws.len()),
@@ -264,7 +291,9 @@ impl App {
             }
         }
         if !self.backend.connected() {
-            if !self.backend.connecting() && self.last_connect_attempt.elapsed() > Duration::from_secs(2) {
+            if !self.backend.connecting()
+                && self.last_connect_attempt.elapsed() > Duration::from_secs(2)
+            {
                 self.last_connect_attempt = Instant::now();
                 self.backend.connect(ctx);
             }
@@ -273,7 +302,10 @@ impl App {
     }
 
     fn arrangement(&self) -> Arrangement {
-        self.status.as_ref().map(|s| s.layout.arrangement).unwrap_or_default()
+        self.status
+            .as_ref()
+            .map(|s| s.layout.arrangement)
+            .unwrap_or_default()
     }
 
     fn send(&mut self, req: Request) {
@@ -284,17 +316,29 @@ impl App {
 
     fn apply(&mut self, id: &str, display: Option<String>) {
         let display = display.or_else(|| self.selected_display.clone());
-        self.send(Request::Set { target: id.to_string(), display });
+        self.send(Request::Set {
+            target: id.to_string(),
+            display,
+        });
     }
 
     fn import_paths(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>) {
         for p in paths {
-            self.backend.background(ctx, "Added", Request::Import { source: p.to_string_lossy().into_owned() });
+            self.backend.background(
+                ctx,
+                "Added",
+                Request::Import {
+                    source: p.to_string_lossy().into_owned(),
+                },
+            );
         }
     }
 
     fn pick_files(&mut self, ctx: &egui::Context) {
-        let media: Vec<&str> = [Kind::Video, Kind::Gif, Kind::Picture].iter().flat_map(|k| k.extensions().iter().copied()).collect();
+        let media: Vec<&str> = [Kind::Video, Kind::Gif, Kind::Picture]
+            .iter()
+            .flat_map(|k| k.extensions().iter().copied())
+            .collect();
         let picked = rfd::FileDialog::new()
             .add_filter("Wallpapers", &Kind::importable_extensions())
             .add_filter("Videos, pictures and GIFs", &media)
@@ -320,12 +364,25 @@ impl App {
             ui.add_space(6.0);
             theme::logo(ui, 30.0);
             ui.add_space(2.0);
-            ui.label(RichText::new("Deadly Wallpaper").size(15.0).strong().color(p.text_strong));
+            ui.label(
+                RichText::new("Deadly Wallpaper")
+                    .size(15.0)
+                    .strong()
+                    .color(p.text_strong),
+            );
         });
         ui.add_space(18.0);
         ui.spacing_mut().item_spacing.y = 2.0;
         for page in Page::ALL {
-            if widgets::nav_item(ui, self.page == page, page.glyph(), page.label(), page.shortcut()).clicked() {
+            if widgets::nav_item(
+                ui,
+                self.page == page,
+                page.glyph(),
+                page.label(),
+                page.shortcut(),
+            )
+            .clicked()
+            {
                 self.page = page;
             }
         }
@@ -339,15 +396,23 @@ impl App {
             widgets::divider(ui);
             ui.add_space(12.0);
             let (paused, can_pause, has_audio) = match &self.status {
-                Some(s) => (s.paused, s.active.iter().any(|a| a.kind != Kind::Picture), s.active.iter().any(|a| a.kind.has_audio())),
+                Some(s) => (
+                    s.paused,
+                    s.active.iter().any(|a| a.kind != Kind::Picture),
+                    s.active.iter().any(|a| a.kind.has_audio()),
+                ),
                 None => (false, false, false),
             };
             if has_audio {
                 ui.spacing_mut().slider_width = ui.available_width();
-                let slider = ui.add(egui::Slider::new(&mut self.volume, 0..=100).show_value(false)).on_hover_text("Wallpaper volume");
+                let slider = ui
+                    .add(egui::Slider::new(&mut self.volume, 0..=100).show_value(false))
+                    .on_hover_text("Wallpaper volume");
                 self.volume_dragging = slider.dragged();
                 if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {
-                    match self.backend.call(Request::Volume { value: self.volume.to_string() }) {
+                    match self.backend.call(Request::Volume {
+                        value: self.volume.to_string(),
+                    }) {
                         Ok(_) => {
                             for s in [&mut self.draft, &mut self.saved].into_iter().flatten() {
                                 s.volume = self.volume;
@@ -368,8 +433,15 @@ impl App {
                 ui.add_space(8.0);
             }
             if can_pause {
-                let label = if paused { "▶  Resume all" } else { "⏸  Pause all" };
-                if ui.add_sized([ui.available_width(), 32.0], theme::secondary_button(label)).clicked() {
+                let label = if paused {
+                    "▶  Resume all"
+                } else {
+                    "⏸  Pause all"
+                };
+                if ui
+                    .add_sized([ui.available_width(), 32.0], theme::secondary_button(label))
+                    .clicked()
+                {
                     self.send(Request::Play { play: paused });
                 }
             }
@@ -381,7 +453,11 @@ impl App {
             return;
         }
         let p = theme::palette(ui);
-        let frame = Frame::new().fill(p.surface).stroke(egui::Stroke::new(1.0, p.warning.gamma_multiply(0.6))).corner_radius(egui::CornerRadius::same(10)).inner_margin(Margin::symmetric(14, 10));
+        let frame = Frame::new()
+            .fill(p.surface)
+            .stroke(egui::Stroke::new(1.0, p.warning.gamma_multiply(0.6)))
+            .corner_radius(egui::CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(14, 10));
         frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -432,17 +508,44 @@ impl App {
             widgets::empty_state(ui, "🖥", "Connecting…", "", None);
             return;
         };
-        let selected = status.displays.iter().find(|d| Some(&d.id) == self.selected_display.as_ref())
-            .or_else(|| crate::model::display::primary(&status.displays)).map(|d| d.id.clone());
+        let selected = status
+            .displays
+            .iter()
+            .find(|d| Some(&d.id) == self.selected_display.as_ref())
+            .or_else(|| crate::model::display::primary(&status.displays))
+            .map(|d| d.id.clone());
         self.selected_display = selected.clone();
-        let active = status.active.iter().find(|a| Some(&a.display) == selected.as_ref() || status.layout.arrangement != Arrangement::Per);
-        let root = active.and_then(|a| self.library.iter().find(|w| w.id == a.wallpaper))
-            .map(|w| if w.absolute { PathBuf::from(&w.source).parent().map(|p| p.to_path_buf()).unwrap_or(w.dir.clone()) } else { w.dir.clone() });
-        let view = screens::View { status: &status, library: &self.library, selected: selected.as_deref() };
+        let active = status.active.iter().find(|a| {
+            Some(&a.display) == selected.as_ref() || status.layout.arrangement != Arrangement::Per
+        });
+        let root = active
+            .and_then(|a| self.library.iter().find(|w| w.id == a.wallpaper))
+            .map(|w| {
+                if w.absolute {
+                    PathBuf::from(&w.source)
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or(w.dir.clone())
+                } else {
+                    w.dir.clone()
+                }
+            });
+        let view = screens::View {
+            status: &status,
+            library: &self.library,
+            selected: selected.as_deref(),
+        };
         let actions = screens::page(ui, &view, |ui| {
             if let Some(a) = active.filter(|a| a.customizable) {
-                match self.customize.ensure(&mut self.backend, &a.wallpaper, selected.as_deref(), root.unwrap_or_default()) {
-                    Err(e) => { ui.colored_label(ui.visuals().error_fg_color, e.to_string()); }
+                match self.customize.ensure(
+                    &mut self.backend,
+                    &a.wallpaper,
+                    selected.as_deref(),
+                    root.unwrap_or_default(),
+                ) {
+                    Err(e) => {
+                        ui.colored_label(ui.visuals().error_fg_color, e.to_string());
+                    }
                     Ok(()) if self.customize.is_empty() => {}
                     Ok(()) => self.customize.ui(ui, &mut self.backend, &mut self.toasts),
                 }
@@ -474,7 +577,11 @@ impl App {
             .id_salt("settings")
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                let cx = settings::Context { devices: &self.devices, displays: &displays, capabilities: &capabilities };
+                let cx = settings::Context {
+                    devices: &self.devices,
+                    displays: &displays,
+                    capabilities: &capabilities,
+                };
                 settings::ui(ui, &mut draft, &mut self.settings_state, &cx)
             })
             .inner;
@@ -483,7 +590,11 @@ impl App {
     }
 
     fn about_dialog(&mut self, ctx: &egui::Context) {
-        let view = about::View { status: self.status.as_ref(), settings: self.saved.as_ref(), paths: &self.paths };
+        let view = about::View {
+            status: self.status.as_ref(),
+            settings: self.saved.as_ref(),
+            paths: &self.paths,
+        };
         for action in about::show(ctx, &view, &mut self.about_open) {
             match action {
                 about::Action::Open(path) => crate::ui::open_url(&path.to_string_lossy()),
@@ -493,74 +604,139 @@ impl App {
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
-        let Some(dialog) = self.dialog.take() else { return };
+        let Some(dialog) = self.dialog.take() else {
+            return;
+        };
         let p = theme::palette_of(ctx);
         let frame = theme::dialog_frame(ctx);
         let mut next = None;
         match dialog {
-            Dialog::Edit { id, mut title, mut author, mut desc, mut contact, mut license, mut arguments, program } => {
-                let modal = egui::Modal::new(egui::Id::new("edit")).frame(frame).show(ctx, |ui| {
-                    ui.set_width(560.0);
-                    ui.label(RichText::new("Edit").size(18.0).strong().color(p.text_strong));
-                    ui.add_space(10.0);
-                    egui::Grid::new("edit").num_columns(2).spacing([14.0, 10.0]).show(ui, |ui| {
-                        for (label, value, multiline) in [("Title", &mut title, false), ("Author", &mut author, false), ("Description", &mut desc, true), ("Website", &mut contact, false), ("License", &mut license, false)] {
-                            ui.label(RichText::new(label).color(p.text_weak));
-                            if multiline {
-                                ui.add(egui::TextEdit::multiline(value).desired_rows(3).desired_width(420.0));
-                            } else {
-                                ui.add(egui::TextEdit::singleline(value).desired_width(420.0));
+            Dialog::Edit {
+                id,
+                mut title,
+                mut author,
+                mut desc,
+                mut contact,
+                mut license,
+                mut arguments,
+                program,
+            } => {
+                let modal = egui::Modal::new(egui::Id::new("edit"))
+                    .frame(frame)
+                    .show(ctx, |ui| {
+                        ui.set_width(560.0);
+                        ui.label(
+                            RichText::new("Edit")
+                                .size(18.0)
+                                .strong()
+                                .color(p.text_strong),
+                        );
+                        ui.add_space(10.0);
+                        egui::Grid::new("edit")
+                            .num_columns(2)
+                            .spacing([14.0, 10.0])
+                            .show(ui, |ui| {
+                                for (label, value, multiline) in [
+                                    ("Title", &mut title, false),
+                                    ("Author", &mut author, false),
+                                    ("Description", &mut desc, true),
+                                    ("Website", &mut contact, false),
+                                    ("License", &mut license, false),
+                                ] {
+                                    ui.label(RichText::new(label).color(p.text_weak));
+                                    if multiline {
+                                        ui.add(
+                                            egui::TextEdit::multiline(value)
+                                                .desired_rows(3)
+                                                .desired_width(420.0),
+                                        );
+                                    } else {
+                                        ui.add(
+                                            egui::TextEdit::singleline(value).desired_width(420.0),
+                                        );
+                                    }
+                                    ui.end_row();
+                                }
+                                if program {
+                                    ui.label(RichText::new("Arguments").color(p.text_weak));
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut arguments)
+                                            .desired_width(420.0)
+                                            .font(egui::TextStyle::Monospace),
+                                    );
+                                    ui.end_row();
+                                }
+                            });
+                        ui.add_space(14.0);
+                        let mut done = false;
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .add_enabled(!title.trim().is_empty(), theme::primary("Save"))
+                                .clicked()
+                            {
+                                let patch = InfoPatch {
+                                    title: Some(title.clone()),
+                                    author: Some(author.clone()),
+                                    desc: Some(desc.clone()),
+                                    contact: Some(contact.clone()),
+                                    license: Some(license.clone()),
+                                    arguments: program.then(|| arguments.clone()),
+                                };
+                                self.send(Request::EditInfo {
+                                    wallpaper: id.clone(),
+                                    patch,
+                                });
+                                done = true;
                             }
-                            ui.end_row();
-                        }
-                        if program {
-                            ui.label(RichText::new("Arguments").color(p.text_weak));
-                            ui.add(egui::TextEdit::singleline(&mut arguments).desired_width(420.0).font(egui::TextStyle::Monospace));
-                            ui.end_row();
-                        }
+                            if ui.add(theme::secondary_button("Cancel")).clicked() {
+                                done = true;
+                            }
+                        });
+                        done
                     });
-                    ui.add_space(14.0);
-                    let mut done = false;
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add_enabled(!title.trim().is_empty(), theme::primary("Save")).clicked() {
-                            let patch = InfoPatch {
-                                title: Some(title.clone()),
-                                author: Some(author.clone()),
-                                desc: Some(desc.clone()),
-                                contact: Some(contact.clone()),
-                                license: Some(license.clone()),
-                                arguments: program.then(|| arguments.clone()),
-                            };
-                            self.send(Request::EditInfo { wallpaper: id.clone(), patch });
-                            done = true;
-                        }
-                        if ui.add(theme::secondary_button("Cancel")).clicked() {
-                            done = true;
-                        }
-                    });
-                    done
-                });
                 if !modal.inner && !modal.should_close() {
-                    next = Some(Dialog::Edit { id, title, author, desc, contact, license, arguments, program });
+                    next = Some(Dialog::Edit {
+                        id,
+                        title,
+                        author,
+                        desc,
+                        contact,
+                        license,
+                        arguments,
+                        program,
+                    });
                 }
             }
             Dialog::Delete { id, title } => {
-                let modal = egui::Modal::new(egui::Id::new("delete")).frame(frame).show(ctx, |ui| {
-                    ui.set_width(460.0);
-                    ui.label(RichText::new(format!("Remove “{title}”?")).size(18.0).strong().color(p.text_strong));
-                    ui.add_space(14.0);
-                    let mut done = false;
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add(theme::danger("Remove")).clicked() {
-                            self.send(Request::Delete { wallpaper: id.clone() });
-                            done = true;
-                        }
-                        if ui.add(theme::secondary_button("Cancel")).clicked() {
-                            done = true;
-                        }
-                    });
-                    done
-                });
+                let modal =
+                    egui::Modal::new(egui::Id::new("delete"))
+                        .frame(frame)
+                        .show(ctx, |ui| {
+                            ui.set_width(460.0);
+                            ui.label(
+                                RichText::new(format!("Remove “{title}”?"))
+                                    .size(18.0)
+                                    .strong()
+                                    .color(p.text_strong),
+                            );
+                            ui.add_space(14.0);
+                            let mut done = false;
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.add(theme::danger("Remove")).clicked() {
+                                        self.send(Request::Delete {
+                                            wallpaper: id.clone(),
+                                        });
+                                        done = true;
+                                    }
+                                    if ui.add(theme::secondary_button("Cancel")).clicked() {
+                                        done = true;
+                                    }
+                                },
+                            );
+                            done
+                        });
                 if !modal.inner && !modal.should_close() {
                     next = Some(Dialog::Delete { id, title });
                 }
@@ -574,7 +750,12 @@ impl App {
             match action {
                 library::Action::Apply { id, display } => self.apply(&id, display),
                 library::Action::Customize { id } => {
-                    let running = self.status.as_ref().and_then(|s| s.active.iter().find(|a| a.wallpaper == id).map(|a| a.display.clone()));
+                    let running = self.status.as_ref().and_then(|s| {
+                        s.active
+                            .iter()
+                            .find(|a| a.wallpaper == id)
+                            .map(|a| a.display.clone())
+                    });
                     match running {
                         Some(display) => self.selected_display = Some(display),
                         None => self.apply(&id, None),
@@ -596,21 +777,49 @@ impl App {
                     }
                 }
                 library::Action::Export { id } => {
-                    let title = self.library.iter().find(|w| w.id == id).map(|w| w.title.clone()).unwrap_or(id.clone());
-                    if let Some(file) = rfd::FileDialog::new().add_filter("Lively package", &["zip"]).set_file_name(format!("{}.zip", crate::paths::slug(&title))).save_file() {
-                        self.backend.background(ctx, format!("Exported {title}"), Request::Export { wallpaper: id, file });
+                    let title = self
+                        .library
+                        .iter()
+                        .find(|w| w.id == id)
+                        .map(|w| w.title.clone())
+                        .unwrap_or(id.clone());
+                    if let Some(file) = rfd::FileDialog::new()
+                        .add_filter("Lively package", &["zip"])
+                        .set_file_name(format!("{}.zip", crate::paths::slug(&title)))
+                        .save_file()
+                    {
+                        self.backend.background(
+                            ctx,
+                            format!("Exported {title}"),
+                            Request::Export {
+                                wallpaper: id,
+                                file,
+                            },
+                        );
                     }
                 }
                 library::Action::Reveal { path } => crate::ui::reveal(&path),
-                library::Action::Thumbnail { id } => self.backend.background(ctx, "Thumbnail updated", Request::Thumbnail { wallpaper: id }),
+                library::Action::Thumbnail { id } => self.backend.background(
+                    ctx,
+                    "Thumbnail updated",
+                    Request::Thumbnail { wallpaper: id },
+                ),
                 library::Action::Delete { id } => {
-                    let title = self.library.iter().find(|w| w.id == id).map(|w| w.title.clone()).unwrap_or(id.clone());
+                    let title = self
+                        .library
+                        .iter()
+                        .find(|w| w.id == id)
+                        .map(|w| w.title.clone())
+                        .unwrap_or(id.clone());
                     self.dialog = Some(Dialog::Delete { id, title });
                 }
                 library::Action::Open { url } => crate::ui::open_url(&url),
                 library::Action::PickFiles => self.pick_files(ctx),
                 library::Action::PickFolders => self.pick_folders(ctx),
-                library::Action::AddLink { url } => self.backend.background(ctx, "Added", Request::Import { source: url }),
+                library::Action::AddLink { url } => {
+                    self.backend
+                        .background(ctx, "Added", Request::Import { source: url })
+                }
                 library::Action::SelectDisplay(id) => self.selected_display = Some(id),
                 library::Action::Filter(kind) => self.filter = kind,
                 library::Action::GoToScreens => self.page = Page::Screens,
@@ -660,22 +869,45 @@ impl eframe::App for App {
         if std::mem::take(&mut self.pick_files_requested) {
             self.pick_files(ctx);
         }
-        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .collect()
+        });
         if !dropped.is_empty() {
             self.import_paths(ctx, dropped);
         }
         let p = theme::palette(root);
-        let nav_frame = Frame::new().fill(p.sidebar).inner_margin(Margin { left: 12, right: 12, top: 18, bottom: 14 });
-        egui::Panel::left("nav").exact_size(216.0).resizable(false).show_separator_line(false).frame(nav_frame).show(root, |ui| self.nav(ui));
-        let content_frame = Frame::new().fill(p.bg).inner_margin(Margin { left: 28, right: 28, top: 22, bottom: 16 });
-        egui::CentralPanel::default().frame(content_frame).show(root, |ui| {
-            self.connection_banner(ui);
-            match self.page {
-                Page::Library => self.library_page(ctx, ui),
-                Page::Screens => self.screens_page(ui),
-                Page::Settings => self.settings_page(ctx, ui),
-            }
+        let nav_frame = Frame::new().fill(p.sidebar).inner_margin(Margin {
+            left: 12,
+            right: 12,
+            top: 18,
+            bottom: 14,
         });
+        egui::Panel::left("nav")
+            .exact_size(216.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(nav_frame)
+            .show(root, |ui| self.nav(ui));
+        let content_frame = Frame::new().fill(p.bg).inner_margin(Margin {
+            left: 28,
+            right: 28,
+            top: 22,
+            bottom: 16,
+        });
+        egui::CentralPanel::default()
+            .frame(content_frame)
+            .show(root, |ui| {
+                self.connection_banner(ui);
+                match self.page {
+                    Page::Library => self.library_page(ctx, ui),
+                    Page::Screens => self.screens_page(ui),
+                    Page::Settings => self.settings_page(ctx, ui),
+                }
+            });
         self.dialogs(ctx);
         self.about_dialog(ctx);
         self.toasts.show(ctx);

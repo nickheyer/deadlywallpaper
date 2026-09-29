@@ -13,12 +13,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 pub fn start(tx: MsgSender, interval: Arc<AtomicU64>) {
-    let _ = std::thread::Builder::new().name("quartz-monitor".into()).spawn(move || {
-        loop {
-            tx.send(Msg::Windows(snapshot()));
-            std::thread::sleep(Duration::from_millis(interval.load(Ordering::Relaxed).max(100)));
-        }
-    });
+    let _ = std::thread::Builder::new()
+        .name("quartz-monitor".into())
+        .spawn(move || {
+            loop {
+                tx.send(Msg::Windows(snapshot()));
+                std::thread::sleep(Duration::from_millis(
+                    interval.load(Ordering::Relaxed).max(100),
+                ));
+            }
+        });
 }
 
 fn value(dict: &NSDictionary, key: &str) -> Option<objc2::rc::Retained<AnyObject>> {
@@ -27,7 +31,9 @@ fn value(dict: &NSDictionary, key: &str) -> Option<objc2::rc::Retained<AnyObject
 }
 
 fn number(dict: &NSDictionary, key: &str) -> Option<f64> {
-    value(dict, key).and_then(|o| o.downcast::<NSNumber>().ok()).map(|n| n.doubleValue())
+    value(dict, key)
+        .and_then(|o| o.downcast::<NSNumber>().ok())
+        .map(|n| n.doubleValue())
 }
 
 fn text(dict: &NSDictionary, key: &str) -> Option<String> {
@@ -37,11 +43,15 @@ fn text(dict: &NSDictionary, key: &str) -> Option<String> {
 pub fn snapshot() -> Snapshot {
     let own_pid = std::process::id() as i32;
     let frontmost = mainloop::frontmost();
-    let Some(list): Option<CFRetained<objc2_core_foundation::CFArray>> = CGWindowListCopyWindowInfo(CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements, 0) else {
+    let Some(list): Option<CFRetained<objc2_core_foundation::CFArray>> = CGWindowListCopyWindowInfo(
+        CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements,
+        0,
+    ) else {
         return Snapshot::default();
     };
     // SAFETY: CFArray of CFDictionary is toll-free bridged to NSArray<NSDictionary>.
-    let array: &NSArray<NSDictionary> = unsafe { &*(CFRetained::as_ptr(&list).as_ptr() as *const NSArray<NSDictionary>) };
+    let array: &NSArray<NSDictionary> =
+        unsafe { &*(CFRetained::as_ptr(&list).as_ptr() as *const NSArray<NSDictionary>) };
     let mut windows = Vec::new();
     let mut focused_taken = false;
     for dict in array.iter() {
@@ -56,7 +66,11 @@ pub fn snapshot() -> Snapshot {
         if number(&dict, "kCGWindowAlpha").unwrap_or(1.0) <= 0.0 {
             continue;
         }
-        let Some(bounds) = value(&dict, "kCGWindowBounds").and_then(|o| o.downcast::<NSDictionary>().ok()) else { continue };
+        let Some(bounds) =
+            value(&dict, "kCGWindowBounds").and_then(|o| o.downcast::<NSDictionary>().ok())
+        else {
+            continue;
+        };
         let rect = Rect::new(
             number(&bounds, "X").unwrap_or(0.0) as i32,
             number(&bounds, "Y").unwrap_or(0.0) as i32,
@@ -72,12 +86,24 @@ pub fn snapshot() -> Snapshot {
         if focused {
             focused_taken = true;
         }
-        windows.push(WindowInfo { placement: WindowPlacement::Rect(rect), fullscreen: false, maximized: false, focused, app, pid: Some(pid as u32) });
+        windows.push(WindowInfo {
+            placement: WindowPlacement::Rect(rect),
+            fullscreen: false,
+            maximized: false,
+            focused,
+            app,
+            pid: Some(pid as u32),
+        });
     }
     let displays = crate::platform::macos::displays::list();
     for w in &mut windows {
         if let WindowPlacement::Rect(r) = &w.placement {
-            w.fullscreen = displays.iter().any(|d| r.x <= d.rect.x && r.y <= d.rect.y && r.right() >= d.rect.right() && r.bottom() >= d.rect.bottom());
+            w.fullscreen = displays.iter().any(|d| {
+                r.x <= d.rect.x
+                    && r.y <= d.rect.y
+                    && r.right() >= d.rect.right()
+                    && r.bottom() >= d.rect.bottom()
+            });
         }
     }
     Snapshot { windows }

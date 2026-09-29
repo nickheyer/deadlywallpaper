@@ -26,7 +26,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "deadlywp", version, about = "Deadly Wallpaper: live wallpapers for every desktop")]
+#[command(
+    name = "deadlywp",
+    version,
+    about = "Deadly Wallpaper: live wallpapers for every desktop"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -136,7 +140,10 @@ pub fn ensure_daemon() -> Result<()> {
     }
     let exe = std::env::current_exe()?;
     let mut cmd = std::process::Command::new(exe);
-    cmd.arg("daemon").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    cmd.arg("daemon")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -156,31 +163,72 @@ fn client_command(cmd: Command) -> Result<()> {
         Command::Status => Request::Status,
         Command::List => Request::Library,
         Command::Displays => Request::Displays,
-        Command::Set { target, display } => Request::Set { target: absolutize(target), display },
+        Command::Set { target, display } => Request::Set {
+            target: absolutize(target),
+            display,
+        },
         Command::Close { display } => Request::Close { display },
-        Command::Layout { arrangement } => Request::SetArrangement { arrangement, display: None },
-        Command::Align { target, x, y, scale, rotate, reset } => {
-            let pose = Pose { x, y, scale, rotation: rotate };
+        Command::Layout { arrangement } => Request::SetArrangement {
+            arrangement,
+            display: None,
+        },
+        Command::Align {
+            target,
+            x,
+            y,
+            scale,
+            rotate,
+            reset,
+        } => {
+            let pose = Pose {
+                x,
+                y,
+                scale,
+                rotation: rotate,
+            };
             match (reset, target.as_deref()) {
                 (true, _) => Request::ResetAlignment,
                 (false, Some("image")) => Request::AlignImage { pose },
-                (false, Some(display)) => Request::AlignDisplay { display: display.to_string(), pose },
-                (false, None) => return Err(Error::Invalid("expected `image`, a display, or --reset".into())),
+                (false, Some(display)) => Request::AlignDisplay {
+                    display: display.to_string(),
+                    pose,
+                },
+                (false, None) => {
+                    return Err(Error::Invalid(
+                        "expected `image`, a display, or --reset".into(),
+                    ));
+                }
             }
         }
         Command::Volume { value } => Request::Volume { value },
         Command::Play => Request::Play { play: true },
         Command::Pause => Request::Play { play: false },
         Command::Seek { value, display } => Request::Seek { display, value },
-        Command::Prop { assignment, display } => {
+        Command::Prop {
+            assignment,
+            display,
+        } => {
             let (name, value) = assignment
                 .split_once('=')
                 .ok_or_else(|| Error::Invalid("expected name=value".into()))?;
-            Request::SetProperty { wallpaper: String::new(), display, name: name.trim().into(), value: serde_json::Value::String(value.to_string()) }
+            Request::SetProperty {
+                wallpaper: String::new(),
+                display,
+                name: name.trim().into(),
+                value: serde_json::Value::String(value.to_string()),
+            }
         }
-        Command::Screenshot { file, display } => Request::Screenshot { display, file: std::path::absolute(file)? },
-        Command::Import { source } => Request::Import { source: absolutize(source) },
-        Command::Export { wallpaper, file } => Request::Export { wallpaper, file: std::path::absolute(file)? },
+        Command::Screenshot { file, display } => Request::Screenshot {
+            display,
+            file: std::path::absolute(file)?,
+        },
+        Command::Import { source } => Request::Import {
+            source: absolutize(source),
+        },
+        Command::Export { wallpaper, file } => Request::Export {
+            wallpaper,
+            file: std::path::absolute(file)?,
+        },
         Command::Delete { wallpaper } => Request::Delete { wallpaper },
         Command::Quit => Request::Quit,
         Command::Daemon | Command::Ui => unreachable!("handled by run"),
@@ -193,7 +241,9 @@ fn client_command(cmd: Command) -> Result<()> {
 fn absolutize(target: String) -> String {
     let p = std::path::Path::new(&target);
     if p.exists() {
-        std::path::absolute(p).map(|a| a.to_string_lossy().into_owned()).unwrap_or(target)
+        std::path::absolute(p)
+            .map(|a| a.to_string_lossy().into_owned())
+            .unwrap_or(target)
     } else {
         target
     }
@@ -204,20 +254,55 @@ fn print_response(resp: Response) {
         Response::Ok => {}
         Response::Text(t) => println!("{t}"),
         Response::Status(s) => {
-            println!("deadlywp {} on {} ({}), presenter: {}, window monitor: {}", s.version, s.platform, s.session, s.capabilities.presenter, s.window_monitor);
-            println!("arrangement: {}  paused: {}  locked: {}  battery: {}", s.layout.arrangement.label(), s.paused, s.locked, s.on_battery);
+            println!(
+                "deadlywp {} on {} ({}), presenter: {}, window monitor: {}",
+                s.version, s.platform, s.session, s.capabilities.presenter, s.window_monitor
+            );
+            println!(
+                "arrangement: {}  paused: {}  locked: {}  battery: {}",
+                s.layout.arrangement.label(),
+                s.paused,
+                s.locked,
+                s.on_battery
+            );
             for (i, d) in s.displays.iter().enumerate() {
                 let active = s.active.iter().find(|a| a.display == d.id);
                 let state = match active {
-                    Some(a) => format!("{} [{}]{}", a.title, a.wallpaper, if a.paused { " paused" } else { "" }),
+                    Some(a) => format!(
+                        "{} [{}]{}",
+                        a.title,
+                        a.wallpaper,
+                        if a.paused { " paused" } else { "" }
+                    ),
                     None => "-".into(),
                 };
-                println!("{}. {} {}x{}+{}+{}{}: {}", i + 1, d.name, d.rect.w, d.rect.h, d.rect.x, d.rect.y, if d.primary { " primary" } else { "" }, state);
+                println!(
+                    "{}. {} {}x{}+{}+{}{}: {}",
+                    i + 1,
+                    d.name,
+                    d.rect.w,
+                    d.rect.h,
+                    d.rect.x,
+                    d.rect.y,
+                    if d.primary { " primary" } else { "" },
+                    state
+                );
             }
         }
         Response::Displays(ds) => {
             for (i, d) in ds.iter().enumerate() {
-                println!("{}\t{}\t{}\t{}x{}+{}+{}\tscale {:.2}{}", i + 1, d.id, d.name, d.rect.w, d.rect.h, d.rect.x, d.rect.y, d.scale, if d.primary { "\tprimary" } else { "" });
+                println!(
+                    "{}\t{}\t{}\t{}x{}+{}+{}\tscale {:.2}{}",
+                    i + 1,
+                    d.id,
+                    d.name,
+                    d.rect.w,
+                    d.rect.h,
+                    d.rect.x,
+                    d.rect.y,
+                    d.scale,
+                    if d.primary { "\tprimary" } else { "" }
+                );
             }
         }
         Response::Library(items) | Response::Wallpapers(items) => {
@@ -226,8 +311,14 @@ fn print_response(resp: Response) {
             }
         }
         Response::Wallpaper(w) => println!("{}\t{}\t{}\t{}", w.id, w.kind, w.title, w.source),
-        other @ (Response::Settings(_) | Response::Layout(_) | Response::Controls { .. } | Response::Devices(_)) => {
-            println!("{}", serde_json::to_string_pretty(&other).unwrap_or_default());
+        other @ (Response::Settings(_)
+        | Response::Layout(_)
+        | Response::Controls { .. }
+        | Response::Devices(_)) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&other).unwrap_or_default()
+            );
         }
         Response::Error { message, .. } => eprintln!("error: {message}"),
     }

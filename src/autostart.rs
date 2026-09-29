@@ -15,9 +15,11 @@ pub fn apply(enabled: bool) -> Result<()> {
     let e = entry()?;
     let current = e.is_enabled().unwrap_or(false);
     if enabled && !current {
-        e.enable().map_err(|x| Error::Platform(format!("enable autostart: {x}")))?;
+        e.enable()
+            .map_err(|x| Error::Platform(format!("enable autostart: {x}")))?;
     } else if !enabled && current {
-        e.disable().map_err(|x| Error::Platform(format!("disable autostart: {x}")))?;
+        e.disable()
+            .map_err(|x| Error::Platform(format!("disable autostart: {x}")))?;
     }
     Ok(())
 }

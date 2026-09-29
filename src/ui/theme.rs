@@ -1,13 +1,15 @@
 use crate::model::Kind;
 use eframe::egui::style::{HandleShape, ScrollStyle, Style, WidgetVisuals};
-use eframe::egui::{self, Button, Color32, CornerRadius, CursorIcon, FontId, Frame, Margin, RichText, Shadow, Stroke, TextStyle, Theme};
+use eframe::egui::{
+    self, Button, Color32, CornerRadius, CursorIcon, FontId, Frame, Margin, RichText, Shadow,
+    Stroke, TextStyle, Theme,
+};
 
 pub const LOGO_URI: &str = "bytes://deadlywp-logo.png";
 
 pub fn logo(ui: &mut egui::Ui, size: f32) {
     let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
-    egui::Image::from_bytes(LOGO_URI, include_bytes!("../../assets/icon.png"))
-        .paint_at(ui, rect);
+    egui::Image::from_bytes(LOGO_URI, include_bytes!("../../assets/icon.png")).paint_at(ui, rect);
 }
 
 #[derive(Clone, Copy)]
@@ -100,7 +102,11 @@ impl Palette {
 }
 
 pub fn palette(ui: &egui::Ui) -> Palette {
-    if ui.visuals().dark_mode { Palette::dark() } else { Palette::light() }
+    if ui.visuals().dark_mode {
+        Palette::dark()
+    } else {
+        Palette::light()
+    }
 }
 
 pub fn palette_of(ctx: &egui::Context) -> Palette {
@@ -159,8 +165,18 @@ fn apply(style: &mut Style, p: &Palette) {
     v.window_corner_radius = CornerRadius::same(12);
     v.menu_corner_radius = CornerRadius::same(8);
     v.window_stroke = Stroke::new(1.0, p.stroke);
-    v.window_shadow = Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(if p.dark { 110 } else { 40 }) };
-    v.popup_shadow = Shadow { offset: [0, 6], blur: 16, spread: 0, color: Color32::from_black_alpha(if p.dark { 90 } else { 30 }) };
+    v.window_shadow = Shadow {
+        offset: [0, 8],
+        blur: 28,
+        spread: 0,
+        color: Color32::from_black_alpha(if p.dark { 110 } else { 40 }),
+    };
+    v.popup_shadow = Shadow {
+        offset: [0, 6],
+        blur: 16,
+        spread: 0,
+        color: Color32::from_black_alpha(if p.dark { 90 } else { 30 }),
+    };
     v.window_highlight_topmost = false;
     v.slider_trailing_fill = true;
     v.handle_shape = HandleShape::Circle;
@@ -170,16 +186,55 @@ fn apply(style: &mut Style, p: &Palette) {
     v.interact_cursor = Some(CursorIcon::PointingHand);
     v.text_cursor.stroke = Stroke::new(2.0, p.accent);
     let radius = CornerRadius::same(6);
-    v.widgets.noninteractive = WidgetVisuals { weak_bg_fill: p.bg, bg_fill: p.bg, bg_stroke: Stroke::new(1.0, p.stroke), fg_stroke: Stroke::new(1.0, p.text), corner_radius: radius, expansion: 0.0 };
-    v.widgets.inactive = WidgetVisuals { weak_bg_fill: p.control, bg_fill: p.control, bg_stroke: Stroke::new(1.0, p.stroke), fg_stroke: Stroke::new(1.0, p.text), corner_radius: radius, expansion: 0.0 };
-    v.widgets.hovered = WidgetVisuals { weak_bg_fill: p.control_hover, bg_fill: p.control_hover, bg_stroke: Stroke::new(1.0, p.stroke_strong), fg_stroke: Stroke::new(1.5, p.text_strong), corner_radius: radius, expansion: 0.0 };
-    v.widgets.active = WidgetVisuals { weak_bg_fill: p.control_active, bg_fill: p.control_active, bg_stroke: Stroke::new(1.0, p.accent), fg_stroke: Stroke::new(2.0, p.text_strong), corner_radius: radius, expansion: 0.0 };
-    v.widgets.open = WidgetVisuals { weak_bg_fill: p.control_hover, bg_fill: p.elevated, bg_stroke: Stroke::new(1.0, p.stroke_strong), fg_stroke: Stroke::new(1.0, p.text), corner_radius: radius, expansion: 0.0 };
+    v.widgets.noninteractive = WidgetVisuals {
+        weak_bg_fill: p.bg,
+        bg_fill: p.bg,
+        bg_stroke: Stroke::new(1.0, p.stroke),
+        fg_stroke: Stroke::new(1.0, p.text),
+        corner_radius: radius,
+        expansion: 0.0,
+    };
+    v.widgets.inactive = WidgetVisuals {
+        weak_bg_fill: p.control,
+        bg_fill: p.control,
+        bg_stroke: Stroke::new(1.0, p.stroke),
+        fg_stroke: Stroke::new(1.0, p.text),
+        corner_radius: radius,
+        expansion: 0.0,
+    };
+    v.widgets.hovered = WidgetVisuals {
+        weak_bg_fill: p.control_hover,
+        bg_fill: p.control_hover,
+        bg_stroke: Stroke::new(1.0, p.stroke_strong),
+        fg_stroke: Stroke::new(1.5, p.text_strong),
+        corner_radius: radius,
+        expansion: 0.0,
+    };
+    v.widgets.active = WidgetVisuals {
+        weak_bg_fill: p.control_active,
+        bg_fill: p.control_active,
+        bg_stroke: Stroke::new(1.0, p.accent),
+        fg_stroke: Stroke::new(2.0, p.text_strong),
+        corner_radius: radius,
+        expansion: 0.0,
+    };
+    v.widgets.open = WidgetVisuals {
+        weak_bg_fill: p.control_hover,
+        bg_fill: p.elevated,
+        bg_stroke: Stroke::new(1.0, p.stroke_strong),
+        fg_stroke: Stroke::new(1.0, p.text),
+        corner_radius: radius,
+        expansion: 0.0,
+    };
 }
 
 pub fn card(ui: &egui::Ui) -> Frame {
     let p = palette(ui);
-    Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.stroke)).corner_radius(CornerRadius::same(12)).inner_margin(Margin::same(18))
+    Frame::new()
+        .fill(p.surface)
+        .stroke(Stroke::new(1.0, p.stroke))
+        .corner_radius(CornerRadius::same(12))
+        .inner_margin(Margin::same(18))
 }
 
 pub fn card_compact(ui: &egui::Ui) -> Frame {
@@ -188,7 +243,12 @@ pub fn card_compact(ui: &egui::Ui) -> Frame {
 
 pub fn popover_frame(ui: &egui::Ui) -> Frame {
     let p = palette(ui);
-    Frame::new().fill(p.elevated).stroke(Stroke::new(1.0, p.stroke_strong)).corner_radius(CornerRadius::same(12)).inner_margin(Margin::same(14)).shadow(ui.visuals().popup_shadow)
+    Frame::new()
+        .fill(p.elevated)
+        .stroke(Stroke::new(1.0, p.stroke_strong))
+        .corner_radius(CornerRadius::same(12))
+        .inner_margin(Margin::same(14))
+        .shadow(ui.visuals().popup_shadow)
 }
 
 pub fn dialog_frame(ctx: &egui::Context) -> Frame {
@@ -198,16 +258,31 @@ pub fn dialog_frame(ctx: &egui::Context) -> Frame {
         .stroke(Stroke::new(1.0, p.stroke_strong))
         .corner_radius(CornerRadius::same(14))
         .inner_margin(Margin::same(22))
-        .shadow(Shadow { offset: [0, 12], blur: 36, spread: 0, color: Color32::from_black_alpha(if p.dark { 140 } else { 50 }) })
+        .shadow(Shadow {
+            offset: [0, 12],
+            blur: 36,
+            spread: 0,
+            color: Color32::from_black_alpha(if p.dark { 140 } else { 50 }),
+        })
 }
 
 /// Page title on the left, `right` laid out right-to-left on the same row.
-pub fn page_header(ui: &mut egui::Ui, title: &str, subtitle: Option<&str>, right: impl FnOnce(&mut egui::Ui)) {
+pub fn page_header(
+    ui: &mut egui::Ui,
+    title: &str,
+    subtitle: Option<&str>,
+    right: impl FnOnce(&mut egui::Ui),
+) {
     let p = palette(ui);
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
-            ui.label(RichText::new(title).text_style(TextStyle::Heading).strong().color(p.text_strong));
+            ui.label(
+                RichText::new(title)
+                    .text_style(TextStyle::Heading)
+                    .strong()
+                    .color(p.text_strong),
+            );
             if let Some(s) = subtitle {
                 ui.label(RichText::new(s).small().color(p.text_weak));
             }
@@ -218,7 +293,12 @@ pub fn page_header(ui: &mut egui::Ui, title: &str, subtitle: Option<&str>, right
 
 pub fn section_title(ui: &mut egui::Ui, title: &str) {
     let p = palette(ui);
-    ui.label(RichText::new(title).size(15.0).strong().color(p.text_strong));
+    ui.label(
+        RichText::new(title)
+            .size(15.0)
+            .strong()
+            .color(p.text_strong),
+    );
 }
 
 pub fn hint(ui: &mut egui::Ui, text: &str) {
@@ -256,7 +336,11 @@ impl egui::Widget for Filled {
         let p = palette(ui);
         ui.scope(|ui| {
             let base = if self.danger { p.danger } else { p.accent };
-            let hover = if self.danger { p.danger.lerp_to_gamma(Color32::WHITE, 0.12) } else { p.accent_hover };
+            let hover = if self.danger {
+                p.danger.lerp_to_gamma(Color32::WHITE, 0.12)
+            } else {
+                p.accent_hover
+            };
             let visuals = &mut ui.visuals_mut().widgets;
             visuals.inactive.weak_bg_fill = base;
             visuals.inactive.bg_fill = base;
@@ -265,24 +349,47 @@ impl egui::Widget for Filled {
             visuals.hovered.bg_fill = hover;
             visuals.active.weak_bg_fill = base.lerp_to_gamma(Color32::BLACK, 0.15);
             visuals.active.bg_fill = visuals.active.weak_bg_fill;
-            ui.spacing_mut().button_padding = if self.small { egui::vec2(12.0, 5.0) } else { egui::vec2(16.0, 7.0) };
-            ui.add(Button::new(RichText::new(self.text).size(if self.small { 13.0 } else { 14.0 }).color(p.on_accent))
+            ui.spacing_mut().button_padding = if self.small {
+                egui::vec2(12.0, 5.0)
+            } else {
+                egui::vec2(16.0, 7.0)
+            };
+            ui.add(
+                Button::new(
+                    RichText::new(self.text)
+                        .size(if self.small { 13.0 } else { 14.0 })
+                        .color(p.on_accent),
+                )
                 .min_size(self.min_size)
-                .corner_radius(CornerRadius::same(8)))
-        }).inner
+                .corner_radius(CornerRadius::same(8)),
+            )
+        })
+        .inner
     }
 }
 
 pub fn primary(text: &str) -> Filled {
-    Filled { text: text.to_owned(), min_size: egui::vec2(0.0, 32.0), danger: false, small: false }
+    Filled {
+        text: text.to_owned(),
+        min_size: egui::vec2(0.0, 32.0),
+        danger: false,
+        small: false,
+    }
 }
 
 pub fn danger(text: &str) -> Filled {
-    Filled { text: text.to_owned(), min_size: egui::vec2(0.0, 32.0), danger: true, small: false }
+    Filled {
+        text: text.to_owned(),
+        min_size: egui::vec2(0.0, 32.0),
+        danger: true,
+        small: false,
+    }
 }
 
 pub fn secondary_button(text: &str) -> Button<'static> {
-    Button::new(RichText::new(text)).corner_radius(CornerRadius::same(8)).min_size(egui::vec2(0.0, 32.0))
+    Button::new(RichText::new(text))
+        .corner_radius(CornerRadius::same(8))
+        .min_size(egui::vec2(0.0, 32.0))
 }
 
 pub fn kind_glyph(kind: Kind) -> &'static str {
@@ -323,7 +430,11 @@ pub fn kind_color(kind: Kind, dark: bool) -> Color32 {
 }
 
 pub fn kind_glyph_color(dark: bool) -> Color32 {
-    if dark { Color32::from_white_alpha(210) } else { Color32::from_black_alpha(130) }
+    if dark {
+        Color32::from_white_alpha(210)
+    } else {
+        Color32::from_black_alpha(130)
+    }
 }
 
 #[cfg(test)]
@@ -337,12 +448,25 @@ mod tests {
         let mut fonts = Fonts::new(TextOptions::default(), FontDefinitions::default());
         let mut view = fonts.with_pixels_per_point(1.0);
         let font = FontId::proportional(14.0);
-        let uv_of = |view: &mut eframe::epaint::text::FontsView<'_>, c: char| view.layout_no_wrap(c.to_string(), font.clone(), Color32::WHITE).rows[0].row.glyphs[0].uv_rect;
+        let uv_of = |view: &mut eframe::epaint::text::FontsView<'_>, c: char| {
+            view.layout_no_wrap(c.to_string(), font.clone(), Color32::WHITE)
+                .rows[0]
+                .row
+                .glyphs[0]
+                .uv_rect
+        };
         let replacement = uv_of(&mut view, '\u{25FB}');
         let glyphs = "🖼🖥⚙ℹ🔍✖▶⏸⏮↻🔀🎬🎞📡🌐🎵📥⏳✔⚠🔇🔉🔊·…+×";
-        let missing: Vec<char> = glyphs.chars().filter(|c| uv_of(&mut view, *c) == replacement).collect();
+        let missing: Vec<char> = glyphs
+            .chars()
+            .filter(|c| uv_of(&mut view, *c) == replacement)
+            .collect();
         assert!(missing.is_empty(), "glyphs without a font: {missing:?}");
         // A fullwidth plus is in none of the bundled fonts: the check must notice.
-        assert_eq!(uv_of(&mut view, '\u{FF0B}'), replacement, "missing glyphs must map to the replacement square");
+        assert_eq!(
+            uv_of(&mut view, '\u{FF0B}'),
+            replacement,
+            "missing glyphs must map to the replacement square"
+        );
     }
 }

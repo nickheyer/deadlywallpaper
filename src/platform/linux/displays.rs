@@ -14,7 +14,9 @@ fn rect(r: gdk::Rectangle) -> Rect {
 }
 
 fn monitors(display: &gdk::Display) -> Vec<gdk::Monitor> {
-    (0..display.n_monitors()).filter_map(|i| display.monitor(i)).collect()
+    (0..display.n_monitors())
+        .filter_map(|i| display.monitor(i))
+        .collect()
 }
 
 pub fn list(display: &gdk::Display) -> Vec<Display> {
@@ -29,8 +31,15 @@ pub fn list(display: &gdk::Display) -> Vec<Display> {
     raw.sort_by_key(|(_, _, m)| (m.geometry().x(), m.geometry().y()));
     let mut out = Vec::with_capacity(raw.len());
     for (i, (make, model, m)) in raw.iter().enumerate() {
-        let ordinal = raw[..i].iter().filter(|(mk, md, _)| mk == make && md == model).count();
-        let name = if model.is_empty() { format!("Display {}", i + 1) } else { model.clone() };
+        let ordinal = raw[..i]
+            .iter()
+            .filter(|(mk, md, _)| mk == make && md == model)
+            .count();
+        let name = if model.is_empty() {
+            format!("Display {}", i + 1)
+        } else {
+            model.clone()
+        };
         out.push(Display {
             id: composite_id(make, model, ordinal),
             name,
@@ -52,7 +61,9 @@ pub fn list(display: &gdk::Display) -> Vec<Display> {
 
 /// The GDK monitor whose geometry matches `display`.
 pub fn monitor_for(display: &gdk::Display, target: &Display) -> Option<gdk::Monitor> {
-    monitors(display).into_iter().find(|m| rect(m.geometry()) == target.rect)
+    monitors(display)
+        .into_iter()
+        .find(|m| rect(m.geometry()) == target.rect)
 }
 
 /// Report the display list whenever monitors are added, removed, or reconfigured.

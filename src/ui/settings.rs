@@ -27,9 +27,17 @@ pub struct State {
 }
 
 pub fn tabs(ui: &mut egui::Ui, state: &mut State) {
-    widgets::segmented(ui, "settings-tabs", &mut state.tab, &[
-        (Tab::General, "General"), (Tab::Playback, "Playback"), (Tab::Audio, "Audio"), (Tab::Advanced, "Advanced"),
-    ]);
+    widgets::segmented(
+        ui,
+        "settings-tabs",
+        &mut state.tab,
+        &[
+            (Tab::General, "General"),
+            (Tab::Playback, "Playback"),
+            (Tab::Audio, "Audio"),
+            (Tab::Advanced, "Advanced"),
+        ],
+    );
     ui.add_space(8.0);
     divider(ui);
     ui.add_space(12.0);
@@ -62,18 +70,23 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                 });
                 divider(ui);
                 row(ui, "Theme", "", |ui| {
-                    egui::ComboBox::from_id_salt("theme").selected_text(theme_label(s.theme)).show_ui(ui, |ui| {
-                        for t in [Theme::System, Theme::Light, Theme::Dark] {
-                            ui.selectable_value(&mut s.theme, t, theme_label(t));
-                        }
-                    });
+                    egui::ComboBox::from_id_salt("theme")
+                        .selected_text(theme_label(s.theme))
+                        .show_ui(ui, |ui| {
+                            for t in [Theme::System, Theme::Light, Theme::Dark] {
+                                ui.selectable_value(&mut s.theme, t, theme_label(t));
+                            }
+                        });
                 });
             });
             section(ui, "Library", |ui| {
                 let library_dir = s.library_dir.to_string_lossy().into_owned();
                 row(ui, "Library folder", &library_dir, |ui| {
                     if ui.add(theme::secondary_button("Change…")).clicked() {
-                        if let Some(dir) = rfd::FileDialog::new().set_directory(&s.library_dir).pick_folder() {
+                        if let Some(dir) = rfd::FileDialog::new()
+                            .set_directory(&s.library_dir)
+                            .pick_folder()
+                        {
                             s.library_dir = dir;
                         }
                     }
@@ -100,14 +113,23 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                     });
                     divider(ui);
                     row(ui, "Pause on", "", |ui| {
-                        egui::ComboBox::from_id_salt("scope").width(210.0)
+                        egui::ComboBox::from_id_salt("scope")
+                            .width(210.0)
                             .selected_text(match s.rules.scope {
                                 PauseScope::Display => "That display",
                                 PauseScope::All => "All displays",
                             })
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut s.rules.scope, PauseScope::Display, "That display");
-                                ui.selectable_value(&mut s.rules.scope, PauseScope::All, "All displays");
+                                ui.selectable_value(
+                                    &mut s.rules.scope,
+                                    PauseScope::Display,
+                                    "That display",
+                                );
+                                ui.selectable_value(
+                                    &mut s.rules.scope,
+                                    PauseScope::All,
+                                    "All displays",
+                                );
                             });
                     });
                     divider(ui);
@@ -127,7 +149,11 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                 let count = s.rules.app_pause.len();
                 for (i, app) in s.rules.app_pause.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        let r = ui.add(egui::TextEdit::singleline(app).desired_width(260.0).hint_text("Process name"));
+                        let r = ui.add(
+                            egui::TextEdit::singleline(app)
+                                .desired_width(260.0)
+                                .hint_text("Process name"),
+                        );
                         if state.focus_new_app && i + 1 == count {
                             r.request_focus();
                             state.focus_new_app = false;
@@ -141,7 +167,10 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                 if let Some(i) = remove {
                     s.rules.app_pause.remove(i);
                 }
-                if ui.add(theme::secondary_button("Add application…")).clicked() {
+                if ui
+                    .add(theme::secondary_button("Add application…"))
+                    .clicked()
+                {
                     s.rules.app_pause.push(String::new());
                     state.focus_new_app = true;
                     busy = true;
@@ -154,19 +183,23 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                 });
                 divider(ui);
                 row(ui, "Default fit", "", |ui| {
-                    egui::ComboBox::from_id_salt("scaler").selected_text(s.video.scaler.label()).show_ui(ui, |ui| {
-                        for sc in Scaler::ALL {
-                            ui.selectable_value(&mut s.video.scaler, sc, sc.label());
-                        }
-                    });
+                    egui::ComboBox::from_id_salt("scaler")
+                        .selected_text(s.video.scaler.label())
+                        .show_ui(ui, |ui| {
+                            for sc in Scaler::ALL {
+                                ui.selectable_value(&mut s.video.scaler, sc, sc.label());
+                            }
+                        });
                 });
                 divider(ui);
                 row(ui, "Stream quality", "", |ui| {
-                    egui::ComboBox::from_id_salt("quality").selected_text(s.video.stream_quality.label()).show_ui(ui, |ui| {
-                        for q in StreamQuality::ALL {
-                            ui.selectable_value(&mut s.video.stream_quality, q, q.label());
-                        }
-                    });
+                    egui::ComboBox::from_id_salt("quality")
+                        .selected_text(s.video.stream_quality.label())
+                        .show_ui(ui, |ui| {
+                            for q in StreamQuality::ALL {
+                                ui.selectable_value(&mut s.video.stream_quality, q, q.label());
+                            }
+                        });
                 });
             });
         }
@@ -185,29 +218,71 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                     let label = match &s.audio_output {
                         AudioOutput::All => "Every display".to_string(),
                         AudioOutput::Primary => "Primary display".to_string(),
-                        AudioOutput::Display(id) => cx.displays.iter().find(|d| &d.id == id).map(|d| d.name.clone()).unwrap_or_else(|| id.clone()),
+                        AudioOutput::Display(id) => cx
+                            .displays
+                            .iter()
+                            .find(|d| &d.id == id)
+                            .map(|d| d.name.clone())
+                            .unwrap_or_else(|| id.clone()),
                     };
-                    egui::ComboBox::from_id_salt("audio_out").width(210.0).selected_text(label).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.audio_output, AudioOutput::All, "Every display");
-                        ui.selectable_value(&mut s.audio_output, AudioOutput::Primary, "Primary display");
-                        for d in cx.displays {
-                            ui.selectable_value(&mut s.audio_output, AudioOutput::Display(d.id.clone()), &d.name);
-                        }
-                    });
+                    egui::ComboBox::from_id_salt("audio_out")
+                        .width(210.0)
+                        .selected_text(label)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut s.audio_output,
+                                AudioOutput::All,
+                                "Every display",
+                            );
+                            ui.selectable_value(
+                                &mut s.audio_output,
+                                AudioOutput::Primary,
+                                "Primary display",
+                            );
+                            for d in cx.displays {
+                                ui.selectable_value(
+                                    &mut s.audio_output,
+                                    AudioOutput::Display(d.id.clone()),
+                                    &d.name,
+                                );
+                            }
+                        });
                 });
                 divider(ui);
                 row(ui, "Visualizer input", "", |ui| {
                     let current = s.audio_capture_device.clone().unwrap_or_default();
-                    let label = cx.devices.iter().find(|d| d.id == current).map(|d| d.name.clone()).unwrap_or_else(|| if current.is_empty() { "System output".into() } else { current.clone() });
-                    egui::ComboBox::from_id_salt("audio_in").width(240.0).selected_text(label).show_ui(ui, |ui| {
-                        if cx.devices.is_empty() {
-                            ui.selectable_value(&mut s.audio_capture_device, None, "System output");
-                        }
-                        for d in cx.devices {
-                            let value = if d.id.is_empty() { None } else { Some(d.id.clone()) };
-                            ui.selectable_value(&mut s.audio_capture_device, value, &d.name);
-                        }
-                    });
+                    let label = cx
+                        .devices
+                        .iter()
+                        .find(|d| d.id == current)
+                        .map(|d| d.name.clone())
+                        .unwrap_or_else(|| {
+                            if current.is_empty() {
+                                "System output".into()
+                            } else {
+                                current.clone()
+                            }
+                        });
+                    egui::ComboBox::from_id_salt("audio_in")
+                        .width(240.0)
+                        .selected_text(label)
+                        .show_ui(ui, |ui| {
+                            if cx.devices.is_empty() {
+                                ui.selectable_value(
+                                    &mut s.audio_capture_device,
+                                    None,
+                                    "System output",
+                                );
+                            }
+                            for d in cx.devices {
+                                let value = if d.id.is_empty() {
+                                    None
+                                } else {
+                                    Some(d.id.clone())
+                                };
+                                ui.selectable_value(&mut s.audio_capture_device, value, &d.name);
+                            }
+                        });
                 });
             });
         }
@@ -216,13 +291,21 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                 ui.add_enabled_ui(s.rules.fullscreen_pause, |ui| {
                     row(ui, "Window coverage", "", |ui| {
                         let mut percent = (s.rules.coverage * 100.0).round();
-                        let r = ui.add(egui::Slider::new(&mut percent, 50.0..=100.0).suffix("%").fixed_decimals(0));
+                        let r = ui.add(
+                            egui::Slider::new(&mut percent, 50.0..=100.0)
+                                .suffix("%")
+                                .fixed_decimals(0),
+                        );
                         busy |= r.dragged();
                         s.rules.coverage = percent / 100.0;
                     });
                     divider(ui);
                     row(ui, "Check every", "", |ui| {
-                        let r = ui.add(egui::Slider::new(&mut s.rules.interval_ms, 100..=5000).suffix(" ms").logarithmic(true));
+                        let r = ui.add(
+                            egui::Slider::new(&mut s.rules.interval_ms, 100..=5000)
+                                .suffix(" ms")
+                                .logarithmic(true),
+                        );
                         busy |= r.dragged();
                     });
                     divider(ui);
@@ -230,7 +313,9 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
             });
             section(ui, "Loading", |ui| {
                 row(ui, "Start timeout", "", |ui| {
-                    let r = ui.add(egui::Slider::new(&mut s.video.load_timeout_secs, 5..=120).suffix(" s"));
+                    let r = ui.add(
+                        egui::Slider::new(&mut s.video.load_timeout_secs, 5..=120).suffix(" s"),
+                    );
                     busy |= r.dragged();
                 });
             });

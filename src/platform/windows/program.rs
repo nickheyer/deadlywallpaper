@@ -13,14 +13,18 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, WPARAM};
-use windows::core::BOOL;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_SUSPEND_RESUME, PROCESS_TERMINATE, TerminateProcess};
-use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SetParent,
-    SetWindowLongPtrW, SetWindowPos, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WS_CAPTION, WS_CHILD, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX,
-    WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+use windows::Win32::System::Threading::{
+    OpenProcess, PROCESS_SUSPEND_RESUME, PROCESS_TERMINATE, TerminateProcess,
 };
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, GetWindowThreadProcessId,
+    IsWindowVisible, PostMessageW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    SetParent, SetWindowLongPtrW, SetWindowPos, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    WS_CAPTION, WS_CHILD, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_WINDOWEDGE,
+    WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+};
+use windows::core::BOOL;
 use windows::core::s;
 
 pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender) -> Result<Box<dyn Content>> {
@@ -40,7 +44,8 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender) -> Result<Box<d
     let pid = child.id();
     let target = slot.hwnd.0 as isize;
     let window: Shared<Option<isize>> = Arc::new(Mutex::new(None));
-    let geometry: Shared<(i32, i32, i32, i32)> = Arc::new(Mutex::new((0, 0, slot.size.w, slot.size.h)));
+    let geometry: Shared<(i32, i32, i32, i32)> =
+        Arc::new(Mutex::new((0, 0, slot.size.w, slot.size.h)));
     let timeout = Duration::from_secs(spec.settings.video.load_timeout_secs);
     let id = spec.id;
     let finder_tx = tx.clone();
@@ -57,10 +62,17 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender) -> Result<Box<d
                 })));
                 finder_tx.send(Msg::Content(id, ContentEvent::Loaded));
             }
-            Err(e) => finder_tx.send(Msg::Content(id, ContentEvent::Exited { reason: e.to_string() })),
+            Err(e) => finder_tx.send(Msg::Content(
+                id,
+                ContentEvent::Exited {
+                    reason: e.to_string(),
+                },
+            )),
         })
         .map_err(|e| Error::Platform(e.to_string()))?;
-    Ok(Box::new(ProgramContent::new(child, pid, id, tx, window, geometry, slot.size)))
+    Ok(Box::new(ProgramContent::new(
+        child, pid, id, tx, window, geometry, slot.size,
+    )))
 }
 
 type Shared<T> = Arc<Mutex<T>>;
@@ -99,7 +111,10 @@ fn find_window(pid: u32, timeout: Duration) -> Result<HWND> {
             return Ok(h);
         }
         if Instant::now() > deadline {
-            return Err(Error::Platform(format!("process {pid} showed no window within {}s", timeout.as_secs())));
+            return Err(Error::Platform(format!(
+                "process {pid} showed no window within {}s",
+                timeout.as_secs()
+            )));
         }
         std::thread::sleep(Duration::from_millis(150));
     }
@@ -108,12 +123,29 @@ fn find_window(pid: u32, timeout: Duration) -> Result<HWND> {
 fn attach(hwnd: HWND, parent: HWND, x: i32, y: i32, w: i32, h: i32) {
     // SAFETY: restyling and re-parenting a window we located; failures are non-fatal.
     unsafe {
-        let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32 & !(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU | WS_POPUP).0 | WS_CHILD.0;
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32
+            & !(WS_CAPTION
+                | WS_THICKFRAME
+                | WS_MINIMIZEBOX
+                | WS_MAXIMIZEBOX
+                | WS_SYSMENU
+                | WS_POPUP)
+                .0
+            | WS_CHILD.0;
         SetWindowLongPtrW(hwnd, GWL_STYLE, style as isize);
-        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & !(WS_EX_APPWINDOW | WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE).0;
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32
+            & !(WS_EX_APPWINDOW | WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE).0;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
         let _ = SetParent(hwnd, Some(parent));
-        let _ = SetWindowPos(hwnd, None, x, y, w, h, SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            x,
+            y,
+            w,
+            h,
+            SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        );
     }
 }
 
@@ -124,7 +156,10 @@ fn nt(name: windows::core::PCSTR) -> Option<NtProcessFn> {
     unsafe {
         let ntdll = GetModuleHandleW(windows::core::w!("ntdll.dll")).ok()?;
         let f = GetProcAddress(ntdll, name)?;
-        Some(std::mem::transmute::<unsafe extern "system" fn() -> isize, NtProcessFn>(f))
+        Some(std::mem::transmute::<
+            unsafe extern "system" fn() -> isize,
+            NtProcessFn,
+        >(f))
     }
 }
 
@@ -139,22 +174,42 @@ pub struct ProgramContent {
 }
 
 impl ProgramContent {
-    fn new(mut child: std::process::Child, pid: u32, id: crate::content::ContentId, tx: MsgSender, window: Shared<Option<isize>>, geometry: Shared<(i32, i32, i32, i32)>, slot: Size) -> ProgramContent {
-        let _ = std::thread::Builder::new().name("program-wait".into()).spawn(move || {
-            let reason = match child.wait() {
-                Ok(s) => format!("program exited with {s}"),
-                Err(e) => format!("program wait failed: {e}"),
-            };
-            tx.send(Msg::Content(id, ContentEvent::Exited { reason }));
-        });
-        ProgramContent { pid, window, geometry, slot, paused: false }
+    fn new(
+        mut child: std::process::Child,
+        pid: u32,
+        id: crate::content::ContentId,
+        tx: MsgSender,
+        window: Shared<Option<isize>>,
+        geometry: Shared<(i32, i32, i32, i32)>,
+        slot: Size,
+    ) -> ProgramContent {
+        let _ = std::thread::Builder::new()
+            .name("program-wait".into())
+            .spawn(move || {
+                let reason = match child.wait() {
+                    Ok(s) => format!("program exited with {s}"),
+                    Err(e) => format!("program wait failed: {e}"),
+                };
+                tx.send(Msg::Content(id, ContentEvent::Exited { reason }));
+            });
+        ProgramContent {
+            pid,
+            window,
+            geometry,
+            slot,
+            paused: false,
+        }
     }
 
     fn window(&self) -> Option<HWND> {
         lock(&self.window).map(|raw| HWND(raw as *mut _))
     }
 
-    fn with_handle(&self, access: windows::Win32::System::Threading::PROCESS_ACCESS_RIGHTS, f: impl FnOnce(HANDLE)) {
+    fn with_handle(
+        &self,
+        access: windows::Win32::System::Threading::PROCESS_ACCESS_RIGHTS,
+        f: impl FnOnce(HANDLE),
+    ) {
         // SAFETY: handle closed after use.
         unsafe {
             if let Ok(h) = OpenProcess(access, false, self.pid) {
@@ -187,7 +242,11 @@ impl Content for ProgramContent {
         if paused == self.paused {
             return;
         }
-        let name = if paused { s!("NtSuspendProcess") } else { s!("NtResumeProcess") };
+        let name = if paused {
+            s!("NtSuspendProcess")
+        } else {
+            s!("NtResumeProcess")
+        };
         if let Some(f) = nt(name) {
             // SAFETY: valid handle inside the closure.
             self.with_handle(PROCESS_SUSPEND_RESUME, |h| unsafe {
@@ -228,14 +287,31 @@ impl Content for ProgramContent {
     /// An embedded window can be placed but not scaled or turned; the slot clips it.
     fn set_view(&mut self, view: &View) -> Result<()> {
         if !view.is_plain() {
-            return Err(Error::Unsupported("program wallpapers can be moved but not scaled or rotated".into()));
+            return Err(Error::Unsupported(
+                "program wallpapers can be moved but not scaled or rotated".into(),
+            ));
         }
         let (x, y) = view.origin(self.slot);
-        let geometry = (x.round() as i32, y.round() as i32, view.width.max(1), view.height.max(1));
+        let geometry = (
+            x.round() as i32,
+            y.round() as i32,
+            view.width.max(1),
+            view.height.max(1),
+        );
         *lock(&self.geometry) = geometry;
         if let Some(hwnd) = self.window() {
             // SAFETY: moving a child window we embedded; failures are non-fatal.
-            let _ = unsafe { SetWindowPos(hwnd, None, geometry.0, geometry.1, geometry.2, geometry.3, SWP_NOZORDER | SWP_NOACTIVATE) };
+            let _ = unsafe {
+                SetWindowPos(
+                    hwnd,
+                    None,
+                    geometry.0,
+                    geometry.1,
+                    geometry.2,
+                    geometry.3,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            };
         }
         Ok(())
     }

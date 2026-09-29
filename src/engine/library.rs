@@ -45,7 +45,12 @@ pub struct Library {
 impl Library {
     pub fn scan(&self) -> Vec<Wallpaper> {
         let mut out: Vec<Wallpaper> = std::fs::read_dir(&self.dir)
-            .map(|rd| rd.flatten().filter(|e| e.path().is_dir()).filter_map(|e| Wallpaper::load(&e.path()).ok()).collect())
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.path().is_dir())
+                    .filter_map(|e| Wallpaper::load(&e.path()).ok())
+                    .collect()
+            })
             .unwrap_or_default();
         out.sort_by_key(|w| w.title().to_lowercase());
         out
@@ -55,7 +60,8 @@ impl Library {
         if id.is_empty() || id.contains(['/', '\\', ':']) || id == "." || id == ".." {
             return Err(Error::NotFound(format!("no wallpaper '{id}'")));
         }
-        Wallpaper::load(&self.dir.join(id)).map_err(|_| Error::NotFound(format!("no wallpaper '{id}'")))
+        Wallpaper::load(&self.dir.join(id))
+            .map_err(|_| Error::NotFound(format!("no wallpaper '{id}'")))
     }
 
     fn new_dir(&self, title: &str) -> Result<PathBuf> {
@@ -67,7 +73,9 @@ impl Library {
                 Err(e) => return ctx(Err(e), dir.display()),
             }
         }
-        Err(Error::Io(std::io::Error::other("could not allocate a library directory")))
+        Err(Error::Io(std::io::Error::other(
+            "could not allocate a library directory",
+        )))
     }
 
     fn create(&self, title: &str, populate: impl FnOnce(&Path) -> Result<()>) -> Result<Wallpaper> {
@@ -81,7 +89,12 @@ impl Library {
         result
     }
 
-    pub fn import(&self, source: &str, opts: &ImportOptions<'_>, progress: &mut dyn FnMut(&Wallpaper)) -> Result<Imported> {
+    pub fn import(
+        &self,
+        source: &str,
+        opts: &ImportOptions<'_>,
+        progress: &mut dyn FnMut(&Wallpaper),
+    ) -> Result<Imported> {
         ctx(std::fs::create_dir_all(&self.dir), self.dir.display())?;
         let mut out = Imported::default();
         let path = PathBuf::from(source);
@@ -95,7 +108,10 @@ impl Library {
             }
             self.import_tree(&root, opts, &mut seen, progress, &mut out);
             return match (out.wallpapers.is_empty(), out.problems.is_empty()) {
-                (true, true) => Err(Error::Unsupported(format!("{} contains no wallpapers", root.display()))),
+                (true, true) => Err(Error::Unsupported(format!(
+                    "{} contains no wallpapers",
+                    root.display()
+                ))),
                 (true, false) => Err(Error::Invalid(out.problems.join("\n"))),
                 _ => Ok(out),
             };
@@ -119,17 +135,36 @@ impl Library {
         }
         let kind = Kind::from_extension(&ext)
             .or_else(|| is_executable(path).then_some(Kind::Program))
-            .ok_or_else(|| Error::Unsupported(format!("{} is not a supported wallpaper format", if ext.is_empty() { path.display().to_string() } else { format!(".{ext} files") })))?;
+            .ok_or_else(|| {
+                Error::Unsupported(format!(
+                    "{} is not a supported wallpaper format",
+                    if ext.is_empty() {
+                        path.display().to_string()
+                    } else {
+                        format!(".{ext} files")
+                    }
+                ))
+            })?;
         let source_abs = std::path::absolute(path)?;
         if kind == Kind::Web {
             return self.import_web(&source_abs, opts.copy);
         }
-        let title = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Wallpaper".into());
+        let title = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Wallpaper".into());
         self.create(&title, |dir| {
-            let mut info = Info { title: title.clone(), kind, ..Info::default() };
+            let mut info = Info {
+                title: title.clone(),
+                kind,
+                ..Info::default()
+            };
             if kind.is_media() && opts.copy {
                 let name = file_name(&source_abs);
-                ctx(std::fs::copy(&source_abs, dir.join(&name)), source_abs.display())?;
+                ctx(
+                    std::fs::copy(&source_abs, dir.join(&name)),
+                    source_abs.display(),
+                )?;
                 info.file_name = name;
             } else {
                 info.file_name = source_abs.to_string_lossy().into_owned();
@@ -145,7 +180,14 @@ impl Library {
         })
     }
 
-    fn import_tree(&self, dir: &Path, opts: &ImportOptions<'_>, seen: &mut HashSet<PathBuf>, progress: &mut dyn FnMut(&Wallpaper), out: &mut Imported) {
+    fn import_tree(
+        &self,
+        dir: &Path,
+        opts: &ImportOptions<'_>,
+        seen: &mut HashSet<PathBuf>,
+        progress: &mut dyn FnMut(&Wallpaper),
+        out: &mut Imported,
+    ) {
         match std::fs::canonicalize(dir) {
             Ok(real) => {
                 if !seen.insert(real) {
@@ -158,11 +200,19 @@ impl Library {
             }
         }
         if dir.join(FILE_NAME).is_file() {
-            out.record(self.import_lively_dir(dir).map_err(|e| Error::Invalid(format!("{}: {e}", dir.display()))), progress);
+            out.record(
+                self.import_lively_dir(dir)
+                    .map_err(|e| Error::Invalid(format!("{}: {e}", dir.display()))),
+                progress,
+            );
             return;
         }
         if let Some(index) = find_index(dir) {
-            out.record(self.import_web(&index, opts.copy).map_err(|e| Error::Invalid(format!("{}: {e}", dir.display()))), progress);
+            out.record(
+                self.import_web(&index, opts.copy)
+                    .map_err(|e| Error::Invalid(format!("{}: {e}", dir.display()))),
+                progress,
+            );
             return;
         }
         let entries = match std::fs::read_dir(dir) {
@@ -176,7 +226,7 @@ impl Library {
         for entry in entries {
             match entry {
                 Ok(e) if !file_name(&e.path()).starts_with('.') => paths.push(e.path()),
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => out.problems.push(format!("{}: {e}", dir.display())),
             }
         }
@@ -186,8 +236,14 @@ impl Library {
                 self.import_tree(&p, opts, seen, progress, out);
             } else if p.is_file() {
                 let ext = extension(&p);
-                if PACKAGE_EXTENSIONS.contains(&ext.as_str()) || Kind::from_extension(&ext).is_some() {
-                    out.record(self.import_file(&p, opts).map_err(|e| Error::Invalid(format!("{}: {e}", p.display()))), progress);
+                if PACKAGE_EXTENSIONS.contains(&ext.as_str())
+                    || Kind::from_extension(&ext).is_some()
+                {
+                    out.record(
+                        self.import_file(&p, opts)
+                            .map_err(|e| Error::Invalid(format!("{}: {e}", p.display()))),
+                        progress,
+                    );
                 }
             }
         }
@@ -195,7 +251,15 @@ impl Library {
 
     fn import_url(&self, url: &str, want_thumbnail: bool) -> Result<Wallpaper> {
         let (kind, title, file_name) = match super::stream::probe(url) {
-            Ok(Some(p)) => (Kind::VideoStream, if p.title.is_empty() { url.to_string() } else { p.title }, url.to_string()),
+            Ok(Some(p)) => (
+                Kind::VideoStream,
+                if p.title.is_empty() {
+                    url.to_string()
+                } else {
+                    p.title
+                },
+                url.to_string(),
+            ),
             Ok(None) => (Kind::Url, host(url), url.to_string()),
             Err(Error::Unsupported(_)) => match super::stream::youtube_embed(url) {
                 Some(embed) => (Kind::Url, host(url), embed),
@@ -204,7 +268,14 @@ impl Library {
             Err(e) => return Err(e),
         };
         self.create(&title, |dir| {
-            let mut info = Info { title: title.clone(), kind, file_name, contact: Some(url.to_string()), is_absolute_path: true, ..Info::default() };
+            let mut info = Info {
+                title: title.clone(),
+                kind,
+                file_name,
+                contact: Some(url.to_string()),
+                is_absolute_path: true,
+                ..Info::default()
+            };
             if kind == Kind::VideoStream && want_thumbnail {
                 match super::stream::thumbnail(url, dir) {
                     Ok(name) => info.thumbnail = Some(name),
@@ -216,7 +287,10 @@ impl Library {
     }
 
     fn import_lively_dir(&self, path: &Path) -> Result<Wallpaper> {
-        if path.parent().is_some_and(|p| std::fs::canonicalize(&self.dir).is_ok_and(|library| p == library)) {
+        if path
+            .parent()
+            .is_some_and(|p| std::fs::canonicalize(&self.dir).is_ok_and(|library| p == library))
+        {
             return Wallpaper::load(path);
         }
         let info = Info::load(&path.join(FILE_NAME))?;
@@ -224,14 +298,28 @@ impl Library {
     }
 
     fn import_web(&self, index: &Path, copy: bool) -> Result<Wallpaper> {
-        let root = index.parent().filter(|p| !p.as_os_str().is_empty()).ok_or_else(|| Error::Invalid(format!("{} has no parent folder", index.display())))?;
+        let root = index
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .ok_or_else(|| Error::Invalid(format!("{} has no parent folder", index.display())))?;
         if root.join(FILE_NAME).is_file() {
             return self.import_lively_dir(root);
         }
-        let stem = index.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let title = if stem.eq_ignore_ascii_case("index") { file_name(root) } else { stem };
+        let stem = index
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let title = if stem.eq_ignore_ascii_case("index") {
+            file_name(root)
+        } else {
+            stem
+        };
         self.create(&title, |dir| {
-            let mut info = Info { title: title.clone(), kind: Kind::Web, ..Info::default() };
+            let mut info = Info {
+                title: title.clone(),
+                kind: Kind::Web,
+                ..Info::default()
+            };
             if copy {
                 copy_tree(root, dir)?;
                 info.file_name = file_name(index);
@@ -245,29 +333,52 @@ impl Library {
 
     fn import_zip(&self, path: &Path) -> Result<Wallpaper> {
         let file = ctx(std::fs::File::open(path), path.display())?;
-        let mut archive = zip::ZipArchive::new(file).map_err(|e| Error::Invalid(format!("{}: {e}", path.display())))?;
+        let mut archive = zip::ZipArchive::new(file)
+            .map_err(|e| Error::Invalid(format!("{}: {e}", path.display())))?;
         let info_entry = (0..archive.len())
             .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
             .filter(|n| n.rsplit('/').next() == Some(FILE_NAME))
             .min_by_key(|n| n.len())
-            .ok_or_else(|| Error::Invalid(format!("{} is not a Lively wallpaper package (no {FILE_NAME})", path.display())))?;
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "{} is not a Lively wallpaper package (no {FILE_NAME})",
+                    path.display()
+                ))
+            })?;
         let prefix = info_entry.trim_end_matches(FILE_NAME).to_string();
         let mut info_text = String::new();
-        archive.by_name(&info_entry).map_err(|e| Error::Invalid(e.to_string()))?.read_to_string(&mut info_text)?;
+        archive
+            .by_name(&info_entry)
+            .map_err(|e| Error::Invalid(e.to_string()))?
+            .read_to_string(&mut info_text)?;
         let info: Info = serde_json::from_str(&info_text)?;
-        let title = if info.title.trim().is_empty() { file_name(path) } else { info.title.clone() };
+        let title = if info.title.trim().is_empty() {
+            file_name(path)
+        } else {
+            info.title.clone()
+        };
         self.create(&title, |dir| {
             for i in 0..archive.len() {
-                let mut entry = archive.by_index(i).map_err(|e| Error::Invalid(e.to_string()))?;
+                let mut entry = archive
+                    .by_index(i)
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
                 let name = entry.name().to_string();
-                let Some(rel) = name.strip_prefix(&prefix) else { continue };
+                let Some(rel) = name.strip_prefix(&prefix) else {
+                    continue;
+                };
                 if rel.is_empty() {
                     continue;
                 }
-                if entry.enclosed_name().is_none() || rel.contains(['\\', ':'])
-                    || Path::new(rel).components().any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+                if entry.enclosed_name().is_none()
+                    || rel.contains(['\\', ':'])
+                    || Path::new(rel)
+                        .components()
+                        .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
                 {
-                    return Err(Error::Invalid(format!("{} contains an unsafe path", path.display())));
+                    return Err(Error::Invalid(format!(
+                        "{} contains an unsafe path",
+                        path.display()
+                    )));
                 }
                 let target = dir.join(rel);
                 if entry.is_dir() {
@@ -290,7 +401,10 @@ impl Library {
         let wp = self.get(id)?;
         let dir = std::path::absolute(&wp.dir)?;
         if dir.parent() != Some(std::path::absolute(&self.dir)?.as_path()) {
-            return Err(Error::Invalid(format!("{} is outside the library", dir.display())));
+            return Err(Error::Invalid(format!(
+                "{} is outside the library",
+                dir.display()
+            )));
         }
         ctx(std::fs::remove_dir_all(&dir), dir.display())?;
         let _ = std::fs::remove_dir_all(properties_dir.join(id));
@@ -301,19 +415,30 @@ impl Library {
     /// points outside the library, with paths rewritten relative.
     pub fn export(&self, wp: &Wallpaper, file: &Path) -> Result<()> {
         let library_entry = wp.dir.canonicalize()?;
-        let parent = file.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).canonicalize()?;
-        let destination = file.canonicalize().unwrap_or_else(|_| parent.join(file_name(file)));
-        let inside_source = wp.info.is_absolute_path && !wp.kind().is_online() && if wp.kind().is_directory_project() {
-            destination.starts_with(wp.root_dir().canonicalize()?)
-        } else {
-            destination == Path::new(&wp.source).canonicalize()?
-        };
+        let parent = file
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."))
+            .canonicalize()?;
+        let destination = file
+            .canonicalize()
+            .unwrap_or_else(|_| parent.join(file_name(file)));
+        let inside_source = wp.info.is_absolute_path
+            && !wp.kind().is_online()
+            && if wp.kind().is_directory_project() {
+                destination.starts_with(wp.root_dir().canonicalize()?)
+            } else {
+                destination == Path::new(&wp.source).canonicalize()?
+            };
         if inside_source || destination.starts_with(&library_entry) {
-            return Err(Error::Invalid("export outside the wallpaper's source and library folders".into()));
+            return Err(Error::Invalid(
+                "export outside the wallpaper's source and library folders".into(),
+            ));
         }
         let out = ctx(tempfile::NamedTempFile::new_in(&parent), file.display())?;
         let mut zip = zip::ZipWriter::new(out);
-        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         let mut info = wp.info.clone();
         add_tree(&mut zip, &wp.dir, "", &opts)?;
         if wp.info.is_absolute_path && !wp.kind().is_online() {
@@ -321,11 +446,15 @@ impl Library {
             if wp.kind().is_directory_project() {
                 let root = wp.root_dir();
                 add_tree(&mut zip, &root, "content/", &opts)?;
-                let rel = src.strip_prefix(&root).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| file_name(&src));
+                let rel = src
+                    .strip_prefix(&root)
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|_| file_name(&src));
                 info.file_name = format!("content/{rel}");
             } else if src.is_file() {
                 let name = file_name(&src);
-                zip.start_file(&name, opts).map_err(|e| Error::Io(std::io::Error::other(e)))?;
+                zip.start_file(&name, opts)
+                    .map_err(|e| Error::Io(std::io::Error::other(e)))?;
                 let mut f = ctx(std::fs::File::open(&src), src.display())?;
                 std::io::copy(&mut f, &mut zip)?;
                 info.file_name = name;
@@ -333,9 +462,12 @@ impl Library {
             info.is_absolute_path = false;
         }
         info.thumbnail = wp.thumbnail.as_ref().map(|t| file_name(t));
-        zip.start_file(FILE_NAME, opts).map_err(|e| Error::Io(std::io::Error::other(e)))?;
+        zip.start_file(FILE_NAME, opts)
+            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
         zip.write_all(serde_json::to_string_pretty(&info)?.as_bytes())?;
-        let out = zip.finish().map_err(|e| Error::Io(std::io::Error::other(e)))?;
+        let out = zip
+            .finish()
+            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
         ctx(out.as_file().sync_all(), file.display())?;
         ctx(out.persist(file).map_err(|e| e.error), file.display())?;
         Ok(())
@@ -351,19 +483,36 @@ fn is_executable(path: &Path) -> bool {
 
 #[cfg(not(unix))]
 fn is_executable(path: &Path) -> bool {
-    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe") || e.eq_ignore_ascii_case("bat") || e.eq_ignore_ascii_case("cmd"))
+    path.extension().is_some_and(|e| {
+        e.eq_ignore_ascii_case("exe")
+            || e.eq_ignore_ascii_case("bat")
+            || e.eq_ignore_ascii_case("cmd")
+    })
 }
 
 fn host(url: &str) -> String {
-    url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or(url).trim_start_matches("www.").to_string()
+    url.split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or(url)
+        .trim_start_matches("www.")
+        .to_string()
 }
 
 fn extension(path: &Path) -> String {
-    path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
+    path.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
 }
 
 fn find_index(dir: &Path) -> Option<PathBuf> {
-    ["index.html", "index.htm"].into_iter().map(|n| dir.join(n)).find(|p| p.is_file())
+    ["index.html", "index.htm"]
+        .into_iter()
+        .map(|n| dir.join(n))
+        .find(|p| p.is_file())
 }
 
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {
@@ -371,13 +520,20 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     ctx(std::fs::create_dir_all(to), to.display())?;
     let to = ctx(std::fs::canonicalize(to), to.display())?;
     if to.starts_with(&from) {
-        return Err(Error::Invalid("cannot copy a wallpaper into its own source folder".into()));
+        return Err(Error::Invalid(
+            "cannot copy a wallpaper into its own source folder".into(),
+        ));
     }
     walk_tree(&from, &mut HashSet::new(), &mut |src, directory| {
         if directory && ctx(src.canonicalize(), src.display())? == to {
-            return Err(Error::Invalid("cannot copy a wallpaper into its own source folder".into()));
+            return Err(Error::Invalid(
+                "cannot copy a wallpaper into its own source folder".into(),
+            ));
         }
-        let dst = to.join(src.strip_prefix(&from).map_err(|e| Error::Invalid(e.to_string()))?);
+        let dst = to.join(
+            src.strip_prefix(&from)
+                .map_err(|e| Error::Invalid(e.to_string()))?,
+        );
         if directory {
             ctx(std::fs::create_dir_all(&dst), dst.display())
         } else {
@@ -393,9 +549,14 @@ fn add_tree<W: Write + std::io::Seek>(
     opts: &zip::write::SimpleFileOptions,
 ) -> Result<()> {
     walk_tree(root, &mut HashSet::new(), &mut |path, directory| {
-        let rel = path.strip_prefix(root).map_err(|e| Error::Invalid(e.to_string()))?.to_string_lossy().replace('\\', "/");
+        let rel = path
+            .strip_prefix(root)
+            .map_err(|e| Error::Invalid(e.to_string()))?
+            .to_string_lossy()
+            .replace('\\', "/");
         if !directory && !(prefix.is_empty() && rel == FILE_NAME) {
-            zip.start_file(format!("{prefix}{rel}"), *opts).map_err(|e| Error::Io(std::io::Error::other(e)))?;
+            zip.start_file(format!("{prefix}{rel}"), *opts)
+                .map_err(|e| Error::Io(std::io::Error::other(e)))?;
             let mut f = ctx(std::fs::File::open(path), path.display())?;
             std::io::copy(&mut f, zip)?;
         }
@@ -403,16 +564,26 @@ fn add_tree<W: Write + std::io::Seek>(
     })
 }
 
-fn walk_tree(dir: &Path, ancestors: &mut HashSet<PathBuf>, visit: &mut dyn FnMut(&Path, bool) -> Result<()>) -> Result<()> {
+fn walk_tree(
+    dir: &Path,
+    ancestors: &mut HashSet<PathBuf>,
+    visit: &mut dyn FnMut(&Path, bool) -> Result<()>,
+) -> Result<()> {
     let real = ctx(std::fs::canonicalize(dir), dir.display())?;
     if !ancestors.insert(real.clone()) {
-        return Err(Error::Invalid(format!("{} contains a directory cycle", dir.display())));
+        return Err(Error::Invalid(format!(
+            "{} contains a directory cycle",
+            dir.display()
+        )));
     }
     for entry in ctx(std::fs::read_dir(dir), dir.display())? {
         let path = ctx(entry, dir.display())?.path();
         let metadata = ctx(std::fs::metadata(&path), path.display())?;
         if !metadata.is_dir() && !metadata.is_file() {
-            return Err(Error::Invalid(format!("{} is not a regular file or directory", path.display())));
+            return Err(Error::Invalid(format!(
+                "{} is not a regular file or directory",
+                path.display()
+            )));
         }
         visit(&path, metadata.is_dir())?;
         if metadata.is_dir() {
@@ -434,7 +605,11 @@ mod tests {
     }
 
     fn one(lib: &Library, source: &Path, copy: bool, root: &Path) -> Result<Wallpaper> {
-        let opts = ImportOptions { copy, thumbnails: false, temp_dir: root };
+        let opts = ImportOptions {
+            copy,
+            thumbnails: false,
+            temp_dir: root,
+        };
         let mut imported = lib.import(source.to_str().unwrap(), &opts, &mut |_| {})?;
         assert_eq!(imported.wallpapers.len(), 1, "{}", source.display());
         assert!(imported.problems.is_empty(), "{:?}", imported.problems);
@@ -444,7 +619,9 @@ mod tests {
     #[test]
     fn imports_media_by_reference_and_scans() {
         let root = temp();
-        let lib = Library { dir: root.join("library") };
+        let lib = Library {
+            dir: root.join("library"),
+        };
         let video = root.join("clip.mp4");
         std::fs::write(&video, b"not really a video").unwrap();
         let w = one(&lib, &video, false, &root).unwrap();
@@ -461,26 +638,40 @@ mod tests {
     #[test]
     fn imports_web_folder_and_lively_package_round_trip() {
         let root = temp();
-        let lib = Library { dir: root.join("library") };
+        let lib = Library {
+            dir: root.join("library"),
+        };
         let site = root.join("site");
         std::fs::create_dir_all(site.join("assets")).unwrap();
         std::fs::write(site.join("index.html"), "<html></html>").unwrap();
         std::fs::write(site.join("assets/a.js"), "1").unwrap();
-        std::fs::write(site.join("LivelyProperties.json"), r#"{"hue":{"type":"slider","text":"Hue","value":1,"min":0,"max":9}}"#).unwrap();
+        std::fs::write(
+            site.join("LivelyProperties.json"),
+            r#"{"hue":{"type":"slider","text":"Hue","value":1,"min":0,"max":9}}"#,
+        )
+        .unwrap();
         let copied = one(&lib, &site, true, &root).unwrap();
         assert_eq!(copied.kind(), Kind::Web);
         assert!(!copied.info.is_absolute_path);
         assert!(copied.dir.join("assets/a.js").is_file());
-        assert!(matches!(copied.properties, crate::model::wallpaper::PropertySource::File(_)));
+        assert!(matches!(
+            copied.properties,
+            crate::model::wallpaper::PropertySource::File(_)
+        ));
 
         let package = root.join("pkg.zip");
         lib.export(&copied, &package).unwrap();
-        let other = Library { dir: root.join("other") };
+        let other = Library {
+            dir: root.join("other"),
+        };
         let restored = one(&other, &package, false, &root).unwrap();
         assert_eq!(restored.title(), copied.title());
         assert!(restored.dir.join("index.html").is_file());
         assert!(restored.dir.join("assets/a.js").is_file());
-        assert!(matches!(restored.properties, crate::model::wallpaper::PropertySource::File(_)));
+        assert!(matches!(
+            restored.properties,
+            crate::model::wallpaper::PropertySource::File(_)
+        ));
 
         let props_dir = root.join("props");
         std::fs::create_dir_all(props_dir.join(&copied.id)).unwrap();
@@ -493,7 +684,9 @@ mod tests {
     #[test]
     fn html_file_imports_like_its_folder() {
         let root = temp();
-        let lib = Library { dir: root.join("library") };
+        let lib = Library {
+            dir: root.join("library"),
+        };
         let site = root.join("aurora");
         std::fs::create_dir_all(site.join("js")).unwrap();
         std::fs::write(site.join("index.html"), "<html></html>").unwrap();
@@ -520,7 +713,11 @@ mod tests {
         let lively = root.join("packaged");
         std::fs::create_dir_all(&lively).unwrap();
         std::fs::write(lively.join("index.html"), "<html></html>").unwrap();
-        std::fs::write(lively.join("LivelyInfo.json"), r#"{"Title":"Packaged","Type":2,"FileName":"index.html"}"#).unwrap();
+        std::fs::write(
+            lively.join("LivelyInfo.json"),
+            r#"{"Title":"Packaged","Type":2,"FileName":"index.html"}"#,
+        )
+        .unwrap();
         let via_html = one(&lib, &lively.join("index.html"), false, &root).unwrap();
         assert_eq!(via_html.kind(), Kind::WebAudio);
         assert_eq!(via_html.title(), "Packaged");
@@ -531,7 +728,9 @@ mod tests {
     #[test]
     fn folder_imports_everything_inside_flat_and_reports_problems() {
         let root = temp();
-        let lib = Library { dir: root.join("library") };
+        let lib = Library {
+            dir: root.join("library"),
+        };
         let pack = root.join("pack");
         for d in ["nested/deeper", "site", "lively", ".hidden"] {
             std::fs::create_dir_all(pack.join(d)).unwrap();
@@ -542,14 +741,24 @@ mod tests {
         std::fs::write(pack.join("nested/deeper/c.gif"), "g").unwrap();
         std::fs::write(pack.join("site/index.html"), "<html></html>").unwrap();
         std::fs::write(pack.join("site/extra.mp4"), "belongs to the site").unwrap();
-        std::fs::write(pack.join("lively/LivelyInfo.json"), r#"{"Title":"Packed","Type":7,"FileName":"clip.mp4"}"#).unwrap();
+        std::fs::write(
+            pack.join("lively/LivelyInfo.json"),
+            r#"{"Title":"Packed","Type":7,"FileName":"clip.mp4"}"#,
+        )
+        .unwrap();
         std::fs::write(pack.join("lively/clip.mp4"), "v").unwrap();
         std::fs::write(pack.join(".hidden/d.mp4"), "v").unwrap();
         std::fs::write(pack.join("broken.zip"), b"PK\x03\x04junk").unwrap();
 
-        let opts = ImportOptions { copy: false, thumbnails: false, temp_dir: &root };
+        let opts = ImportOptions {
+            copy: false,
+            thumbnails: false,
+            temp_dir: &root,
+        };
         let mut seen = Vec::new();
-        let imported = lib.import(pack.to_str().unwrap(), &opts, &mut |w| seen.push(w.title())).unwrap();
+        let imported = lib
+            .import(pack.to_str().unwrap(), &opts, &mut |w| seen.push(w.title()))
+            .unwrap();
         let mut titles: Vec<String> = imported.wallpapers.iter().map(|w| w.title()).collect();
         titles.sort();
         assert_eq!(titles, ["Packed", "a", "b", "c", "site"]);
@@ -560,24 +769,40 @@ mod tests {
 
         let nothing = root.join("nothing");
         std::fs::create_dir_all(&nothing).unwrap();
-        assert!(matches!(lib.import(nothing.to_str().unwrap(), &opts, &mut |_| {}), Err(Error::Unsupported(_))));
+        assert!(matches!(
+            lib.import(nothing.to_str().unwrap(), &opts, &mut |_| {}),
+            Err(Error::Unsupported(_))
+        ));
         let only_bad = root.join("only-bad");
         std::fs::create_dir_all(&only_bad).unwrap();
         std::fs::write(only_bad.join("x.zip"), b"PK\x03\x04junk").unwrap();
-        assert!(matches!(lib.import(only_bad.to_str().unwrap(), &opts, &mut |_| {}), Err(Error::Invalid(_))));
+        assert!(matches!(
+            lib.import(only_bad.to_str().unwrap(), &opts, &mut |_| {}),
+            Err(Error::Invalid(_))
+        ));
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn rejects_escaping_archive_paths_and_removes_partial_imports() {
         let root = tempfile::tempdir().unwrap();
-        let lib = Library { dir: root.path().join("library") };
-        for name in ["../escape", "/escape", "C:/escape", "..\\escape", "folder/../../escape", "folder\\..\\..\\escape"] {
+        let lib = Library {
+            dir: root.path().join("library"),
+        };
+        for name in [
+            "../escape",
+            "/escape",
+            "C:/escape",
+            "..\\escape",
+            "folder/../../escape",
+            "folder\\..\\..\\escape",
+        ] {
             let package = root.path().join("bad.zip");
             let mut zip = zip::ZipWriter::new(std::fs::File::create(&package).unwrap());
             let opts = zip::write::SimpleFileOptions::default();
             zip.start_file(FILE_NAME, opts).unwrap();
-            zip.write_all(br#"{"Title":"Bad","Type":7,"FileName":"clip.mp4"}"#).unwrap();
+            zip.write_all(br#"{"Title":"Bad","Type":7,"FileName":"clip.mp4"}"#)
+                .unwrap();
             zip.start_file(name, opts).unwrap();
             zip.write_all(b"escape").unwrap();
             zip.finish().unwrap();
@@ -590,7 +815,9 @@ mod tests {
     #[test]
     fn rejects_copying_a_project_into_itself() {
         let root = tempfile::tempdir().unwrap();
-        let lib = Library { dir: root.path().join("library") };
+        let lib = Library {
+            dir: root.path().join("library"),
+        };
         std::fs::write(root.path().join("index.html"), "site").unwrap();
         assert!(one(&lib, root.path(), true, root.path()).is_err());
         assert_eq!(std::fs::read_dir(&lib.dir).unwrap().count(), 0);
@@ -599,7 +826,9 @@ mod tests {
     #[test]
     fn recursive_import_skips_its_library() {
         let root = tempfile::tempdir().unwrap();
-        let lib = Library { dir: root.path().join("library") };
+        let lib = Library {
+            dir: root.path().join("library"),
+        };
         std::fs::write(root.path().join("clip.mp4"), "video").unwrap();
         one(&lib, root.path(), true, root.path()).unwrap();
         assert_eq!(lib.scan().len(), 1);
@@ -611,7 +840,9 @@ mod tests {
     #[test]
     fn directory_cycles_fail_without_overwriting_an_export() {
         let root = tempfile::tempdir().unwrap();
-        let lib = Library { dir: root.path().join("library") };
+        let lib = Library {
+            dir: root.path().join("library"),
+        };
         let site = root.path().join("site");
         std::fs::create_dir(&site).unwrap();
         std::fs::write(site.join("index.html"), "site").unwrap();
@@ -628,11 +859,19 @@ mod tests {
     #[test]
     fn rejects_unsupported_and_unsafe_input() {
         let root = temp();
-        let lib = Library { dir: root.join("library") };
+        let lib = Library {
+            dir: root.join("library"),
+        };
         let odd = root.join("notes.txt");
         std::fs::write(&odd, "x").unwrap();
-        assert!(matches!(one(&lib, &odd, false, &root), Err(Error::Unsupported(_))));
-        assert!(matches!(one(&lib, &root.join("missing.mp4"), false, &root), Err(Error::NotFound(_))));
+        assert!(matches!(
+            one(&lib, &odd, false, &root),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            one(&lib, &root.join("missing.mp4"), false, &root),
+            Err(Error::NotFound(_))
+        ));
         let bad_zip = root.join("bad.zip");
         std::fs::write(&bad_zip, b"PK\x03\x04junk").unwrap();
         assert!(one(&lib, &bad_zip, false, &root).is_err());

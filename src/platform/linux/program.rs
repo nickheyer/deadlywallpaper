@@ -17,7 +17,12 @@ use std::time::{Duration, Instant};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
 
-pub fn spawn(spec: &crate::platform::ContentSpec<'_>, slot: &Slot, tx: MsgSender, x11: bool) -> Result<Box<dyn Content>> {
+pub fn spawn(
+    spec: &crate::platform::ContentSpec<'_>,
+    slot: &Slot,
+    tx: MsgSender,
+    x11: bool,
+) -> Result<Box<dyn Content>> {
     if !x11 {
         return Err(Error::Unsupported(
             "program wallpapers need an X11 session: this Wayland compositor does not allow embedding another application's window".into(),
@@ -63,10 +68,17 @@ pub fn spawn(spec: &crate::platform::ContentSpec<'_>, slot: &Slot, tx: MsgSender
                 });
                 finder_tx.send(Msg::Content(id, ContentEvent::Loaded));
             }
-            Err(e) => finder_tx.send(Msg::Content(id, ContentEvent::Exited { reason: e.to_string() })),
+            Err(e) => finder_tx.send(Msg::Content(
+                id,
+                ContentEvent::Exited {
+                    reason: e.to_string(),
+                },
+            )),
         })
         .map_err(|e| Error::Platform(e.to_string()))?;
-    Ok(Box::new(ProgramContent::new(child, socket, inner, slot.size, id, tx)))
+    Ok(Box::new(ProgramContent::new(
+        child, socket, inner, slot.size, id, tx,
+    )))
 }
 
 /// Wait until the process (or a descendant) maps a client window and return its id.
@@ -89,7 +101,11 @@ fn find_window(pid: u32, timeout: Duration) -> Result<u32> {
             .get_property(false, root, client_list, AtomEnum::WINDOW, 0, u32::MAX)
             .ok()
             .and_then(|c| c.reply().ok())
-            .map(|r| r.value32().map(|v| v.collect::<Vec<u32>>()).unwrap_or_default())
+            .map(|r| {
+                r.value32()
+                    .map(|v| v.collect::<Vec<u32>>())
+                    .unwrap_or_default()
+            })
             .unwrap_or_default();
         for w in clients {
             let owner = conn
@@ -102,7 +118,10 @@ fn find_window(pid: u32, timeout: Duration) -> Result<u32> {
             }
         }
         if Instant::now() > deadline {
-            return Err(Error::Platform(format!("process {pid} showed no window within {}s", timeout.as_secs())));
+            return Err(Error::Platform(format!(
+                "process {pid} showed no window within {}s",
+                timeout.as_secs()
+            )));
         }
         std::thread::sleep(Duration::from_millis(150));
     }
@@ -113,10 +132,13 @@ fn descendants(pid: u32) -> Vec<u32> {
     let mut parents: Vec<(u32, u32)> = Vec::new();
     if let Ok(rd) = std::fs::read_dir("/proc") {
         for e in rd.flatten() {
-            let Some(p) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else { continue };
+            let Some(p) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+                continue;
+            };
             if let Ok(stat) = std::fs::read_to_string(e.path().join("stat")) {
                 if let Some(rest) = stat.rsplit(')').next() {
-                    if let Some(ppid) = rest.split_whitespace().nth(1).and_then(|s| s.parse().ok()) {
+                    if let Some(ppid) = rest.split_whitespace().nth(1).and_then(|s| s.parse().ok())
+                    {
                         parents.push((p, ppid));
                     }
                 }
@@ -146,17 +168,32 @@ pub struct ProgramContent {
 }
 
 impl ProgramContent {
-    fn new(mut child: Child, socket: gtk::Socket, layout: gtk::Layout, slot: Size, id: crate::content::ContentId, tx: MsgSender) -> ProgramContent {
+    fn new(
+        mut child: Child,
+        socket: gtk::Socket,
+        layout: gtk::Layout,
+        slot: Size,
+        id: crate::content::ContentId,
+        tx: MsgSender,
+    ) -> ProgramContent {
         let pid = child.id();
-        let _ = std::thread::Builder::new().name("program-wait".into()).spawn(move || {
-            let status = child.wait();
-            let reason = match status {
-                Ok(s) => format!("program exited with {s}"),
-                Err(e) => format!("program wait failed: {e}"),
-            };
-            tx.send(Msg::Content(id, ContentEvent::Exited { reason }));
-        });
-        ProgramContent { pid, socket, layout, slot, paused: false }
+        let _ = std::thread::Builder::new()
+            .name("program-wait".into())
+            .spawn(move || {
+                let status = child.wait();
+                let reason = match status {
+                    Ok(s) => format!("program exited with {s}"),
+                    Err(e) => format!("program wait failed: {e}"),
+                };
+                tx.send(Msg::Content(id, ContentEvent::Exited { reason }));
+            });
+        ProgramContent {
+            pid,
+            socket,
+            layout,
+            slot,
+            paused: false,
+        }
     }
 
     fn signal(&self, sig: libc::c_int) {
@@ -175,7 +212,11 @@ impl Drop for ProgramContent {
             // SAFETY: as in `signal`; a stale pid is rejected by the kernel.
             unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
         });
-        if let Some(parent) = self.socket.parent().and_then(|p| p.downcast::<gtk::Container>().ok()) {
+        if let Some(parent) = self
+            .socket
+            .parent()
+            .and_then(|p| p.downcast::<gtk::Container>().ok())
+        {
             parent.remove(&self.socket);
         }
     }
@@ -210,11 +251,15 @@ impl Content for ProgramContent {
     /// An embedded window can be placed but not scaled or turned.
     fn set_view(&mut self, view: &View) -> Result<()> {
         if !view.is_plain() {
-            return Err(Error::Unsupported("program wallpapers can be moved but not scaled or rotated".into()));
+            return Err(Error::Unsupported(
+                "program wallpapers can be moved but not scaled or rotated".into(),
+            ));
         }
         let (x, y) = view.origin(self.slot);
-        self.socket.set_size_request(view.width.max(1), view.height.max(1));
-        self.layout.move_(&self.socket, x.round() as i32, y.round() as i32);
+        self.socket
+            .set_size_request(view.width.max(1), view.height.max(1));
+        self.layout
+            .move_(&self.socket, x.round() as i32, y.round() as i32);
         Ok(())
     }
 }

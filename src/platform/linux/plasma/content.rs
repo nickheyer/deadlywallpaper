@@ -17,7 +17,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, shell: &Shell) -> Result<Box<dyn Content>> {
+pub fn spawn(
+    spec: &ContentSpec<'_>,
+    slot: &Slot,
+    tx: MsgSender,
+    shell: &Shell,
+) -> Result<Box<dyn Content>> {
     let wp = spec.wallpaper;
     let kind = wp.kind();
     if kind == Kind::Program {
@@ -63,11 +68,18 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, shell: &Shell) 
             wp.source.clone()
         } else {
             let file = PathBuf::from(&wp.source);
-            let rel = root.as_ref().and_then(|r| file.strip_prefix(r).ok()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| crate::paths::file_name(&file));
+            let rel = root
+                .as_ref()
+                .and_then(|r| file.strip_prefix(r).ok())
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|| crate::paths::file_name(&file));
             serve.page_url(spec.id, &rel)
         };
         values.push(("Source", Val::Str(source)));
-        values.push(("Bridge", Val::Str(bridge_script(&serve.events_url(spec.id, &token)))));
+        values.push((
+            "Bridge",
+            Val::Str(bridge_script(&serve.events_url(spec.id, &token))),
+        ));
     } else if kind != Kind::VideoStream {
         values.push(("Source", Val::Str(file_url(&wp.source))));
     }
@@ -87,26 +99,58 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, shell: &Shell) 
         user_muted: false,
     };
     if kind == Kind::VideoStream {
-        let (client, containments, memory, id, url, quality) = (content.client.clone(), content.containments.clone(), content.memory.clone(), spec.id, wp.source.clone(), spec.settings.video.stream_quality);
+        let (client, containments, memory, id, url, quality) = (
+            content.client.clone(),
+            content.containments.clone(),
+            content.memory.clone(),
+            spec.id,
+            wp.source.clone(),
+            spec.settings.video.stream_quality,
+        );
         let stop = content.stop.clone();
         let resolve_tx = tx.clone();
         std::thread::Builder::new()
             .name("plasma-stream".into())
-            .spawn(move || match crate::engine::stream::direct_url(&url, quality) {
-                Ok(direct) => {
-                    if stop.load(Ordering::Relaxed) {
-                        return;
+            .spawn(
+                move || match crate::engine::stream::direct_url(&url, quality) {
+                    Ok(direct) => {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        values.push(("Source", Val::Str(direct)));
+                        apply_all(
+                            &client,
+                            &containments,
+                            &values,
+                            generation,
+                            &memory,
+                            &resolve_tx,
+                            id,
+                        );
                     }
-                    values.push(("Source", Val::Str(direct)));
-                    apply_all(&client, &containments, &values, generation, &memory, &resolve_tx, id);
-                }
-                Err(e) => resolve_tx.send(Msg::Content(id, ContentEvent::Exited { reason: e.to_string() })),
-            })
+                    Err(e) => resolve_tx.send(Msg::Content(
+                        id,
+                        ContentEvent::Exited {
+                            reason: e.to_string(),
+                        },
+                    )),
+                },
+            )
             .map_err(|e| Error::Platform(e.to_string()))?;
     } else {
-        apply_all(&content.client, &content.containments, &values, generation, &content.memory, &tx, spec.id);
+        apply_all(
+            &content.client,
+            &content.containments,
+            &values,
+            generation,
+            &content.memory,
+            &tx,
+            spec.id,
+        );
     }
-    content.watch_state(Duration::from_secs(spec.settings.video.load_timeout_secs + 10));
+    content.watch_state(Duration::from_secs(
+        spec.settings.video.load_timeout_secs + 10,
+    ));
     Ok(Box::new(content))
 }
 
@@ -114,8 +158,16 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, shell: &Shell) 
 fn next_generation() -> i64 {
     use std::sync::atomic::AtomicI64;
     static LAST: AtomicI64 = AtomicI64::new(0);
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| (d.as_millis() % 1_000_000_000) as i64).unwrap_or(1).max(1);
-    LAST.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(if now > last { now } else { last + 1 })).map(|last| if now > last { now } else { last + 1 }).unwrap_or(now)
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| (d.as_millis() % 1_000_000_000) as i64)
+        .unwrap_or(1)
+        .max(1);
+    LAST.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| {
+        Some(if now > last { now } else { last + 1 })
+    })
+    .map(|last| if now > last { now } else { last + 1 })
+    .unwrap_or(now)
 }
 
 fn fit_name(scaler: Scaler) -> &'static str {
@@ -128,11 +180,15 @@ fn fit_name(scaler: Scaler) -> &'static str {
 }
 
 fn file_url(path: &str) -> String {
-    let abs = std::path::absolute(path).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| path.to_string());
+    let abs = std::path::absolute(path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_string());
     let mut out = String::from("file://");
     for b in abs.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -148,12 +204,25 @@ fn bridge_script(events_url: &str) -> String {
     )
 }
 
-fn apply_all(client: &Client, containments: &[i32], values: &[(&'static str, Val)], generation: i64, memory: &Arc<Memory>, tx: &MsgSender, id: ContentId) {
+fn apply_all(
+    client: &Client,
+    containments: &[i32],
+    values: &[(&'static str, Val)],
+    generation: i64,
+    memory: &Arc<Memory>,
+    tx: &MsgSender,
+    id: ContentId,
+) {
     for &c in containments {
         let (memory, tx) = (memory.clone(), tx.clone());
         client.eval_then(script::apply(c, values, generation), move |r| match r {
             Ok(previous) => memory.record(c, &previous),
-            Err(e) => tx.send(Msg::Content(id, ContentEvent::Exited { reason: e.to_string() })),
+            Err(e) => tx.send(Msg::Content(
+                id,
+                ContentEvent::Exited {
+                    reason: e.to_string(),
+                },
+            )),
         });
     }
 }
@@ -195,8 +264,16 @@ impl PlasmaContent {
 
     /// Poll the wallpaper's reported state until it plays or fails.
     fn watch_state(&self, timeout: Duration) {
-        let Some(&containment) = self.containments.first() else { return };
-        let (client, tx, id, generation, stop) = (self.client.clone(), self.tx.clone(), self.id, self.generation, self.stop.clone());
+        let Some(&containment) = self.containments.first() else {
+            return;
+        };
+        let (client, tx, id, generation, stop) = (
+            self.client.clone(),
+            self.tx.clone(),
+            self.id,
+            self.generation,
+            self.stop.clone(),
+        );
         let _ = std::thread::Builder::new().name("plasma-state".into()).spawn(move || {
             let deadline = Instant::now() + timeout;
             let prefix = format!("{generation}|");
@@ -339,34 +416,76 @@ impl Content for PlasmaContent {
 
     fn screenshot(&mut self, path: PathBuf) {
         let Some(&containment) = self.containments.first() else {
-            self.tx.send(Msg::Content(self.id, ContentEvent::Screenshot { path, result: Err(Error::Platform("no desktop containment".into())) }));
+            self.tx.send(Msg::Content(
+                self.id,
+                ContentEvent::Screenshot {
+                    path,
+                    result: Err(Error::Platform("no desktop containment".into())),
+                },
+            ));
             return;
         };
         self.serial += 1;
         let serial = self.serial;
-        self.write(&[("Screenshot", Val::Str(format!("{serial}|{}", path.to_string_lossy())))]);
-        let (client, tx, id, stop) = (self.client.clone(), self.tx.clone(), self.id, self.stop.clone());
-        let _ = std::thread::Builder::new().name("plasma-shot".into()).spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(8);
-            let prefix = format!("{serial}|");
-            loop {
-                if stop.load(Ordering::Relaxed) {
-                    return;
-                }
-                if let Ok(v) = client.eval_sync(script::read(containment, &["ScreenshotResult"]), Duration::from_secs(5)).and_then(|out| serde_json::from_str::<Value>(&out).map_err(|e| Error::Platform(e.to_string()))) {
-                    if let Some(rest) = v["ScreenshotResult"].as_str().and_then(|s| s.strip_prefix(&prefix)) {
-                        let result = if rest == "ok" { Ok(()) } else { Err(Error::Platform(rest.trim_start_matches("error|").to_string())) };
-                        tx.send(Msg::Content(id, ContentEvent::Screenshot { path, result }));
+        self.write(&[(
+            "Screenshot",
+            Val::Str(format!("{serial}|{}", path.to_string_lossy())),
+        )]);
+        let (client, tx, id, stop) = (
+            self.client.clone(),
+            self.tx.clone(),
+            self.id,
+            self.stop.clone(),
+        );
+        let _ = std::thread::Builder::new()
+            .name("plasma-shot".into())
+            .spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(8);
+                let prefix = format!("{serial}|");
+                loop {
+                    if stop.load(Ordering::Relaxed) {
                         return;
                     }
+                    if let Ok(v) = client
+                        .eval_sync(
+                            script::read(containment, &["ScreenshotResult"]),
+                            Duration::from_secs(5),
+                        )
+                        .and_then(|out| {
+                            serde_json::from_str::<Value>(&out)
+                                .map_err(|e| Error::Platform(e.to_string()))
+                        })
+                    {
+                        if let Some(rest) = v["ScreenshotResult"]
+                            .as_str()
+                            .and_then(|s| s.strip_prefix(&prefix))
+                        {
+                            let result = if rest == "ok" {
+                                Ok(())
+                            } else {
+                                Err(Error::Platform(
+                                    rest.trim_start_matches("error|").to_string(),
+                                ))
+                            };
+                            tx.send(Msg::Content(id, ContentEvent::Screenshot { path, result }));
+                            return;
+                        }
+                    }
+                    if Instant::now() > deadline {
+                        tx.send(Msg::Content(
+                            id,
+                            ContentEvent::Screenshot {
+                                path,
+                                result: Err(Error::Platform(
+                                    "plasmashell did not capture the wallpaper in time".into(),
+                                )),
+                            },
+                        ));
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(250));
                 }
-                if Instant::now() > deadline {
-                    tx.send(Msg::Content(id, ContentEvent::Screenshot { path, result: Err(Error::Platform("plasmashell did not capture the wallpaper in time".into())) }));
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(250));
-            }
-        });
+            });
     }
 
     fn pointer(&mut self, ev: PointerEvent) {
@@ -378,7 +497,11 @@ impl Content for PlasmaContent {
             PointerKind::Down => "mousedown",
             PointerKind::Up => "mouseup",
         };
-        self.push("pointer", &format!("{{\"k\":\"{kind}\",\"x\":{},\"y\":{}}}", ev.x, ev.y), None);
+        self.push(
+            "pointer",
+            &format!("{{\"k\":\"{kind}\",\"x\":{},\"y\":{}}}", ev.x, ev.y),
+            None,
+        );
     }
 
     fn set_input_enabled(&mut self, enabled: bool) {

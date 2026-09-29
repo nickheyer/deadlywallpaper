@@ -24,7 +24,8 @@ fn socket_name() -> Result<interprocess::local_socket::Name<'static>> {
     #[cfg(not(windows))]
     {
         use interprocess::local_socket::{GenericFilePath, ToFsName};
-        path.to_fs_name::<GenericFilePath>().map_err(|e| Error::Ipc(e.to_string()))
+        path.to_fs_name::<GenericFilePath>()
+            .map_err(|e| Error::Ipc(e.to_string()))
     }
 }
 
@@ -34,9 +35,13 @@ pub(crate) fn listener_name() -> Result<interprocess::local_socket::Name<'static
 
 impl Client {
     pub fn connect() -> Result<Client> {
-        let stream = Stream::connect(socket_name()?).map_err(|e| Error::Ipc(format!("daemon not reachable: {e}")))?;
+        let stream = Stream::connect(socket_name()?)
+            .map_err(|e| Error::Ipc(format!("daemon not reachable: {e}")))?;
         let (rx, tx) = stream.split();
-        Ok(Client { rx: BufReader::new(rx), tx })
+        Ok(Client {
+            rx: BufReader::new(rx),
+            tx,
+        })
     }
 
     /// Connect, retrying until `timeout` elapses.

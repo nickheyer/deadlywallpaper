@@ -38,7 +38,11 @@ pub const PREFER_GLX: *mut c_void = std::ptr::without_provenance_mut(2);
 /// `mpv_opengl_init_params::get_proc_address`; `ctx` is [`PREFER_EGL`] or [`PREFER_GLX`].
 pub unsafe extern "C" fn get_proc_address(ctx: *mut c_void, name: *const c_char) -> *mut c_void {
     let l = loaders();
-    let order: [&Option<(Library, GetProc)>; 2] = if ctx == PREFER_GLX { [&l.glx, &l.egl] } else { [&l.egl, &l.glx] };
+    let order: [&Option<(Library, GetProc)>; 2] = if ctx == PREFER_GLX {
+        [&l.glx, &l.egl]
+    } else {
+        [&l.egl, &l.glx]
+    };
     for (_, f) in order.into_iter().flatten() {
         // SAFETY: name is a NUL-terminated string supplied by libmpv.
         let p = unsafe { f(name) };
@@ -57,4 +61,3 @@ pub unsafe extern "C" fn get_proc_address(ctx: *mut c_void, name: *const c_char)
 }
 
 pub use crate::media::glcap::Capture;
-

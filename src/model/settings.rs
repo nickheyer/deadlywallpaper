@@ -103,7 +103,12 @@ pub enum Scaler {
 }
 
 impl Scaler {
-    pub const ALL: [Scaler; 4] = [Scaler::None, Scaler::Fill, Scaler::Uniform, Scaler::UniformFill];
+    pub const ALL: [Scaler; 4] = [
+        Scaler::None,
+        Scaler::Fill,
+        Scaler::Uniform,
+        Scaler::UniformFill,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -121,10 +126,26 @@ impl Scaler {
     /// libmpv property assignments realizing this fit.
     pub fn mpv_properties(self) -> &'static [(&'static str, &'static str)] {
         match self {
-            Scaler::None => &[("keepaspect", "yes"), ("video-unscaled", "yes"), ("panscan", "0.0")],
-            Scaler::Fill => &[("video-unscaled", "no"), ("keepaspect", "no"), ("panscan", "0.0")],
-            Scaler::Uniform => &[("video-unscaled", "no"), ("keepaspect", "yes"), ("panscan", "0.0")],
-            Scaler::UniformFill => &[("video-unscaled", "no"), ("keepaspect", "yes"), ("panscan", "1.0")],
+            Scaler::None => &[
+                ("keepaspect", "yes"),
+                ("video-unscaled", "yes"),
+                ("panscan", "0.0"),
+            ],
+            Scaler::Fill => &[
+                ("video-unscaled", "no"),
+                ("keepaspect", "no"),
+                ("panscan", "0.0"),
+            ],
+            Scaler::Uniform => &[
+                ("video-unscaled", "no"),
+                ("keepaspect", "yes"),
+                ("panscan", "0.0"),
+            ],
+            Scaler::UniformFill => &[
+                ("video-unscaled", "no"),
+                ("keepaspect", "yes"),
+                ("panscan", "1.0"),
+            ],
         }
     }
 }
@@ -177,7 +198,9 @@ impl StreamQuality {
             StreamQuality::P1080 => 1080,
             StreamQuality::Best => return "best[acodec!=none][vcodec!=none]/best".into(),
         };
-        format!("best[height<={cap}][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best")
+        format!(
+            "best[height<={cap}][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best"
+        )
     }
 
     pub fn ytdl_format(self) -> String {
@@ -232,13 +255,21 @@ impl Default for Rules {
 
 impl Default for Video {
     fn default() -> Self {
-        Video { hw_accel: true, scaler: Scaler::Fill, stream_quality: StreamQuality::P1080, load_timeout_secs: 20 }
+        Video {
+            hw_accel: true,
+            scaler: Scaler::Fill,
+            stream_quality: StreamQuality::P1080,
+            load_timeout_secs: 20,
+        }
     }
 }
 
 impl Default for Input {
     fn default() -> Self {
-        Input { forward_mouse: true, always_move: true }
+        Input {
+            forward_mouse: true,
+            always_move: true,
+        }
     }
 }
 
@@ -271,7 +302,11 @@ impl Settings {
 
     pub fn normalize(&mut self) {
         self.volume = self.volume.min(100);
-        self.rules.coverage = if self.rules.coverage.is_finite() { self.rules.coverage.clamp(0.5, 1.0) } else { 0.95 };
+        self.rules.coverage = if self.rules.coverage.is_finite() {
+            self.rules.coverage.clamp(0.5, 1.0)
+        } else {
+            0.95
+        };
         self.rules.interval_ms = self.rules.interval_ms.clamp(100, 5000);
         self.video.load_timeout_secs = self.video.load_timeout_secs.clamp(5, 120);
         for a in &mut self.rules.app_pause {

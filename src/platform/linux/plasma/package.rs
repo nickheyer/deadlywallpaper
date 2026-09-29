@@ -7,30 +7,63 @@ pub const ID: &str = "org.deadlywp.live";
 
 /// Files whose URLs plasmashell may cache: installed once and never rewritten in place.
 const STABLE: &[(&str, &[u8])] = &[
-    ("metadata.json", include_bytes!("../../../../assets/plasma/metadata.json")),
-    ("contents/config/main.xml", include_bytes!("../../../../assets/plasma/contents/config/main.xml")),
-    ("contents/ui/main.qml", include_bytes!("../../../../assets/plasma/contents/ui/main.qml")),
-    ("contents/ui/config.qml", include_bytes!("../../../../assets/plasma/contents/ui/config.qml")),
+    (
+        "metadata.json",
+        include_bytes!("../../../../assets/plasma/metadata.json"),
+    ),
+    (
+        "contents/config/main.xml",
+        include_bytes!("../../../../assets/plasma/contents/config/main.xml"),
+    ),
+    (
+        "contents/ui/main.qml",
+        include_bytes!("../../../../assets/plasma/contents/ui/main.qml"),
+    ),
+    (
+        "contents/ui/config.qml",
+        include_bytes!("../../../../assets/plasma/contents/ui/config.qml"),
+    ),
 ];
 
 /// The implementation, installed under `contents/<impl dir>/`.
 const IMPL: &[(&str, &[u8])] = &[
-    ("Wallpaper.qml", include_bytes!("../../../../assets/plasma/contents/impl/Wallpaper.qml")),
-    ("Media.qml", include_bytes!("../../../../assets/plasma/contents/impl/Media.qml")),
-    ("Web.qml", include_bytes!("../../../../assets/plasma/contents/impl/Web.qml")),
-    ("adjust.frag", include_bytes!("../../../../assets/plasma/contents/impl/adjust.frag")),
-    ("adjust.frag.qsb", include_bytes!("../../../../assets/plasma/contents/impl/adjust.frag.qsb")),
+    (
+        "Wallpaper.qml",
+        include_bytes!("../../../../assets/plasma/contents/impl/Wallpaper.qml"),
+    ),
+    (
+        "Media.qml",
+        include_bytes!("../../../../assets/plasma/contents/impl/Media.qml"),
+    ),
+    (
+        "Web.qml",
+        include_bytes!("../../../../assets/plasma/contents/impl/Web.qml"),
+    ),
+    (
+        "adjust.frag",
+        include_bytes!("../../../../assets/plasma/contents/impl/adjust.frag"),
+    ),
+    (
+        "adjust.frag.qsb",
+        include_bytes!("../../../../assets/plasma/contents/impl/adjust.frag.qsb"),
+    ),
 ];
 
 pub fn dir() -> Result<PathBuf> {
-    dirs::data_dir().map(|d| d.join("plasma").join("wallpapers").join(ID)).ok_or_else(|| Error::Platform("no data directory for this user".into()))
+    dirs::data_dir()
+        .map(|d| d.join("plasma").join("wallpapers").join(ID))
+        .ok_or_else(|| Error::Platform("no data directory for this user".into()))
 }
 
 /// Name of the implementation directory: FNV-1a over every implementation file.
 pub fn impl_name() -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for (name, bytes) in IMPL {
-        for b in name.bytes().chain(bytes.iter().copied()).chain(std::iter::once(0)) {
+        for b in name
+            .bytes()
+            .chain(bytes.iter().copied())
+            .chain(std::iter::once(0))
+        {
             hash ^= b as u64;
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
@@ -71,7 +104,10 @@ pub fn install() -> Result<String> {
         }
     }
     if changed {
-        log::info!("installed the Plasma wallpaper package at {} ({name})", root.display());
+        log::info!(
+            "installed the Plasma wallpaper package at {} ({name})",
+            root.display()
+        );
     }
     Ok(name)
 }

@@ -71,7 +71,8 @@ pub struct mpv_render_param {
 }
 
 #[cfg(not(windows))]
-pub type GetProcAddressFn = unsafe extern "C" fn(ctx: *mut c_void, name: *const c_char) -> *mut c_void;
+pub type GetProcAddressFn =
+    unsafe extern "C" fn(ctx: *mut c_void, name: *const c_char) -> *mut c_void;
 
 #[cfg(not(windows))]
 #[repr(C)]
@@ -95,18 +96,25 @@ pub type UpdateFn = unsafe extern "C" fn(ctx: *mut c_void);
 type CreateFn = unsafe extern "C" fn() -> *mut mpv_handle;
 type InitializeFn = unsafe extern "C" fn(*mut mpv_handle) -> c_int;
 type DestroyFn = unsafe extern "C" fn(*mut mpv_handle);
-type SetOptionStringFn = unsafe extern "C" fn(*mut mpv_handle, *const c_char, *const c_char) -> c_int;
+type SetOptionStringFn =
+    unsafe extern "C" fn(*mut mpv_handle, *const c_char, *const c_char) -> c_int;
 type CommandFn = unsafe extern "C" fn(*mut mpv_handle, *mut *const c_char) -> c_int;
 type CommandAsyncFn = unsafe extern "C" fn(*mut mpv_handle, u64, *mut *const c_char) -> c_int;
-type SetPropertyFn = unsafe extern "C" fn(*mut mpv_handle, *const c_char, c_int, *mut c_void) -> c_int;
+type SetPropertyFn =
+    unsafe extern "C" fn(*mut mpv_handle, *const c_char, c_int, *mut c_void) -> c_int;
 type WaitEventFn = unsafe extern "C" fn(*mut mpv_handle, f64) -> *mut mpv_event;
 type RequestLogFn = unsafe extern "C" fn(*mut mpv_handle, *const c_char) -> c_int;
 type ErrorStringFn = unsafe extern "C" fn(c_int) -> *const c_char;
 type VersionFn = unsafe extern "C" fn() -> std::ffi::c_ulong;
 #[cfg(not(windows))]
-type RenderCreateFn = unsafe extern "C" fn(*mut *mut mpv_render_context, *mut mpv_handle, *mut mpv_render_param) -> c_int;
+type RenderCreateFn = unsafe extern "C" fn(
+    *mut *mut mpv_render_context,
+    *mut mpv_handle,
+    *mut mpv_render_param,
+) -> c_int;
 #[cfg(not(windows))]
-type RenderSetUpdateFn = unsafe extern "C" fn(*mut mpv_render_context, Option<UpdateFn>, *mut c_void);
+type RenderSetUpdateFn =
+    unsafe extern "C" fn(*mut mpv_render_context, Option<UpdateFn>, *mut c_void);
 #[cfg(not(windows))]
 type RenderRenderFn = unsafe extern "C" fn(*mut mpv_render_context, *mut mpv_render_param) -> c_int;
 #[cfg(not(windows))]
@@ -186,7 +194,12 @@ pub fn lib() -> Result<Arc<Lib>> {
             match unsafe { Library::new(&path) } {
                 Ok(l) => match Lib::bind(l) {
                     Ok(lib) => {
-                        log::info!("libmpv client API {}.{} from {}", lib.version >> 16, lib.version & 0xffff, path.display());
+                        log::info!(
+                            "libmpv client API {}.{} from {}",
+                            lib.version >> 16,
+                            lib.version & 0xffff,
+                            path.display()
+                        );
                         return Ok(Arc::new(lib));
                     }
                     Err(e) => last = format!("{}: {e}", path.display()),
@@ -212,7 +225,11 @@ impl Lib {
             let version: VersionFn = sym(&lib, b"mpv_client_api_version\0")?;
             let v = version() as u64;
             if v >> 16 < 2 {
-                return Err(format!("libmpv client API {}.{} is too old (need 2.0)", v >> 16, v & 0xffff));
+                return Err(format!(
+                    "libmpv client API {}.{} is too old (need 2.0)",
+                    v >> 16,
+                    v & 0xffff
+                ));
             }
             Ok(Lib {
                 create: sym(&lib, b"mpv_create\0")?,
@@ -228,7 +245,10 @@ impl Lib {
                 #[cfg(not(windows))]
                 render_context_create: sym(&lib, b"mpv_render_context_create\0")?,
                 #[cfg(not(windows))]
-                render_context_set_update_callback: sym(&lib, b"mpv_render_context_set_update_callback\0")?,
+                render_context_set_update_callback: sym(
+                    &lib,
+                    b"mpv_render_context_set_update_callback\0",
+                )?,
                 #[cfg(not(windows))]
                 render_context_render: sym(&lib, b"mpv_render_context_render\0")?,
                 #[cfg(not(windows))]
@@ -253,10 +273,20 @@ impl Lib {
 pub enum Event {
     None,
     Shutdown,
-    Log { prefix: String, level: String, text: String },
+    Log {
+        prefix: String,
+        level: String,
+        text: String,
+    },
     FileLoaded,
-    EndFile { reason: c_int, error: c_int },
-    CommandReply { id: u64, error: c_int },
+    EndFile {
+        reason: c_int,
+        error: c_int,
+    },
+    CommandReply {
+        id: u64,
+        error: c_int,
+    },
     Other,
 }
 
@@ -295,13 +325,21 @@ impl Handle {
         let (n, v) = (cstr(name), cstr(value));
         // SAFETY: valid handle and NUL-terminated strings.
         let r = unsafe { (self.lib.set_option_string)(self.ptr, n.as_ptr(), v.as_ptr()) };
-        if r < 0 { Err(self.lib.err(r, &format!("option {name}={value}"))) } else { Ok(()) }
+        if r < 0 {
+            Err(self.lib.err(r, &format!("option {name}={value}")))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn initialize(&self) -> Result<()> {
         // SAFETY: valid handle.
         let r = unsafe { (self.lib.initialize)(self.ptr) };
-        if r < 0 { Err(self.lib.err(r, "mpv_initialize")) } else { Ok(()) }
+        if r < 0 {
+            Err(self.lib.err(r, "mpv_initialize"))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn request_log(&self, level: &str) {
@@ -321,14 +359,22 @@ impl Handle {
         let (_owned, mut ptrs) = Handle::argv(args);
         // SAFETY: NULL-terminated argv of valid C strings.
         let r = unsafe { (self.lib.command)(self.ptr, ptrs.as_mut_ptr()) };
-        if r < 0 { Err(self.lib.err(r, &args.join(" "))) } else { Ok(()) }
+        if r < 0 {
+            Err(self.lib.err(r, &args.join(" ")))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn command_async(&self, id: u64, args: &[&str]) -> Result<()> {
         let (_owned, mut ptrs) = Handle::argv(args);
         // SAFETY: as in `command`.
         let r = unsafe { (self.lib.command_async)(self.ptr, id, ptrs.as_mut_ptr()) };
-        if r < 0 { Err(self.lib.err(r, &args.join(" "))) } else { Ok(()) }
+        if r < 0 {
+            Err(self.lib.err(r, &args.join(" ")))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn set_str(&self, name: &str, value: &str) -> Result<()> {
@@ -336,30 +382,74 @@ impl Handle {
         let v = cstr(value);
         let mut p = v.as_ptr();
         // SAFETY: MPV_FORMAT_STRING expects a pointer to a `char*`.
-        let r = unsafe { (self.lib.set_property)(self.ptr, n.as_ptr(), FORMAT_STRING, &mut p as *mut _ as *mut c_void) };
-        if r < 0 { Err(self.lib.err(r, &format!("set {name}"))) } else { Ok(()) }
+        let r = unsafe {
+            (self.lib.set_property)(
+                self.ptr,
+                n.as_ptr(),
+                FORMAT_STRING,
+                &mut p as *mut _ as *mut c_void,
+            )
+        };
+        if r < 0 {
+            Err(self.lib.err(r, &format!("set {name}")))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn set_f64(&self, name: &str, mut value: f64) -> Result<()> {
         let n = cstr(name);
         // SAFETY: MPV_FORMAT_DOUBLE expects a pointer to a double.
-        let r = unsafe { (self.lib.set_property)(self.ptr, n.as_ptr(), FORMAT_DOUBLE, &mut value as *mut f64 as *mut c_void) };
-        if r < 0 { Err(self.lib.err(r, &format!("set {name}"))) } else { Ok(()) }
+        let r = unsafe {
+            (self.lib.set_property)(
+                self.ptr,
+                n.as_ptr(),
+                FORMAT_DOUBLE,
+                &mut value as *mut f64 as *mut c_void,
+            )
+        };
+        if r < 0 {
+            Err(self.lib.err(r, &format!("set {name}")))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn set_i64(&self, name: &str, mut value: i64) -> Result<()> {
         let n = cstr(name);
         // SAFETY: MPV_FORMAT_INT64 expects a pointer to an int64_t.
-        let r = unsafe { (self.lib.set_property)(self.ptr, n.as_ptr(), FORMAT_INT64, &mut value as *mut i64 as *mut c_void) };
-        if r < 0 { Err(self.lib.err(r, &format!("set {name}"))) } else { Ok(()) }
+        let r = unsafe {
+            (self.lib.set_property)(
+                self.ptr,
+                n.as_ptr(),
+                FORMAT_INT64,
+                &mut value as *mut i64 as *mut c_void,
+            )
+        };
+        if r < 0 {
+            Err(self.lib.err(r, &format!("set {name}")))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn set_flag(&self, name: &str, value: bool) -> Result<()> {
         let n = cstr(name);
         let mut v: c_int = value as c_int;
         // SAFETY: MPV_FORMAT_FLAG expects a pointer to an int.
-        let r = unsafe { (self.lib.set_property)(self.ptr, n.as_ptr(), FORMAT_FLAG, &mut v as *mut c_int as *mut c_void) };
-        if r < 0 { Err(self.lib.err(r, &format!("set {name}"))) } else { Ok(()) }
+        let r = unsafe {
+            (self.lib.set_property)(
+                self.ptr,
+                n.as_ptr(),
+                FORMAT_FLAG,
+                &mut v as *mut c_int as *mut c_void,
+            )
+        };
+        if r < 0 {
+            Err(self.lib.err(r, &format!("set {name}")))
+        } else {
+            Ok(())
+        }
     }
 
     /// Block up to `timeout` seconds for the next event.
@@ -378,13 +468,29 @@ impl Handle {
                 EVENT_FILE_LOADED => Event::FileLoaded,
                 EVENT_END_FILE => {
                     let d = &*(ev.data as *const mpv_event_end_file);
-                    Event::EndFile { reason: d.reason, error: d.error }
+                    Event::EndFile {
+                        reason: d.reason,
+                        error: d.error,
+                    }
                 }
-                EVENT_COMMAND_REPLY => Event::CommandReply { id: ev.reply_userdata, error: ev.error },
+                EVENT_COMMAND_REPLY => Event::CommandReply {
+                    id: ev.reply_userdata,
+                    error: ev.error,
+                },
                 EVENT_LOG_MESSAGE => {
                     let d = &*(ev.data as *const mpv_event_log_message);
-                    let s = |p: *const c_char| if p.is_null() { String::new() } else { CStr::from_ptr(p).to_string_lossy().trim_end().to_string() };
-                    Event::Log { prefix: s(d.prefix), level: s(d.level), text: s(d.text) }
+                    let s = |p: *const c_char| {
+                        if p.is_null() {
+                            String::new()
+                        } else {
+                            CStr::from_ptr(p).to_string_lossy().trim_end().to_string()
+                        }
+                    };
+                    Event::Log {
+                        prefix: s(d.prefix),
+                        level: s(d.level),
+                        text: s(d.text),
+                    }
                 }
                 _ => Event::Other,
             }
@@ -393,7 +499,11 @@ impl Handle {
 
     pub fn error_string(&self, code: c_int) -> String {
         // SAFETY: static string.
-        unsafe { CStr::from_ptr((self.lib.error_string)(code)).to_string_lossy().into_owned() }
+        unsafe {
+            CStr::from_ptr((self.lib.error_string)(code))
+                .to_string_lossy()
+                .into_owned()
+        }
     }
 }
 
@@ -417,26 +527,51 @@ pub struct RenderContext {
 impl RenderContext {
     /// `extra` carries display pointers for hardware decoding interop
     /// (`RENDER_PARAM_X11_DISPLAY` / `RENDER_PARAM_WL_DISPLAY`).
-    pub fn new(handle: &Handle, get_proc_address: GetProcAddressFn, gpa_ctx: *mut c_void, extra: &[(c_int, *mut c_void)]) -> Result<RenderContext> {
+    pub fn new(
+        handle: &Handle,
+        get_proc_address: GetProcAddressFn,
+        gpa_ctx: *mut c_void,
+        extra: &[(c_int, *mut c_void)],
+    ) -> Result<RenderContext> {
         let api = c"opengl";
-        let mut init = mpv_opengl_init_params { get_proc_address, get_proc_address_ctx: gpa_ctx };
+        let mut init = mpv_opengl_init_params {
+            get_proc_address,
+            get_proc_address_ctx: gpa_ctx,
+        };
         let mut params = vec![
-            mpv_render_param { type_: RENDER_PARAM_API_TYPE, data: api.as_ptr() as *mut c_void },
-            mpv_render_param { type_: RENDER_PARAM_OPENGL_INIT_PARAMS, data: &mut init as *mut _ as *mut c_void },
+            mpv_render_param {
+                type_: RENDER_PARAM_API_TYPE,
+                data: api.as_ptr() as *mut c_void,
+            },
+            mpv_render_param {
+                type_: RENDER_PARAM_OPENGL_INIT_PARAMS,
+                data: &mut init as *mut _ as *mut c_void,
+            },
         ];
         for (t, d) in extra {
             if !d.is_null() {
-                params.push(mpv_render_param { type_: *t, data: *d });
+                params.push(mpv_render_param {
+                    type_: *t,
+                    data: *d,
+                });
             }
         }
-        params.push(mpv_render_param { type_: 0, data: std::ptr::null_mut() });
+        params.push(mpv_render_param {
+            type_: 0,
+            data: std::ptr::null_mut(),
+        });
         let mut ptr: *mut mpv_render_context = std::ptr::null_mut();
         // SAFETY: params is NUL-terminated and every pointer outlives the call.
-        let r = unsafe { (handle.lib.render_context_create)(&mut ptr, handle.ptr, params.as_mut_ptr()) };
+        let r = unsafe {
+            (handle.lib.render_context_create)(&mut ptr, handle.ptr, params.as_mut_ptr())
+        };
         if r < 0 || ptr.is_null() {
             return Err(handle.lib.err(r, "mpv_render_context_create"));
         }
-        Ok(RenderContext { lib: handle.lib.clone(), ptr })
+        Ok(RenderContext {
+            lib: handle.lib.clone(),
+            ptr,
+        })
     }
 
     /// `cb` runs on an arbitrary mpv thread whenever a new frame should be drawn.
@@ -454,12 +589,26 @@ impl RenderContext {
 
     /// Draw the current frame into `fbo` of the given size.
     pub fn render(&self, fbo: c_int, w: c_int, h: c_int, flip_y: bool) {
-        let mut target = mpv_opengl_fbo { fbo, w, h, internal_format: 0 };
+        let mut target = mpv_opengl_fbo {
+            fbo,
+            w,
+            h,
+            internal_format: 0,
+        };
         let mut flip: c_int = flip_y as c_int;
         let mut params = [
-            mpv_render_param { type_: RENDER_PARAM_OPENGL_FBO, data: &mut target as *mut _ as *mut c_void },
-            mpv_render_param { type_: RENDER_PARAM_FLIP_Y, data: &mut flip as *mut c_int as *mut c_void },
-            mpv_render_param { type_: 0, data: std::ptr::null_mut() },
+            mpv_render_param {
+                type_: RENDER_PARAM_OPENGL_FBO,
+                data: &mut target as *mut _ as *mut c_void,
+            },
+            mpv_render_param {
+                type_: RENDER_PARAM_FLIP_Y,
+                data: &mut flip as *mut c_int as *mut c_void,
+            },
+            mpv_render_param {
+                type_: 0,
+                data: std::ptr::null_mut(),
+            },
         ];
         // SAFETY: GL context is current per the type's contract; params outlive the call.
         unsafe { (self.lib.render_context_render)(self.ptr, params.as_mut_ptr()) };

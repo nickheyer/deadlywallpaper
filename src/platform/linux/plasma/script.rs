@@ -24,17 +24,32 @@ pub struct Client {
 }
 
 pub fn available() -> bool {
-    let Ok(conn) = Connection::session() else { return false };
-    let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&conn) else { return false };
-    let Ok(name) = zbus::names::BusName::try_from("org.kde.plasmashell") else { return false };
+    let Ok(conn) = Connection::session() else {
+        return false;
+    };
+    let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&conn) else {
+        return false;
+    };
+    let Ok(name) = zbus::names::BusName::try_from("org.kde.plasmashell") else {
+        return false;
+    };
     dbus.name_has_owner(name).unwrap_or(false)
 }
 
 impl Client {
     pub fn connect() -> Result<Client> {
-        let conn = Connection::session().map_err(|e| Error::Platform(format!("session bus: {e}")))?;
-        let proxy = Proxy::new(&conn, "org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell").map_err(|e| Error::Platform(format!("plasmashell: {e}")))?;
-        let probe: String = proxy.call("evaluateScript", &("print('OK|ready')",)).map_err(|e| Error::Platform(format!("plasmashell scripting: {e}")))?;
+        let conn =
+            Connection::session().map_err(|e| Error::Platform(format!("session bus: {e}")))?;
+        let proxy = Proxy::new(
+            &conn,
+            "org.kde.plasmashell",
+            "/PlasmaShell",
+            "org.kde.PlasmaShell",
+        )
+        .map_err(|e| Error::Platform(format!("plasmashell: {e}")))?;
+        let probe: String = proxy
+            .call("evaluateScript", &("print('OK|ready')",))
+            .map_err(|e| Error::Platform(format!("plasmashell scripting: {e}")))?;
         parse(&probe)?;
         let (tx, rx) = channel::<Job>();
         std::thread::Builder::new()
@@ -67,17 +82,32 @@ impl Client {
 
     /// Run a script and hand its result to `done` on the worker thread.
     pub fn eval_then(&self, script: String, done: impl FnOnce(Result<String>) + Send + 'static) {
-        let _ = self.tx.send(Job { script, done: Some(Box::new(done)) });
+        let _ = self.tx.send(Job {
+            script,
+            done: Some(Box::new(done)),
+        });
     }
 
     /// Run a script and wait for its result.
     pub fn eval_sync(&self, script: String, timeout: Duration) -> Result<String> {
         let (tx, rx) = channel();
-        self.tx.send(Job { script, done: Some(Box::new(move |r| { let _ = tx.send(r); })) }).map_err(|_| Error::Platform("plasmashell worker is gone".into()))?;
+        self.tx
+            .send(Job {
+                script,
+                done: Some(Box::new(move |r| {
+                    let _ = tx.send(r);
+                })),
+            })
+            .map_err(|_| Error::Platform("plasmashell worker is gone".into()))?;
         match rx.recv_timeout(timeout) {
             Ok(r) => r,
-            Err(RecvTimeoutError::Timeout) => Err(Error::Platform(format!("plasmashell did not answer within {}s", timeout.as_secs()))),
-            Err(RecvTimeoutError::Disconnected) => Err(Error::Platform("plasmashell worker is gone".into())),
+            Err(RecvTimeoutError::Timeout) => Err(Error::Platform(format!(
+                "plasmashell did not answer within {}s",
+                timeout.as_secs()
+            ))),
+            Err(RecvTimeoutError::Disconnected) => {
+                Err(Error::Platform("plasmashell worker is gone".into()))
+            }
         }
     }
 }
@@ -90,7 +120,9 @@ fn parse(out: &str) -> Result<String> {
     if let Some(rest) = t.strip_prefix("ERR|") {
         return Err(Error::Platform(format!("plasmashell: {rest}")));
     }
-    Err(Error::Platform(format!("plasmashell returned an unexpected result: {t}")))
+    Err(Error::Platform(format!(
+        "plasmashell returned an unexpected result: {t}"
+    )))
 }
 
 /// A value written into the wallpaper's configuration group.
@@ -107,7 +139,13 @@ impl Val {
         match self {
             Val::Str(s) => js_str(s),
             Val::Int(i) => i.to_string(),
-            Val::Num(n) => if n.is_finite() { format!("{n}") } else { "0".into() },
+            Val::Num(n) => {
+                if n.is_finite() {
+                    format!("{n}")
+                } else {
+                    "0".into()
+                }
+            }
             Val::Bool(b) => b.to_string(),
         }
     }
@@ -118,7 +156,11 @@ pub fn js_str(s: &str) -> String {
 }
 
 fn writes(values: &[(&str, Val)]) -> String {
-    values.iter().map(|(k, v)| format!("d.writeConfig({}, {});", js_str(k), v.js())).collect::<Vec<_>>().join(" ")
+    values
+        .iter()
+        .map(|(k, v)| format!("d.writeConfig({}, {});", js_str(k), v.js()))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Switch a containment to the live wallpaper plugin (when it is not on it already), write
@@ -142,7 +184,11 @@ pub fn write(containment: i32, values: &[(&str, Val)]) -> String {
 
 /// Read keys from the live wallpaper's configuration; prints a JSON object.
 pub fn read(containment: i32, keys: &[&str]) -> String {
-    let reads = keys.iter().map(|k| format!("{}: String(d.readConfig({}, \"\"))", js_str(k), js_str(k))).collect::<Vec<_>>().join(", ");
+    let reads = keys
+        .iter()
+        .map(|k| format!("{}: String(d.readConfig({}, \"\"))", js_str(k), js_str(k)))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         r#"(function() {{ try {{ var d = desktopById({containment}); if (!d) {{ print("ERR|Plasma has no desktop containment {containment}"); return; }} d.currentConfigGroup = {GROUP}; print("OK|" + JSON.stringify({{ plugin: d.wallpaperPlugin, {reads} }})); }} catch (e) {{ print("ERR|" + e); }} }})();"#
     )
@@ -168,7 +214,15 @@ mod tests {
 
     #[test]
     fn scripts_escape_values_and_order_generation_last() {
-        let s = apply(3, &[("Source", Val::Str("file:///a \"b\".mp4".into())), ("Volume", Val::Num(0.5)), ("Paused", Val::Bool(false))], 42);
+        let s = apply(
+            3,
+            &[
+                ("Source", Val::Str("file:///a \"b\".mp4".into())),
+                ("Volume", Val::Num(0.5)),
+                ("Paused", Val::Bool(false)),
+            ],
+            42,
+        );
         assert!(s.contains(r#"d.writeConfig("Source", "file:///a \"b\".mp4");"#));
         assert!(s.contains(r#"d.writeConfig("Volume", 0.5);"#));
         let generation_at = s.find("\"Generation\", 42").unwrap();

@@ -15,15 +15,40 @@ pub struct Control {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ControlKind {
-    Slider { value: f64, min: f64, max: f64, step: f64 },
-    Textbox { value: String },
-    Dropdown { value: i64, items: Vec<String> },
-    ScalerDropdown { value: i64, items: Vec<String> },
-    FolderDropdown { value: Option<String>, folder: String, filter: String },
-    Button { value: String },
-    Label { value: String },
-    Color { value: String },
-    Checkbox { value: bool },
+    Slider {
+        value: f64,
+        min: f64,
+        max: f64,
+        step: f64,
+    },
+    Textbox {
+        value: String,
+    },
+    Dropdown {
+        value: i64,
+        items: Vec<String>,
+    },
+    ScalerDropdown {
+        value: i64,
+        items: Vec<String>,
+    },
+    FolderDropdown {
+        value: Option<String>,
+        folder: String,
+        filter: String,
+    },
+    Button {
+        value: String,
+    },
+    Label {
+        value: String,
+    },
+    Color {
+        value: String,
+    },
+    Checkbox {
+        value: bool,
+    },
 }
 
 impl Control {
@@ -34,7 +59,15 @@ impl Control {
         let strings = |k: &str| -> Vec<String> {
             o.get(k)
                 .and_then(Value::as_array)
-                .map(|a| a.iter().map(|x| x.as_str().map(str::to_owned).unwrap_or_else(|| x.to_string())).collect())
+                .map(|a| {
+                    a.iter()
+                        .map(|x| {
+                            x.as_str()
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| x.to_string())
+                        })
+                        .collect()
+                })
                 .unwrap_or_default()
         };
         let ty = s("type")?.to_ascii_lowercase();
@@ -45,29 +78,53 @@ impl Control {
                 max: f("max").unwrap_or(100.0),
                 step: f("step").filter(|s| *s > 0.0).unwrap_or(1.0),
             },
-            "textbox" => ControlKind::Textbox { value: s("value").unwrap_or_default() },
-            "dropdown" => ControlKind::Dropdown { value: f("value").unwrap_or(0.0) as i64, items: strings("items") },
-            "scalerdropdown" => ControlKind::ScalerDropdown { value: f("value").unwrap_or(0.0) as i64, items: strings("items") },
+            "textbox" => ControlKind::Textbox {
+                value: s("value").unwrap_or_default(),
+            },
+            "dropdown" => ControlKind::Dropdown {
+                value: f("value").unwrap_or(0.0) as i64,
+                items: strings("items"),
+            },
+            "scalerdropdown" => ControlKind::ScalerDropdown {
+                value: f("value").unwrap_or(0.0) as i64,
+                items: strings("items"),
+            },
             "folderdropdown" => ControlKind::FolderDropdown {
                 value: s("value").filter(|v| !v.is_empty()),
                 folder: s("folder").unwrap_or_default(),
                 filter: s("filter").unwrap_or_else(|| "*".into()),
             },
-            "button" => ControlKind::Button { value: s("value").unwrap_or_default() },
-            "label" => ControlKind::Label { value: s("value").unwrap_or_default() },
-            "color" => ControlKind::Color { value: s("value").unwrap_or_else(|| "#ffffff".into()) },
-            "checkbox" => ControlKind::Checkbox { value: o.get("value").and_then(Value::as_bool).unwrap_or(false) },
+            "button" => ControlKind::Button {
+                value: s("value").unwrap_or_default(),
+            },
+            "label" => ControlKind::Label {
+                value: s("value").unwrap_or_default(),
+            },
+            "color" => ControlKind::Color {
+                value: s("value").unwrap_or_else(|| "#ffffff".into()),
+            },
+            "checkbox" => ControlKind::Checkbox {
+                value: o.get("value").and_then(Value::as_bool).unwrap_or(false),
+            },
             _ => return None,
         };
-        Some(Control { text: s("text").unwrap_or_default(), help: s("help"), kind })
+        Some(Control {
+            text: s("text").unwrap_or_default(),
+            help: s("help"),
+            kind,
+        })
     }
 
     /// The value pushed to the wallpaper; `None` for controls without a value (button, label).
     pub fn value(&self) -> Option<Value> {
         Some(match &self.kind {
             ControlKind::Slider { value, .. } => json_f64(*value),
-            ControlKind::Textbox { value } | ControlKind::Color { value } => Value::String(value.clone()),
-            ControlKind::Dropdown { value, .. } | ControlKind::ScalerDropdown { value, .. } => Value::from(*value),
+            ControlKind::Textbox { value } | ControlKind::Color { value } => {
+                Value::String(value.clone())
+            }
+            ControlKind::Dropdown { value, .. } | ControlKind::ScalerDropdown { value, .. } => {
+                Value::from(*value)
+            }
             ControlKind::FolderDropdown { value, folder, .. } => match value {
                 Some(v) => Value::String(join_folder(folder, v)),
                 None => Value::Null,
@@ -78,7 +135,10 @@ impl Control {
     }
 
     pub fn is_interactive_only(&self) -> bool {
-        matches!(self.kind, ControlKind::Button { .. } | ControlKind::Label { .. })
+        matches!(
+            self.kind,
+            ControlKind::Button { .. } | ControlKind::Label { .. }
+        )
     }
 }
 
@@ -92,7 +152,9 @@ impl Properties {
     pub fn from_value(v: Value) -> Result<Properties> {
         match v {
             Value::Object(raw) => Ok(Properties { raw }),
-            _ => Err(Error::Invalid("LivelyProperties.json must be a JSON object".into())),
+            _ => Err(Error::Invalid(
+                "LivelyProperties.json must be a JSON object".into(),
+            )),
         }
     }
 
@@ -121,7 +183,9 @@ impl Properties {
     }
 
     pub fn to_json(&self) -> Result<String> {
-        Ok(serde_json::to_string_pretty(&Value::Object(self.raw.clone()))?)
+        Ok(serde_json::to_string_pretty(&Value::Object(
+            self.raw.clone(),
+        ))?)
     }
 
     pub fn get(&self, name: &str) -> Option<Control> {
@@ -130,14 +194,21 @@ impl Properties {
 
     /// Validate and store a value. Sliders and dropdowns accept relative `++n` / `--n`.
     pub fn set(&mut self, name: &str, incoming: &Value) -> Result<Value> {
-        let control = self.get(name).ok_or_else(|| Error::NotFound(format!("no control named '{name}'")))?;
+        let control = self
+            .get(name)
+            .ok_or_else(|| Error::NotFound(format!("no control named '{name}'")))?;
         let stored = match &control.kind {
-            ControlKind::Slider { value, min, max, .. } => {
-                let v = relative(incoming, *value).ok_or_else(|| Error::Invalid(format!("'{name}' expects a number")))?;
+            ControlKind::Slider {
+                value, min, max, ..
+            } => {
+                let v = relative(incoming, *value)
+                    .ok_or_else(|| Error::Invalid(format!("'{name}' expects a number")))?;
                 json_f64(v.clamp(min.min(*max), max.max(*min)))
             }
-            ControlKind::Dropdown { value, items } | ControlKind::ScalerDropdown { value, items } => {
-                let v = relative(incoming, *value as f64).ok_or_else(|| Error::Invalid(format!("'{name}' expects an index")))?;
+            ControlKind::Dropdown { value, items }
+            | ControlKind::ScalerDropdown { value, items } => {
+                let v = relative(incoming, *value as f64)
+                    .ok_or_else(|| Error::Invalid(format!("'{name}' expects an index")))?;
                 Value::from((v.round() as i64).clamp(0, items.len().saturating_sub(1) as i64))
             }
             ControlKind::Checkbox { .. } => Value::Bool(match incoming {
@@ -150,10 +221,17 @@ impl Properties {
                 Value::Number(n) => n.as_f64().unwrap_or(0.0) != 0.0,
                 _ => return Err(Error::Invalid(format!("'{name}' expects true or false"))),
             }),
-            ControlKind::Textbox { .. } | ControlKind::Color { .. } => Value::String(as_text(incoming)),
+            ControlKind::Textbox { .. } | ControlKind::Color { .. } => {
+                Value::String(as_text(incoming))
+            }
             ControlKind::FolderDropdown { .. } => match incoming {
                 Value::Null => Value::Null,
-                v => Value::String(Path::new(&as_text(v)).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()),
+                v => Value::String(
+                    Path::new(&as_text(v))
+                        .file_name()
+                        .map(|f| f.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                ),
             },
             ControlKind::Button { .. } | ControlKind::Label { .. } => {
                 return Err(Error::Invalid(format!("'{name}' has no value to set")));
@@ -162,7 +240,10 @@ impl Properties {
         if let Some(Value::Object(o)) = self.raw.get_mut(name) {
             o.insert("value".into(), stored);
         }
-        Ok(self.get(name).and_then(|c| c.value()).unwrap_or(Value::Null))
+        Ok(self
+            .get(name)
+            .and_then(|c| c.value())
+            .unwrap_or(Value::Null))
     }
 }
 
@@ -172,17 +253,28 @@ fn number(v: &Value) -> Option<f64> {
         Value::String(s) => s.trim().parse().ok(),
         Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
         _ => None,
-    }.filter(|n| n.is_finite())
+    }
+    .filter(|n| n.is_finite())
 }
 
 fn relative(v: &Value, current: f64) -> Option<f64> {
     if let Value::String(s) = v {
         let s = s.trim();
         if let Some(rest) = s.strip_prefix("++") {
-            return rest.trim().parse::<f64>().ok().map(|d| current + d).filter(|n| n.is_finite());
+            return rest
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .map(|d| current + d)
+                .filter(|n| n.is_finite());
         }
         if let Some(rest) = s.strip_prefix("--") {
-            return rest.trim().parse::<f64>().ok().map(|d| current - d).filter(|n| n.is_finite());
+            return rest
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .map(|d| current - d)
+                .filter(|n| n.is_finite());
         }
     }
     number(v)
@@ -197,13 +289,19 @@ fn as_text(v: &Value) -> String {
 }
 
 fn json_f64(v: f64) -> Value {
-    serde_json::Number::from_f64(v).map(Value::Number).unwrap_or(Value::from(0))
+    serde_json::Number::from_f64(v)
+        .map(Value::Number)
+        .unwrap_or(Value::from(0))
 }
 
 /// Folder dropdown values travel to the wallpaper as `folder/file` with forward slashes.
 pub fn join_folder(folder: &str, file: &str) -> String {
     let folder = folder.trim_matches(['/', '\\']);
-    if folder.is_empty() { file.to_string() } else { format!("{folder}/{file}") }
+    if folder.is_empty() {
+        file.to_string()
+    } else {
+        format!("{folder}/{file}")
+    }
 }
 
 /// Built-in controls for media wallpapers (libmpv properties), matching Lively's mpv defaults.
@@ -239,7 +337,13 @@ mod tests {
 
     #[test]
     fn media_defaults_follow_the_kind() {
-        let names = |k: Kind| media_defaults(k).controls().into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+        let names = |k: Kind| {
+            media_defaults(k)
+                .controls()
+                .into_iter()
+                .map(|(n, _)| n)
+                .collect::<Vec<_>>()
+        };
         let has = |k: Kind, n: &str| names(k).iter().any(|x| x == n);
         assert!(has(Kind::Video, "mute") && has(Kind::Video, "speed"));
         assert!(has(Kind::VideoStream, "mute") && has(Kind::VideoStream, "speed"));
@@ -268,7 +372,10 @@ mod tests {
     fn clamps_and_applies_relative_changes() {
         let mut p = props();
         assert_eq!(p.set("saturation", &Value::from(500)).unwrap(), 100.0);
-        assert_eq!(p.set("saturation", &Value::String("--30".into())).unwrap(), 70.0);
+        assert_eq!(
+            p.set("saturation", &Value::String("--30".into())).unwrap(),
+            70.0
+        );
         assert_eq!(p.set("scaler", &Value::String("++9".into())).unwrap(), 3);
         assert_eq!(p.set("mute", &Value::String("true".into())).unwrap(), true);
         assert!(p.set("nope", &Value::Null).is_err());
@@ -293,7 +400,10 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(p.get("img").unwrap().value().unwrap(), "media/a.png");
-        assert_eq!(p.set("img", &Value::String("media/b.png".into())).unwrap(), "media/b.png");
+        assert_eq!(
+            p.set("img", &Value::String("media/b.png".into())).unwrap(),
+            "media/b.png"
+        );
         assert_eq!(p.raw["img"]["value"], "b.png");
         assert_eq!(p.set("img", &Value::Null).unwrap(), Value::Null);
     }

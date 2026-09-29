@@ -10,8 +10,14 @@ use block2::RcBlock;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSApplicationDidChangeScreenParametersNotification, NSEvent, NSEventModifierFlags, NSEventType};
-use objc2_foundation::{NSDistributedNotificationCenter, NSNotification, NSNotificationCenter, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
+use objc2_app_kit::{
+    NSApplication, NSApplicationActivationPolicy,
+    NSApplicationDidChangeScreenParametersNotification, NSEvent, NSEventModifierFlags, NSEventType,
+};
+use objc2_foundation::{
+    NSDistributedNotificationCenter, NSNotification, NSNotificationCenter, NSObjectProtocol,
+    NSPoint, NSRect, NSSize, NSString,
+};
 use std::cell::RefCell;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -37,10 +43,14 @@ impl MsgSenderApi for MsgSender {
 
 /// Deliver queued messages on the main thread; stops the application loop when asked.
 fn drain() {
-    let Some(mtm) = MainThreadMarker::new() else { return };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
     let stop = LOOP.with(|l| {
         let mut guard = l.borrow_mut();
-        let Some((rx, handler)) = guard.as_mut() else { return false };
+        let Some((rx, handler)) = guard.as_mut() else {
+            return false;
+        };
         while let Ok(msg) = rx.try_recv() {
             if !handler(msg) {
                 return true;
@@ -95,7 +105,8 @@ pub struct Runtime {
 
 impl RuntimeApi for Runtime {
     fn init(_paths: &Paths) -> Result<(Runtime, MainLoop)> {
-        let mtm = MainThreadMarker::new().ok_or_else(|| Error::Platform("the daemon must start on the main thread".into()))?;
+        let mtm = MainThreadMarker::new()
+            .ok_or_else(|| Error::Platform("the daemon must start on the main thread".into()))?;
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
         let (tx, rx) = channel();
@@ -103,21 +114,51 @@ impl RuntimeApi for Runtime {
         let mut observers = Vec::new();
         {
             let t = tx.clone();
-            let block = RcBlock::new(move |_: NonNull<NSNotification>| t.send(Msg::Displays(displays::list())));
+            let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+                t.send(Msg::Displays(displays::list()))
+            });
             // SAFETY: notification center call with a retained block; the token is kept.
-            let token = unsafe { NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(Some(NSApplicationDidChangeScreenParametersNotification), None, None, &block) };
+            let token = unsafe {
+                NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
+                    Some(NSApplicationDidChangeScreenParametersNotification),
+                    None,
+                    None,
+                    &block,
+                )
+            };
             observers.push(token);
         }
-        for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
+        for (name, locked) in [
+            ("com.apple.screenIsLocked", true),
+            ("com.apple.screenIsUnlocked", false),
+        ] {
             let t = tx.clone();
-            let block = RcBlock::new(move |_: NonNull<NSNotification>| t.send(Msg::Session { locked }));
+            let block =
+                RcBlock::new(move |_: NonNull<NSNotification>| t.send(Msg::Session { locked }));
             // SAFETY: as above, on the distributed center.
-            let token = unsafe { NSDistributedNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(Some(&NSString::from_str(name)), None, None, &block) };
+            let token = unsafe {
+                NSDistributedNotificationCenter::defaultCenter()
+                    .addObserverForName_object_queue_usingBlock(
+                        Some(&NSString::from_str(name)),
+                        None,
+                        None,
+                        &block,
+                    )
+            };
             observers.push(token);
         }
         input::install(tx.clone());
         let shell = Shell::new(mtm);
-        Ok((Runtime { tx, shell, interval: Arc::new(AtomicU64::new(500)), mtm, _observers: observers }, MainLoop { rx, mtm }))
+        Ok((
+            Runtime {
+                tx,
+                shell,
+                interval: Arc::new(AtomicU64::new(500)),
+                mtm,
+                _observers: observers,
+            },
+            MainLoop { rx, mtm },
+        ))
     }
 
     fn sender(&self) -> MsgSender {
@@ -184,7 +225,10 @@ impl RuntimeApi for Runtime {
 pub fn frontmost() -> Option<(i32, String)> {
     let ws = objc2_app_kit::NSWorkspace::sharedWorkspace();
     let app = ws.frontmostApplication()?;
-    let bundle = app.bundleIdentifier().map(|s| s.to_string()).unwrap_or_default();
+    let bundle = app
+        .bundleIdentifier()
+        .map(|s| s.to_string())
+        .unwrap_or_default();
     Some((app.processIdentifier(), bundle))
 }
 

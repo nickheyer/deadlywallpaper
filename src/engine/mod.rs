@@ -16,7 +16,9 @@ use crate::model::wallpaper::PropertySource;
 use crate::model::{Arrangement, Display, Kind, Layout, Placement, Settings, Wallpaper};
 use crate::msg::{Msg, TrayAction};
 use crate::paths::Paths;
-use crate::platform::{ContentSpec, MsgSender, MsgSenderApi, Runtime, RuntimeApi, ShellApi, Slot, Snapshot};
+use crate::platform::{
+    ContentSpec, MsgSender, MsgSenderApi, Runtime, RuntimeApi, ShellApi, Slot, Snapshot,
+};
 use crate::tray::Tray;
 use library::{Library, THUMBNAIL};
 use serde_json::Value;
@@ -72,8 +74,16 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(rt: Runtime, paths: Paths, settings: Settings, layout: Layout, server: Server) -> Result<Engine> {
-        let library = Library { dir: settings.library_dir.clone() };
+    pub fn new(
+        rt: Runtime,
+        paths: Paths,
+        settings: Settings,
+        layout: Layout,
+        server: Server,
+    ) -> Result<Engine> {
+        let library = Library {
+            dir: settings.library_dir.clone(),
+        };
         ctx(std::fs::create_dir_all(&library.dir), library.dir.display())?;
         let mut displays = rt.displays();
         display::sort(&mut displays);
@@ -101,8 +111,17 @@ impl Engine {
         };
         engine.rt.shell().sync_displays(&engine.displays)?;
         engine.capabilities = engine.rt.shell().capabilities();
-        engine.monitor_name = engine.rt.start_window_monitor(engine.settings.rules.interval_ms, engine.settings.input.forward_mouse);
-        log::info!("session {} presented by {} with window monitor '{}', {} display(s)", engine.rt.session(), engine.capabilities.presenter, engine.monitor_name, engine.displays.len());
+        engine.monitor_name = engine.rt.start_window_monitor(
+            engine.settings.rules.interval_ms,
+            engine.settings.input.forward_mouse,
+        );
+        log::info!(
+            "session {} presented by {} with window monitor '{}', {} display(s)",
+            engine.rt.session(),
+            engine.capabilities.presenter,
+            engine.monitor_name,
+            engine.displays.len()
+        );
         crate::scheme::watch(engine.rt.sender());
         if engine.settings.tray {
             match Tray::new(engine.rt.sender(), false, crate::scheme::prefers_dark()) {
@@ -161,7 +180,11 @@ impl Engine {
             Msg::Tray(action) => return self.tray_action(action),
             Msg::Pointer { x, y, kind } => self.pointer(x, y, kind),
             Msg::Audio(bins) => {
-                for a in self.active.iter_mut().filter(|a| a.wallpaper.kind() == Kind::WebAudio) {
+                for a in self
+                    .active
+                    .iter_mut()
+                    .filter(|a| a.wallpaper.kind() == Kind::WebAudio)
+                {
                     a.content.audio_data(&bins);
                 }
             }
@@ -194,12 +217,19 @@ impl Engine {
     }
 
     fn wallpaper_dismissed(&mut self, display: &str) {
-        let Some(d) = self.displays.iter().find(|d| d.id == display).cloned() else { return };
+        let Some(d) = self.displays.iter().find(|d| d.id == display).cloned() else {
+            return;
+        };
         self.active.retain(|a| a.placement.display != d.id);
         self.layout.clear_display(&d.id);
         self.save_layout();
         self.audio_sync();
-        self.broadcast(Event::Info { message: format!("{} switched to another wallpaper in the desktop settings", d.name) });
+        self.broadcast(Event::Info {
+            message: format!(
+                "{} switched to another wallpaper in the desktop settings",
+                d.name
+            ),
+        });
         self.broadcast(Event::Playback);
     }
 
@@ -209,7 +239,9 @@ impl Engine {
 
     fn report(&self, e: &Error) {
         log::warn!("{e}");
-        self.broadcast(Event::Error { message: e.to_string() });
+        self.broadcast(Event::Error {
+            message: e.to_string(),
+        });
     }
 
     fn save_layout(&self) {
@@ -221,8 +253,12 @@ impl Engine {
 
     fn display(&self, reference: Option<&str>) -> Result<Display> {
         match reference.map(str::trim).filter(|r| !r.is_empty()) {
-            None => display::primary(&self.displays).cloned().ok_or_else(|| Error::NotFound("no displays connected".into())),
-            Some(r) => display::find(&self.displays, r).cloned().ok_or_else(|| Error::NotFound(format!("no display '{r}'"))),
+            None => display::primary(&self.displays)
+                .cloned()
+                .ok_or_else(|| Error::NotFound("no displays connected".into())),
+            Some(r) => display::find(&self.displays, r)
+                .cloned()
+                .ok_or_else(|| Error::NotFound(format!("no display '{r}'"))),
         }
     }
 
@@ -237,11 +273,16 @@ impl Engine {
     /// Per-slot property copy, created from the wallpaper's template on first use. Built-in
     /// media copies are trimmed to the controls the wallpaper's kind has.
     fn ensure_props(&self, wp: &Wallpaper, slot: &str) -> Result<Option<PathBuf>> {
-        let builtin = (wp.properties == PropertySource::BuiltinMedia).then(|| crate::model::props::media_defaults(wp.kind()));
+        let builtin = (wp.properties == PropertySource::BuiltinMedia)
+            .then(|| crate::model::props::media_defaults(wp.kind()));
         let template = match &wp.properties {
             PropertySource::None => return Ok(None),
             PropertySource::File(p) => ctx(std::fs::read_to_string(p), p.display())?,
-            PropertySource::BuiltinMedia => builtin.as_ref().map(Properties::to_json).transpose()?.unwrap_or_default(),
+            PropertySource::BuiltinMedia => builtin
+                .as_ref()
+                .map(Properties::to_json)
+                .transpose()?
+                .unwrap_or_default(),
         };
         let dir = self.paths.properties_dir().join(&wp.id);
         ctx(std::fs::create_dir_all(&dir), dir.display())?;
@@ -265,7 +306,9 @@ impl Engine {
     }
 
     fn reconcile(&mut self) {
-        let desired = self.layout.plan(&self.displays, self.rt.shell().spans_displays());
+        let desired = self
+            .layout
+            .plan(&self.displays, self.rt.shell().spans_displays());
         self.active.retain(|a| desired.contains(&a.placement));
         for p in desired {
             if self.active.iter().any(|a| a.placement == p) {
@@ -289,24 +332,61 @@ impl Engine {
 
     fn spawn(&mut self, p: Placement) -> Result<Active> {
         let wallpaper = self.library.get(&p.wallpaper)?;
-        let display = self.displays.iter().find(|d| d.id == p.display).cloned().ok_or_else(|| Error::NotFound(format!("display {} is gone", p.display)))?;
+        let display = self
+            .displays
+            .iter()
+            .find(|d| d.id == p.display)
+            .cloned()
+            .ok_or_else(|| Error::NotFound(format!("display {} is gone", p.display)))?;
         let slot = self.rt.shell().slot(&display, p.region)?;
         let props_path = self.ensure_props(&wallpaper, &p.slot)?;
         let id = self.next_id;
         self.next_id += 1;
-        let spec = ContentSpec { id, wallpaper: &wallpaper, audio: p.audio, volume: self.settings.volume, settings: &self.settings };
+        let spec = ContentSpec {
+            id,
+            wallpaper: &wallpaper,
+            audio: p.audio,
+            volume: self.settings.volume,
+            settings: &self.settings,
+        };
         let mut content = self.rt.spawn_content(&spec, &slot)?;
         let view = self.view_of(&p, &display);
         content.set_view(&view)?;
         content.set_muted(!p.audio);
         content.set_input_enabled(self.settings.input.forward_mouse);
-        log::info!("started '{}' on {} ({}x{})", wallpaper.title(), display.name, p.region.w, p.region.h);
-        Ok(Active { id, placement: p, wallpaper, _slot: slot, content, view, props_path, loaded: false, paused: None, volume: None, started: Instant::now(), thumbnail_pending: false })
+        log::info!(
+            "started '{}' on {} ({}x{})",
+            wallpaper.title(),
+            display.name,
+            p.region.w,
+            p.region.h
+        );
+        Ok(Active {
+            id,
+            placement: p,
+            wallpaper,
+            _slot: slot,
+            content,
+            view,
+            props_path,
+            loaded: false,
+            paused: None,
+            volume: None,
+            started: Instant::now(),
+            thumbnail_pending: false,
+        })
     }
 
     /// What an instance shows: its display's part of the spanning image, or all of its region.
     fn view_of(&self, p: &Placement, d: &Display) -> View {
-        if p.spanning { self.layout.view_for(d, Layout::span_bounds(&self.displays)) } else { View::whole(Size { w: p.region.w, h: p.region.h }) }
+        if p.spanning {
+            self.layout.view_for(d, Layout::span_bounds(&self.displays))
+        } else {
+            View::whole(Size {
+                w: p.region.w,
+                h: p.region.h,
+            })
+        }
     }
 
     /// Push changed views to running instances without restarting them.
@@ -314,10 +394,12 @@ impl Engine {
         let wanted: Vec<View> = self
             .active
             .iter()
-            .map(|a| match self.displays.iter().find(|d| d.id == a.placement.display) {
-                Some(d) => self.view_of(&a.placement, d),
-                None => a.view,
-            })
+            .map(
+                |a| match self.displays.iter().find(|d| d.id == a.placement.display) {
+                    Some(d) => self.view_of(&a.placement, d),
+                    None => a.view,
+                },
+            )
             .collect();
         let mut problems = Vec::new();
         for (a, view) in self.active.iter_mut().zip(wanted) {
@@ -336,17 +418,30 @@ impl Engine {
     /// Whether the span wallpaper can show `layout`'s views on this desktop.
     fn check_alignment(&self, layout: &Layout) -> Result<()> {
         if layout.arrangement != Arrangement::Span {
-            return Err(Error::Invalid("alignment applies to the span arrangement".into()));
+            return Err(Error::Invalid(
+                "alignment applies to the span arrangement".into(),
+            ));
         }
-        let Some(kind) = layout.shared.as_deref().and_then(|id| self.library.get(id).ok()).map(|w| w.kind()) else { return Ok(()) };
+        let Some(kind) = layout
+            .shared
+            .as_deref()
+            .and_then(|id| self.library.get(id).ok())
+            .map(|w| w.kind())
+        else {
+            return Ok(());
+        };
         let bounds = Layout::span_bounds(&self.displays);
         for d in &self.displays {
             let v = layout.view_for(d, bounds);
             if kind == Kind::Program && !v.is_plain() {
-                return Err(Error::Unsupported("program wallpapers can be moved but not scaled or rotated".into()));
+                return Err(Error::Unsupported(
+                    "program wallpapers can be moved but not scaled or rotated".into(),
+                ));
             }
             if kind.is_web() && v.rotation.abs() > 1e-9 && !self.capabilities.rotate_web {
-                return Err(Error::Unsupported("web wallpapers cannot be rotated on this desktop".into()));
+                return Err(Error::Unsupported(
+                    "web wallpapers cannot be rotated on this desktop".into(),
+                ));
             }
         }
         Ok(())
@@ -363,7 +458,9 @@ impl Engine {
     }
 
     fn apply_properties(&mut self, idx: usize) {
-        let Some(path) = self.active[idx].props_path.clone() else { return };
+        let Some(path) = self.active[idx].props_path.clone() else {
+            return;
+        };
         let props = match Properties::load(&path) {
             Ok(p) => p,
             Err(e) => {
@@ -382,7 +479,9 @@ impl Engine {
     }
 
     fn evaluate(&mut self) {
-        let global_pause = self.user_paused || (self.locked && self.settings.rules.lock_pause) || (self.on_battery && self.settings.rules.battery_pause);
+        let global_pause = self.user_paused
+            || (self.locked && self.settings.rules.lock_pause)
+            || (self.on_battery && self.settings.rules.battery_pause);
         let decisions = playback::decide(&playback::Inputs {
             rules: &self.settings.rules,
             volume: self.settings.volume,
@@ -394,7 +493,9 @@ impl Engine {
         });
         let mut changed = false;
         for a in &mut self.active {
-            let Some(d) = decisions.get(&a.placement.display) else { continue };
+            let Some(d) = decisions.get(&a.placement.display) else {
+                continue;
+            };
             if a.paused != Some(d.pause) {
                 a.content.set_paused(d.pause);
                 a.paused = Some(d.pause);
@@ -412,7 +513,10 @@ impl Engine {
     }
 
     fn audio_sync(&mut self) {
-        let wanted = self.active.iter().any(|a| a.wallpaper.kind() == Kind::WebAudio);
+        let wanted = self
+            .active
+            .iter()
+            .any(|a| a.wallpaper.kind() == Kind::WebAudio);
         if wanted && self.audio.is_none() {
             match Capture::start(self.settings.audio_capture_device.clone(), self.rt.sender()) {
                 Ok(c) => self.audio = Some(c),
@@ -427,7 +531,10 @@ impl Engine {
         let Some(m) = &mut self.battery else { return };
         let discharging = m
             .batteries()
-            .map(|it| it.flatten().any(|b| b.state() == starship_battery::State::Discharging))
+            .map(|it| {
+                it.flatten()
+                    .any(|b| b.state() == starship_battery::State::Discharging)
+            })
             .unwrap_or(false);
         if discharging != self.on_battery {
             self.on_battery = discharging;
@@ -449,7 +556,10 @@ impl Engine {
         }
         for (id, title) in failed {
             self.active.retain(|a| a.id != id);
-            self.report(&Error::Media(format!("'{title}' did not load within {}s", timeout.as_secs())));
+            self.report(&Error::Media(format!(
+                "'{title}' did not load within {}s",
+                timeout.as_secs()
+            )));
         }
         self.evaluate();
     }
@@ -459,7 +569,16 @@ impl Engine {
         if list == self.displays {
             return;
         }
-        log::info!("displays changed: {}", list.iter().map(|d| format!("{} {}x{}+{}+{}", d.name, d.rect.w, d.rect.h, d.rect.x, d.rect.y)).collect::<Vec<_>>().join(", "));
+        log::info!(
+            "displays changed: {}",
+            list.iter()
+                .map(|d| format!(
+                    "{} {}x{}+{}+{}",
+                    d.name, d.rect.w, d.rect.h, d.rect.x, d.rect.y
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         self.displays = list;
         match self.rt.shell().sync_displays(&self.displays) {
             Ok(true) => self.active.clear(),
@@ -475,7 +594,9 @@ impl Engine {
             self.finish_capture(id, &path, result);
             return;
         }
-        let Some(idx) = self.active.iter().position(|a| a.id == id) else { return };
+        let Some(idx) = self.active.iter().position(|a| a.id == id) else {
+            return;
+        };
         match ev {
             ContentEvent::Loaded => {
                 if self.active[idx].loaded {
@@ -492,7 +613,10 @@ impl Engine {
                 self.active[idx].volume = None;
                 self.evaluate();
                 let a = &mut self.active[idx];
-                if self.settings.thumbnails && a.wallpaper.thumbnail.is_none() && !a.thumbnail_pending {
+                if self.settings.thumbnails
+                    && a.wallpaper.thumbnail.is_none()
+                    && !a.thumbnail_pending
+                {
                     a.thumbnail_pending = true;
                     let tx = self.rt.sender();
                     let cid = a.id;
@@ -505,7 +629,10 @@ impl Engine {
             }
             ContentEvent::Exited { reason } => {
                 let a = self.active.remove(idx);
-                self.report(&Error::Media(format!("'{}' stopped: {reason}", a.wallpaper.title())));
+                self.report(&Error::Media(format!(
+                    "'{}' stopped: {reason}",
+                    a.wallpaper.title()
+                )));
                 self.audio_sync();
                 self.broadcast(Event::Playback);
             }
@@ -515,16 +642,30 @@ impl Engine {
 
     fn capture(&mut self, idx: usize, path: PathBuf, thumbnail: Option<String>, reply: Reply) {
         if self.pending_shots.iter().any(|shot| shot.path == path) {
-            reply(Response::error(&Error::Media("capture already in progress for this file".into())));
+            reply(Response::error(&Error::Media(
+                "capture already in progress for this file".into(),
+            )));
             return;
         }
         let id = self.active[idx].id;
-        self.pending_shots.push(PendingShot { id, path: path.clone(), thumbnail, reply, deadline: Instant::now() + Duration::from_secs(30) });
+        self.pending_shots.push(PendingShot {
+            id,
+            path: path.clone(),
+            thumbnail,
+            reply,
+            deadline: Instant::now() + Duration::from_secs(30),
+        });
         self.active[idx].content.screenshot(path);
     }
 
     fn finish_capture(&mut self, id: ContentId, path: &std::path::Path, result: Result<()>) {
-        let Some(pos) = self.pending_shots.iter().position(|shot| shot.id == id && shot.path == path) else { return };
+        let Some(pos) = self
+            .pending_shots
+            .iter()
+            .position(|shot| shot.id == id && shot.path == path)
+        else {
+            return;
+        };
         let shot = self.pending_shots.remove(pos);
         let result = result.and_then(|_| {
             if let Some(wallpaper) = shot.thumbnail {
@@ -555,11 +696,16 @@ impl Engine {
             let a = &self.active[idx];
             let path = a.wallpaper.dir.join(THUMBNAIL);
             let wallpaper = a.wallpaper.id.clone();
-            self.capture(idx, path, Some(wallpaper), Box::new(|response| {
-                if let Response::Error { message, .. } = response {
-                    log::warn!("thumbnail: {message}");
-                }
-            }));
+            self.capture(
+                idx,
+                path,
+                Some(wallpaper),
+                Box::new(|response| {
+                    if let Response::Error { message, .. } = response {
+                        log::warn!("thumbnail: {message}");
+                    }
+                }),
+            );
         }
     }
 
@@ -568,7 +714,11 @@ impl Engine {
         wp.info.thumbnail = Some(file.into());
         wp.save_info()?;
         let updated = Wallpaper::from_info(&wp.dir, wp.info.clone());
-        for a in self.active.iter_mut().filter(|a| a.wallpaper.id == wallpaper) {
+        for a in self
+            .active
+            .iter_mut()
+            .filter(|a| a.wallpaper.id == wallpaper)
+        {
             a.wallpaper = updated.clone();
         }
         self.broadcast(Event::Library);
@@ -579,14 +729,37 @@ impl Engine {
         if !self.settings.input.forward_mouse {
             return;
         }
-        if kind == PointerKind::Move && !self.settings.input.always_move && self.windows.as_ref().is_some_and(|s| s.windows.iter().any(|w| w.focused)) {
+        if kind == PointerKind::Move
+            && !self.settings.input.always_move
+            && self
+                .windows
+                .as_ref()
+                .is_some_and(|s| s.windows.iter().any(|w| w.focused))
+        {
             return;
         }
-        let Some(display) = display::at_point(&self.displays, x, y).cloned() else { return };
-        for a in self.active.iter_mut().filter(|a| a.placement.display == display.id && a.wallpaper.kind().accepts_pointer()) {
-            let slot = Size { w: a.placement.region.w, h: a.placement.region.h };
-            let (ix, iy) = a.view.to_image(slot, (x - a.placement.region.x) as f64, (y - a.placement.region.y) as f64);
-            a.content.pointer(PointerEvent { x: ix.round() as i32, y: iy.round() as i32, kind });
+        let Some(display) = display::at_point(&self.displays, x, y).cloned() else {
+            return;
+        };
+        for a in self
+            .active
+            .iter_mut()
+            .filter(|a| a.placement.display == display.id && a.wallpaper.kind().accepts_pointer())
+        {
+            let slot = Size {
+                w: a.placement.region.w,
+                h: a.placement.region.h,
+            };
+            let (ix, iy) = a.view.to_image(
+                slot,
+                (x - a.placement.region.x) as f64,
+                (y - a.placement.region.y) as f64,
+            );
+            a.content.pointer(PointerEvent {
+                x: ix.round() as i32,
+                y: iy.round() as i32,
+                kind,
+            });
         }
     }
 
@@ -616,7 +789,10 @@ impl Engine {
     fn open_ui(&self) {
         if let Ok(exe) = std::env::current_exe() {
             let mut cmd = std::process::Command::new(exe);
-            cmd.arg("ui").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+            cmd.arg("ui")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
@@ -636,7 +812,8 @@ impl Engine {
         if all.is_empty() {
             return None;
         }
-        let pick = u64::from_str_radix(&crate::paths::nonce(), 16).unwrap_or(0) as usize % all.len();
+        let pick =
+            u64::from_str_radix(&crate::paths::nonce(), 16).unwrap_or(0) as usize % all.len();
         all.into_iter().nth(pick)
     }
 
@@ -653,7 +830,10 @@ impl Engine {
             }
             _ => {
                 let current = self.layout.shared.clone();
-                if let (Some(w), Some(d)) = (self.random(current.as_deref()), display::primary(&self.displays).map(|d| d.id.clone())) {
+                if let (Some(w), Some(d)) = (
+                    self.random(current.as_deref()),
+                    display::primary(&self.displays).map(|d| d.id.clone()),
+                ) {
                     self.layout.assign(&d, &w.id);
                 }
             }
@@ -662,7 +842,11 @@ impl Engine {
     }
 
     /// Run `work` off the main thread and apply its result on it.
-    fn job<R: Send + 'static>(&self, work: impl FnOnce() -> R + Send + 'static, then: impl FnOnce(&mut Engine, R) + Send + 'static) {
+    fn job<R: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> R + Send + 'static,
+        then: impl FnOnce(&mut Engine, R) + Send + 'static,
+    ) {
         let tx = self.rt.sender();
         std::thread::spawn(move || {
             let r = work();
@@ -672,7 +856,9 @@ impl Engine {
 
     fn report_problems(&self, problems: &[String]) {
         for message in problems {
-            self.broadcast(Event::Error { message: message.clone() });
+            self.broadcast(Event::Error {
+                message: message.clone(),
+            });
         }
     }
 
@@ -680,19 +866,32 @@ impl Engine {
         let resp = match req {
             Request::Status => Response::Status(self.status()),
             Request::Displays => Response::Displays(self.displays.clone()),
-            Request::Library => Response::Library(self.library.scan().iter().map(Wallpaper::summary).collect()),
+            Request::Library => {
+                Response::Library(self.library.scan().iter().map(Wallpaper::summary).collect())
+            }
             Request::Settings => Response::Settings(self.settings.clone()),
-            Request::SetSettings { settings } => self.set_settings(settings).map_or_else(|e| Response::error(&e), |_| Response::Ok),
+            Request::SetSettings { settings } => self
+                .set_settings(settings)
+                .map_or_else(|e| Response::error(&e), |_| Response::Ok),
             Request::Layout => Response::Layout(self.layout.clone()),
-            Request::SetArrangement { arrangement, display } => {
-                let preferred = display.or_else(|| display::primary(&self.displays).map(|d| d.id.clone()));
-                self.layout.set_arrangement(arrangement, preferred.as_deref());
+            Request::SetArrangement {
+                arrangement,
+                display,
+            } => {
+                let preferred =
+                    display.or_else(|| display::primary(&self.displays).map(|d| d.id.clone()));
+                self.layout
+                    .set_arrangement(arrangement, preferred.as_deref());
                 self.reconcile();
                 Response::Ok
             }
-            Request::AlignImage { pose } => self.align(|l| l.set_image_pose(pose)).map_or_else(|e| Response::error(&e), |_| Response::Ok),
+            Request::AlignImage { pose } => self
+                .align(|l| l.set_image_pose(pose))
+                .map_or_else(|e| Response::error(&e), |_| Response::Ok),
             Request::AlignDisplay { display, pose } => match self.display(Some(&display)) {
-                Ok(d) => self.align(|l| l.set_display_pose(&d.id, pose)).map_or_else(|e| Response::error(&e), |_| Response::Ok),
+                Ok(d) => self
+                    .align(|l| l.set_display_pose(&d.id, pose))
+                    .map_or_else(|e| Response::error(&e), |_| Response::Ok),
                 Err(e) => Response::error(&e),
             },
             Request::ResetAlignment => {
@@ -701,53 +900,100 @@ impl Engine {
                 Response::Ok
             }
             Request::Set { target, display } => return self.set_target(target, display, reply),
-            Request::Close { display } => self.close(display.as_deref()).map_or_else(|e| Response::error(&e), |_| Response::Ok),
+            Request::Close { display } => self
+                .close(display.as_deref())
+                .map_or_else(|e| Response::error(&e), |_| Response::Ok),
             Request::Import { source } => {
                 let lib = self.library.clone();
-                let (copy, thumbnails, temp) = (self.settings.copy_imports, self.settings.thumbnails, self.paths.temp_dir());
+                let (copy, thumbnails, temp) = (
+                    self.settings.copy_imports,
+                    self.settings.thumbnails,
+                    self.paths.temp_dir(),
+                );
                 let tx = self.rt.sender();
                 self.job(
                     move || {
-                        lib.import(&source, &library::ImportOptions { copy, thumbnails, temp_dir: &temp }, &mut |_: &Wallpaper| {
-                            tx.send(Msg::Job(Box::new(|e| e.broadcast(Event::Library))));
-                        })
+                        lib.import(
+                            &source,
+                            &library::ImportOptions {
+                                copy,
+                                thumbnails,
+                                temp_dir: &temp,
+                            },
+                            &mut |_: &Wallpaper| {
+                                tx.send(Msg::Job(Box::new(|e| e.broadcast(Event::Library))));
+                            },
+                        )
                     },
                     move |e, r| match r {
                         Ok(imported) => {
                             e.report_problems(&imported.problems);
-                            reply(Response::Wallpapers(imported.wallpapers.iter().map(Wallpaper::summary).collect()));
+                            reply(Response::Wallpapers(
+                                imported.wallpapers.iter().map(Wallpaper::summary).collect(),
+                            ));
                         }
                         Err(err) => reply(Response::error(&err)),
                     },
                 );
                 return true;
             }
-            Request::Delete { wallpaper } => self.delete(&wallpaper).map_or_else(|e| Response::error(&e), |_| Response::Ok),
+            Request::Delete { wallpaper } => self
+                .delete(&wallpaper)
+                .map_or_else(|e| Response::error(&e), |_| Response::Ok),
             Request::Export { wallpaper, file } => match self.library.get(&wallpaper) {
                 Ok(wp) => {
                     let lib = self.library.clone();
-                    self.job(move || lib.export(&wp, &file), move |_, r| reply(r.map_or_else(|e| Response::error(&e), |_| Response::Ok)));
+                    self.job(
+                        move || lib.export(&wp, &file),
+                        move |_, r| reply(r.map_or_else(|e| Response::error(&e), |_| Response::Ok)),
+                    );
                     return true;
                 }
                 Err(e) => Response::error(&e),
             },
-            Request::EditInfo { wallpaper, patch } => self.edit_info(&wallpaper, patch).map_or_else(|e| Response::error(&e), Response::Wallpaper),
-            Request::Properties { wallpaper, display } => self.properties(&wallpaper, display.as_deref()).map_or_else(|e| Response::error(&e), |(path, controls)| Response::Controls { path, controls }),
-            Request::SetProperty { wallpaper, display, name, value } => self.set_property(&wallpaper, display.as_deref(), &name, &value).map_or_else(|e| Response::error(&e), |_| Response::Ok),
-            Request::ResetProperties { wallpaper, display } => self.reset_properties(&wallpaper, display.as_deref()).map_or_else(|e| Response::error(&e), |_| Response::Ok),
-            Request::Seek { display, value } => self.seek(display.as_deref(), &value).map_or_else(|e| Response::error(&e), |_| Response::Ok),
-            Request::Volume { value } => self.volume(&value).map_or_else(|e| Response::error(&e), |_| Response::Ok),
+            Request::EditInfo { wallpaper, patch } => self
+                .edit_info(&wallpaper, patch)
+                .map_or_else(|e| Response::error(&e), Response::Wallpaper),
+            Request::Properties { wallpaper, display } => {
+                self.properties(&wallpaper, display.as_deref()).map_or_else(
+                    |e| Response::error(&e),
+                    |(path, controls)| Response::Controls { path, controls },
+                )
+            }
+            Request::SetProperty {
+                wallpaper,
+                display,
+                name,
+                value,
+            } => self
+                .set_property(&wallpaper, display.as_deref(), &name, &value)
+                .map_or_else(|e| Response::error(&e), |_| Response::Ok),
+            Request::ResetProperties { wallpaper, display } => self
+                .reset_properties(&wallpaper, display.as_deref())
+                .map_or_else(|e| Response::error(&e), |_| Response::Ok),
+            Request::Seek { display, value } => self
+                .seek(display.as_deref(), &value)
+                .map_or_else(|e| Response::error(&e), |_| Response::Ok),
+            Request::Volume { value } => self
+                .volume(&value)
+                .map_or_else(|e| Response::error(&e), |_| Response::Ok),
             Request::Play { play } => {
                 self.set_user_paused(!play);
                 Response::Ok
             }
-            Request::Screenshot { display, file } => match self.display(display.as_deref()).and_then(|d| self.active_on(&d.id).ok_or_else(|| Error::NotFound(format!("no wallpaper running on {}", d.name)))) {
-                Ok(idx) => {
-                    self.capture(idx, file, None, reply);
-                    return true;
+            Request::Screenshot { display, file } => {
+                match self.display(display.as_deref()).and_then(|d| {
+                    self.active_on(&d.id).ok_or_else(|| {
+                        Error::NotFound(format!("no wallpaper running on {}", d.name))
+                    })
+                }) {
+                    Ok(idx) => {
+                        self.capture(idx, file, None, reply);
+                        return true;
+                    }
+                    Err(e) => Response::error(&e),
                 }
-                Err(e) => Response::error(&e),
-            },
+            }
             Request::Thumbnail { wallpaper } => return self.thumbnail(&wallpaper, reply),
             Request::AudioDevices => Response::Devices(crate::audio::devices()),
             Request::OpenUi => {
@@ -794,19 +1040,26 @@ impl Engine {
     }
 
     fn active_on(&self, display_id: &str) -> Option<usize> {
-        self.active.iter().position(|a| a.placement.display == display_id)
+        self.active
+            .iter()
+            .position(|a| a.placement.display == display_id)
     }
 
     fn set_settings(&mut self, mut s: Settings) -> Result<()> {
         s.normalize();
         if self.settings.library_dir != s.library_dir {
-            ctx(std::fs::create_dir_all(&s.library_dir), s.library_dir.display())?;
+            ctx(
+                std::fs::create_dir_all(&s.library_dir),
+                s.library_dir.display(),
+            )?;
         }
         s.save(&self.paths.settings_file())?;
         let old = std::mem::replace(&mut self.settings, s);
         let s = &self.settings;
         if old.library_dir != s.library_dir {
-            self.library = Library { dir: s.library_dir.clone() };
+            self.library = Library {
+                dir: s.library_dir.clone(),
+            };
             self.broadcast(Event::Library);
         }
         if old.autostart != s.autostart {
@@ -816,7 +1069,15 @@ impl Engine {
         }
         if old.tray != s.tray {
             match (&self.tray, s.tray) {
-                (None, true) => self.tray = Tray::new(self.rt.sender(), self.user_paused, crate::scheme::prefers_dark()).map_err(|e| log::warn!("{e}")).ok(),
+                (None, true) => {
+                    self.tray = Tray::new(
+                        self.rt.sender(),
+                        self.user_paused,
+                        crate::scheme::prefers_dark(),
+                    )
+                    .map_err(|e| log::warn!("{e}"))
+                    .ok()
+                }
                 (Some(t), false) => {
                     t.set_visible(false);
                     self.tray = None;
@@ -839,7 +1100,10 @@ impl Engine {
         let restart_media = old.video != s.video;
         let restart_web = old.web != s.web;
         if restart_media || restart_web {
-            self.active.retain(|a| !((restart_media && a.wallpaper.kind().is_media()) || (restart_web && a.wallpaper.kind().is_web())));
+            self.active.retain(|a| {
+                !((restart_media && a.wallpaper.kind().is_media())
+                    || (restart_web && a.wallpaper.kind().is_web()))
+            });
         }
         self.broadcast(Event::Settings);
         self.reconcile();
@@ -863,7 +1127,9 @@ impl Engine {
                         self.reconcile();
                         reply(Response::Ok);
                     }
-                    None => reply(Response::error(&Error::NotFound("the library is empty".into()))),
+                    None => reply(Response::error(&Error::NotFound(
+                        "the library is empty".into(),
+                    ))),
                 }
             }
             "reload" => {
@@ -882,14 +1148,26 @@ impl Engine {
             }
             _ => {
                 let lib = self.library.clone();
-                let (copy, thumbnails, temp) = (self.settings.copy_imports, self.settings.thumbnails, self.paths.temp_dir());
+                let (copy, thumbnails, temp) = (
+                    self.settings.copy_imports,
+                    self.settings.thumbnails,
+                    self.paths.temp_dir(),
+                );
                 let did = d.id.clone();
                 let tx = self.rt.sender();
                 self.job(
                     move || {
-                        lib.import(&target, &library::ImportOptions { copy, thumbnails, temp_dir: &temp }, &mut |_: &Wallpaper| {
-                            tx.send(Msg::Job(Box::new(|e| e.broadcast(Event::Library))));
-                        })
+                        lib.import(
+                            &target,
+                            &library::ImportOptions {
+                                copy,
+                                thumbnails,
+                                temp_dir: &temp,
+                            },
+                            &mut |_: &Wallpaper| {
+                                tx.send(Msg::Job(Box::new(|e| e.broadcast(Event::Library))));
+                            },
+                        )
                     },
                     move |e, r| match r {
                         Ok(imported) => {
@@ -900,7 +1178,9 @@ impl Engine {
                                     e.reconcile();
                                     reply(Response::Wallpaper(w.summary()));
                                 }
-                                None => reply(Response::error(&Error::NotFound("nothing was imported".into()))),
+                                None => reply(Response::error(&Error::NotFound(
+                                    "nothing was imported".into(),
+                                ))),
                             }
                         }
                         Err(err) => reply(Response::error(&err)),
@@ -927,7 +1207,8 @@ impl Engine {
         self.library.get(wallpaper)?;
         self.active.retain(|a| a.wallpaper.id != wallpaper);
         self.layout.remove_wallpaper(wallpaper);
-        self.library.delete(wallpaper, &self.paths.properties_dir())?;
+        self.library
+            .delete(wallpaper, &self.paths.properties_dir())?;
         self.reconcile();
         self.broadcast(Event::Library);
         Ok(())
@@ -956,7 +1237,11 @@ impl Engine {
         }
         wp.save_info()?;
         let updated = Wallpaper::from_info(&wp.dir, wp.info.clone());
-        for a in self.active.iter_mut().filter(|a| a.wallpaper.id == wallpaper) {
+        for a in self
+            .active
+            .iter_mut()
+            .filter(|a| a.wallpaper.id == wallpaper)
+        {
             a.wallpaper = updated.clone();
         }
         self.broadcast(Event::Library);
@@ -968,32 +1253,56 @@ impl Engine {
     fn props_target(&self, wallpaper: &str, display: Option<&str>) -> Result<(Wallpaper, String)> {
         if wallpaper.is_empty() {
             let d = self.display(display)?;
-            let a = self.active_on(&d.id).map(|i| &self.active[i]).ok_or_else(|| Error::NotFound(format!("no wallpaper running on {}", d.name)))?;
+            let a = self
+                .active_on(&d.id)
+                .map(|i| &self.active[i])
+                .ok_or_else(|| Error::NotFound(format!("no wallpaper running on {}", d.name)))?;
             return Ok((a.wallpaper.clone(), a.placement.slot.clone()));
         }
         let wp = self.library.get(wallpaper)?;
-        if let Some(a) = self.active.iter().find(|a| a.wallpaper.id == wallpaper && display.is_none_or(|d| display::find(&self.displays, d).is_some_and(|dd| dd.id == a.placement.display))) {
+        if let Some(a) = self.active.iter().find(|a| {
+            a.wallpaper.id == wallpaper
+                && display.is_none_or(|d| {
+                    display::find(&self.displays, d).is_some_and(|dd| dd.id == a.placement.display)
+                })
+        }) {
             return Ok((wp, a.placement.slot.clone()));
         }
         let d = self.display(display)?;
         Ok((wp, self.slot_key(&d.id)))
     }
 
-    fn properties(&self, wallpaper: &str, display: Option<&str>) -> Result<(PathBuf, Vec<(String, crate::model::Control)>)> {
+    fn properties(
+        &self,
+        wallpaper: &str,
+        display: Option<&str>,
+    ) -> Result<(PathBuf, Vec<(String, crate::model::Control)>)> {
         let (wp, slot) = self.props_target(wallpaper, display)?;
-        let path = self.ensure_props(&wp, &slot)?.ok_or_else(|| Error::Unsupported(format!("'{}' has no customization controls", wp.title())))?;
+        let path = self.ensure_props(&wp, &slot)?.ok_or_else(|| {
+            Error::Unsupported(format!("'{}' has no customization controls", wp.title()))
+        })?;
         let props = Properties::load(&path)?;
         Ok((path, props.controls()))
     }
 
-    fn set_property(&mut self, wallpaper: &str, display: Option<&str>, name: &str, value: &Value) -> Result<()> {
+    fn set_property(
+        &mut self,
+        wallpaper: &str,
+        display: Option<&str>,
+        name: &str,
+        value: &Value,
+    ) -> Result<()> {
         if name == RESET_BUTTON {
             return self.reset_properties(wallpaper, display);
         }
         let (wp, slot) = self.props_target(wallpaper, display)?;
-        let path = self.ensure_props(&wp, &slot)?.ok_or_else(|| Error::Unsupported(format!("'{}' has no customization controls", wp.title())))?;
+        let path = self.ensure_props(&wp, &slot)?.ok_or_else(|| {
+            Error::Unsupported(format!("'{}' has no customization controls", wp.title()))
+        })?;
         let mut props = Properties::load(&path)?;
-        let control = props.get(name).ok_or_else(|| Error::NotFound(format!("no control named '{name}'")))?;
+        let control = props
+            .get(name)
+            .ok_or_else(|| Error::NotFound(format!("no control named '{name}'")))?;
         let sent = if control.is_interactive_only() {
             None
         } else {
@@ -1001,7 +1310,11 @@ impl Engine {
             props.save(&path)?;
             Some(v)
         };
-        for a in self.active.iter_mut().filter(|a| a.wallpaper.id == wp.id && a.placement.slot == slot) {
+        for a in self
+            .active
+            .iter_mut()
+            .filter(|a| a.wallpaper.id == wp.id && a.placement.slot == slot)
+        {
             a.content.apply(name, &control, sent.as_ref());
         }
         Ok(())
@@ -1009,8 +1322,16 @@ impl Engine {
 
     fn reset_properties(&mut self, wallpaper: &str, display: Option<&str>) -> Result<()> {
         let (wp, slot) = self.props_target(wallpaper, display)?;
-        self.reset_props(&wp, &slot)?.ok_or_else(|| Error::Unsupported(format!("'{}' has no customization controls", wp.title())))?;
-        let idxs: Vec<usize> = self.active.iter().enumerate().filter(|(_, a)| a.wallpaper.id == wp.id && a.placement.slot == slot).map(|(i, _)| i).collect();
+        self.reset_props(&wp, &slot)?.ok_or_else(|| {
+            Error::Unsupported(format!("'{}' has no customization controls", wp.title()))
+        })?;
+        let idxs: Vec<usize> = self
+            .active
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.wallpaper.id == wp.id && a.placement.slot == slot)
+            .map(|(i, _)| i)
+            .collect();
         for i in idxs {
             self.apply_properties(i);
         }
@@ -1018,20 +1339,34 @@ impl Engine {
     }
 
     fn seek(&mut self, display: Option<&str>, value: &str) -> Result<()> {
-        let seek = Seek::parse(value).ok_or_else(|| Error::Invalid(format!("'{value}' is not a seek position")))?;
+        let seek = Seek::parse(value)
+            .ok_or_else(|| Error::Invalid(format!("'{value}' is not a seek position")))?;
         let d = self.display(display)?;
         let all = display.is_none() || self.layout.arrangement != Arrangement::Per;
         let mut hit = false;
-        for a in self.active.iter_mut().filter(|a| all || a.placement.display == d.id) {
+        for a in self
+            .active
+            .iter_mut()
+            .filter(|a| all || a.placement.display == d.id)
+        {
             a.content.seek(seek);
             hit = true;
         }
-        if hit { Ok(()) } else { Err(Error::NotFound(format!("no wallpaper running on {}", d.name))) }
+        if hit {
+            Ok(())
+        } else {
+            Err(Error::NotFound(format!(
+                "no wallpaper running on {}",
+                d.name
+            )))
+        }
     }
 
     fn volume(&mut self, value: &str) -> Result<()> {
         let v = value.trim();
-        let parsed = v.parse::<i32>().map_err(|_| Error::Invalid(format!("'{value}' is not a volume")))?;
+        let parsed = v
+            .parse::<i32>()
+            .map_err(|_| Error::Invalid(format!("'{value}' is not a volume")))?;
         let new = if v.starts_with(['+', '-']) {
             (self.settings.volume as i32).saturating_add(parsed)
         } else {
@@ -1066,11 +1401,19 @@ impl Engine {
             let wid = wp.id.clone();
             self.job(
                 move || crate::media::thumb::capture(&source, kind, &path, &temp),
-                move |e, r| reply(r.and_then(|_| e.set_thumbnail(&wid, THUMBNAIL)).map_or_else(|err| Response::error(&err), |_| Response::Ok)),
+                move |e, r| {
+                    reply(
+                        r.and_then(|_| e.set_thumbnail(&wid, THUMBNAIL))
+                            .map_or_else(|err| Response::error(&err), |_| Response::Ok),
+                    )
+                },
             );
             return true;
         }
-        reply(Response::error(&Error::Invalid(format!("start '{}' to capture its thumbnail", wp.title()))));
+        reply(Response::error(&Error::Invalid(format!(
+            "start '{}' to capture its thumbnail",
+            wp.title()
+        ))));
         true
     }
 }

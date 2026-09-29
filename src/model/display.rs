@@ -31,7 +31,10 @@ pub fn primary(displays: &[Display]) -> Option<&Display> {
 pub fn find<'a>(displays: &'a [Display], reference: &str) -> Option<&'a Display> {
     let r = reference.trim();
     displays.iter().find(|d| d.id == r).or_else(|| {
-        r.parse::<usize>().ok().filter(|i| *i >= 1).and_then(|i| displays.get(i - 1))
+        r.parse::<usize>()
+            .ok()
+            .filter(|i| *i >= 1)
+            .and_then(|i| displays.get(i - 1))
     })
 }
 
@@ -56,5 +59,9 @@ pub fn composite_id(make: &str, model: &str, ordinal: usize) -> String {
     if base == "wallpaper-wallpaper" {
         base = "display".into();
     }
-    if ordinal == 0 { base } else { format!("{base}-{}", ordinal + 1) }
+    if ordinal == 0 {
+        base
+    } else {
+        format!("{base}-{}", ordinal + 1)
+    }
 }

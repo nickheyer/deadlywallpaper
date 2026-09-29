@@ -15,11 +15,30 @@ use std::sync::atomic::{AtomicBool, Ordering};
 const RATE: u32 = 48_000;
 
 pub fn start(device: Option<String>, stop: Arc<AtomicBool>, mut sink: Sink) -> Result<()> {
-    let spec = Spec { format: Format::F32le, channels: 2, rate: RATE };
+    let spec = Spec {
+        format: Format::F32le,
+        channels: 2,
+        rate: RATE,
+    };
     let source = device.unwrap_or_else(|| "@DEFAULT_MONITOR@".into());
-    let attr = BufferAttr { maxlength: u32::MAX, tlength: u32::MAX, prebuf: u32::MAX, minreq: u32::MAX, fragsize: (WINDOW * 2 * 4) as u32 };
-    let simple = Simple::new(None, crate::paths::APP_NAME, Direction::Record, Some(&source), "visualizer", &spec, None, Some(&attr))
-        .map_err(|e| Error::Platform(format!("audio capture on {source}: {e}")))?;
+    let attr = BufferAttr {
+        maxlength: u32::MAX,
+        tlength: u32::MAX,
+        prebuf: u32::MAX,
+        minreq: u32::MAX,
+        fragsize: (WINDOW * 2 * 4) as u32,
+    };
+    let simple = Simple::new(
+        None,
+        crate::paths::APP_NAME,
+        Direction::Record,
+        Some(&source),
+        "visualizer",
+        &spec,
+        None,
+        Some(&attr),
+    )
+    .map_err(|e| Error::Platform(format!("audio capture on {source}: {e}")))?;
     std::thread::Builder::new()
         .name("audio-capture".into())
         .spawn(move || {
@@ -30,7 +49,10 @@ pub fn start(device: Option<String>, stop: Arc<AtomicBool>, mut sink: Sink) -> R
                     log::warn!("audio read: {e}");
                     break;
                 }
-                let samples: Vec<f32> = bytes.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+                let samples: Vec<f32> = bytes
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
                 if let Some(bins) = analyzer.push(&downmix(&samples, 2)) {
                     sink(bins);
                 }
@@ -41,9 +63,16 @@ pub fn start(device: Option<String>, stop: Arc<AtomicBool>, mut sink: Sink) -> R
 }
 
 pub fn devices() -> Vec<AudioDevice> {
-    let mut out = vec![AudioDevice { id: String::new(), name: "System output (default monitor)".into() }];
-    let Some(mut mainloop) = Mainloop::new() else { return out };
-    let Some(mut context) = Context::new(&mainloop, crate::paths::APP_ID) else { return out };
+    let mut out = vec![AudioDevice {
+        id: String::new(),
+        name: "System output (default monitor)".into(),
+    }];
+    let Some(mut mainloop) = Mainloop::new() else {
+        return out;
+    };
+    let Some(mut context) = Context::new(&mainloop, crate::paths::APP_ID) else {
+        return out;
+    };
     if context.connect(None, ContextFlags::NOFLAGS, None).is_err() {
         return out;
     }
@@ -61,18 +90,20 @@ pub fn devices() -> Vec<AudioDevice> {
     let found: Arc<std::sync::Mutex<Vec<AudioDevice>>> = Arc::default();
     let done = Arc::new(AtomicBool::new(false));
     let (f2, d2) = (found.clone(), done.clone());
-    let op = context.introspect().get_source_info_list(move |res| match res {
-        libpulse_binding::callbacks::ListResult::Item(info) => {
-            let id = info.name.as_deref().unwrap_or("").to_string();
-            let name = info.description.as_deref().unwrap_or(&id).to_string();
-            if !id.is_empty() {
-                if let Ok(mut v) = f2.lock() {
-                    v.push(AudioDevice { id, name });
+    let op = context
+        .introspect()
+        .get_source_info_list(move |res| match res {
+            libpulse_binding::callbacks::ListResult::Item(info) => {
+                let id = info.name.as_deref().unwrap_or("").to_string();
+                let name = info.description.as_deref().unwrap_or(&id).to_string();
+                if !id.is_empty() {
+                    if let Ok(mut v) = f2.lock() {
+                        v.push(AudioDevice { id, name });
+                    }
                 }
             }
-        }
-        _ => d2.store(true, Ordering::Relaxed),
-    });
+            _ => d2.store(true, Ordering::Relaxed),
+        });
     while !done.load(Ordering::Relaxed) {
         if let IterateResult::Quit(_) | IterateResult::Err(_) = mainloop.iterate(true) {
             break;
