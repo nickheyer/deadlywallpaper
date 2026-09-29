@@ -1,16 +1,18 @@
+//! Live property editor for one running wallpaper: the controls of its `LivelyProperties.json`
+//! copy, or the built-in media controls.
+
 use crate::error::Result;
 use crate::ipc::{Request, Response, Status};
 use crate::model::Control;
 use crate::model::props::ControlKind;
-use crate::ui::Backend;
 use crate::ui::widgets::Toasts;
-use eframe::egui;
+use crate::ui::{Backend, theme, widgets};
+use eframe::egui::{self, RichText};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// Live property editor for one running wallpaper.
 #[derive(Default)]
 pub struct Panel {
     key: Option<(String, Option<String>)>,
@@ -39,13 +41,18 @@ impl Panel {
         }
     }
 
+    /// Drop the loaded controls when their wallpaper stopped running.
     pub fn invalidate_if_gone(&mut self, status: Option<&Status>) {
         if let (Some((wallpaper, _)), Some(s)) = (&self.key, status) {
             if !s.active.iter().any(|a| &a.wallpaper == wallpaper) {
-                self.key = None;
-                self.controls.clear();
+                self.clear();
             }
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.key = None;
+        self.controls.clear();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -61,21 +68,28 @@ impl Panel {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, backend: &mut Backend, toasts: &mut Toasts) {
+        let p = theme::palette(ui);
         let mut pending: Vec<(String, Value)> = Vec::new();
         let mut reset = false;
-        let throttle_ok = self.last_send.is_none_or(|t| t.elapsed() > Duration::from_millis(80));
-        egui::Grid::new("props").num_columns(2).spacing([16.0, 10.0]).striped(true).show(ui, |ui| {
+        let throttle_ok = self.last_send.is_none_or(|t| t.elapsed() > Duration::from_millis(60));
+        let label_w = (ui.available_width() * 0.32).clamp(120.0, 220.0);
+        let control_w = (ui.available_width() - label_w - 24.0).clamp(160.0, 520.0);
+        let root = self.root.clone();
+        let mut folder_cache = std::mem::take(&mut self.folders);
+        egui::Grid::new("props").num_columns(2).spacing([16.0, 12.0]).min_col_width(label_w).show(ui, |ui| {
+            ui.spacing_mut().slider_width = control_w - 70.0;
             for (i, (name, control)) in self.controls.iter_mut().enumerate() {
                 let label = if control.text.is_empty() { name.clone() } else { control.text.clone() };
                 match &mut control.kind {
                     ControlKind::Label { value } => {
-                        ui.label(egui::RichText::new(value.as_str()).strong());
+                        ui.label(RichText::new(value.as_str()).strong().color(p.text_strong));
+                        ui.label("");
                         ui.end_row();
                         continue;
                     }
                     ControlKind::Button { value } => {
-                        ui.label(&label);
-                        if ui.button(if value.is_empty() { "Run" } else { value.as_str() }).clicked() {
+                        ui.label(RichText::new(&label).color(p.text));
+                        if ui.add(theme::secondary_button(if value.is_empty() { "Run" } else { value.as_str() })).clicked() {
                             pending.push((name.clone(), Value::Null));
                         }
                         ui.end_row();
@@ -83,53 +97,56 @@ impl Panel {
                     }
                     _ => {}
                 }
-                let l = ui.label(&label);
-                if let Some(h) = &control.help {
+                let l = ui.add(egui::Label::new(RichText::new(&label).color(p.text)).truncate());
+                if let Some(h) = control.help.as_deref().filter(|h| !h.trim().is_empty()) {
                     l.on_hover_text(h);
                 }
-                match &mut control.kind {
-                    ControlKind::Slider { value, min, max, step } => {
-                        let (lo, hi) = (min.min(*max), max.max(*min));
-                        let r = ui.add(egui::Slider::new(value, lo..=hi).step_by(*step).show_value(true));
-                        if r.drag_stopped() || (r.changed() && (!r.dragged() || throttle_ok)) {
-                            pending.push((name.clone(), Value::from(*value)));
-                        }
-                    }
-                    ControlKind::Checkbox { value } => {
-                        if ui.checkbox(value, "").changed() {
-                            pending.push((name.clone(), Value::Bool(*value)));
-                        }
-                    }
-                    ControlKind::Dropdown { value, items } | ControlKind::ScalerDropdown { value, items } => {
-                        let current = items.get(*value as usize).cloned().unwrap_or_default();
-                        egui::ComboBox::from_id_salt(("dd", i)).selected_text(current).show_ui(ui, |ui| {
-                            for (idx, item) in items.iter().enumerate() {
-                                if ui.selectable_value(value, idx as i64, item).clicked() {
-                                    pending.push((name.clone(), Value::from(idx as i64)));
-                                }
+                ui.horizontal(|ui| {
+                    ui.set_width(control_w);
+                    match &mut control.kind {
+                        ControlKind::Slider { value, min, max, step } => {
+                            let (lo, hi) = (min.min(*max), max.max(*min));
+                            let decimals = if *step >= 1.0 { 0 } else if *step >= 0.1 { 1 } else { 2 };
+                            let r = ui.add(egui::Slider::new(value, lo..=hi).step_by(*step).show_value(true).fixed_decimals(decimals));
+                            if r.drag_stopped() || (r.changed() && (!r.dragged() || throttle_ok)) {
+                                pending.push((name.clone(), Value::from(*value)));
                             }
-                        });
-                    }
-                    ControlKind::Textbox { value } => {
-                        let r = ui.add(egui::TextEdit::singleline(value).desired_width(220.0));
-                        if r.lost_focus() && r.changed() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                            pending.push((name.clone(), Value::String(value.clone())));
                         }
-                    }
-                    ControlKind::Color { value } => {
-                        let mut rgb = parse_hex(value);
-                        if ui.color_edit_button_srgb(&mut rgb).changed() {
-                            *value = format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]);
-                            pending.push((name.clone(), Value::String(value.clone())));
+                        ControlKind::Checkbox { value } => {
+                            if widgets::toggle(ui, value).changed() {
+                                pending.push((name.clone(), Value::Bool(*value)));
+                            }
                         }
-                    }
-                    ControlKind::FolderDropdown { value, folder, filter } => {
-                        let (folder, filter) = (folder.clone(), filter.clone());
-                        let current = value.clone().unwrap_or_else(|| "(none)".into());
-                        let mut chosen: Option<Option<String>> = None;
-                        let names = folder_files(&folder, &filter, &self.root, &mut self.folders);
-                        ui.horizontal(|ui| {
-                            egui::ComboBox::from_id_salt(("fd", i)).selected_text(current).show_ui(ui, |ui| {
+                        ControlKind::Dropdown { value, items } | ControlKind::ScalerDropdown { value, items } => {
+                            let current = items.get(*value as usize).cloned().unwrap_or_default();
+                            egui::ComboBox::from_id_salt(("dd", i)).width(control_w.min(260.0)).selected_text(current).show_ui(ui, |ui| {
+                                for (idx, item) in items.iter().enumerate() {
+                                    if ui.selectable_value(value, idx as i64, item).clicked() {
+                                        pending.push((name.clone(), Value::from(idx as i64)));
+                                    }
+                                }
+                            });
+                        }
+                        ControlKind::Textbox { value } => {
+                            let r = ui.add(egui::TextEdit::singleline(value).desired_width(control_w.min(320.0)));
+                            if r.lost_focus() && r.changed() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                                pending.push((name.clone(), Value::String(value.clone())));
+                            }
+                        }
+                        ControlKind::Color { value } => {
+                            let mut rgb = parse_hex(value);
+                            if ui.color_edit_button_srgb(&mut rgb).changed() {
+                                *value = format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]);
+                                pending.push((name.clone(), Value::String(value.clone())));
+                            }
+                            ui.label(RichText::new(value.as_str()).monospace().color(p.text_weak));
+                        }
+                        ControlKind::FolderDropdown { value, folder, filter } => {
+                            let (folder, filter) = (folder.clone(), filter.clone());
+                            let current = value.clone().unwrap_or_else(|| "(none)".into());
+                            let mut chosen: Option<Option<String>> = None;
+                            let names = folder_files(&folder, &filter, &root, &mut folder_cache);
+                            egui::ComboBox::from_id_salt(("fd", i)).width((control_w - 40.0).min(260.0)).selected_text(current).show_ui(ui, |ui| {
                                 if ui.selectable_label(value.is_none(), "(none)").clicked() {
                                     chosen = Some(None);
                                 }
@@ -139,38 +156,46 @@ impl Panel {
                                     }
                                 }
                             });
-                            if ui.small_button("＋").on_hover_text("Copy a file into this folder").clicked() {
+                            if widgets::icon_button(ui, "+", "Add file").clicked() {
                                 if let Some(files) = rfd::FileDialog::new().pick_files() {
-                                    let dir = self.root.join(&folder);
-                                    let _ = std::fs::create_dir_all(&dir);
+                                    let dir = root.join(&folder);
                                     let mut last = None;
-                                    for f in files {
-                                        let name = crate::paths::file_name(&f);
-                                        if std::fs::copy(&f, dir.join(&name)).is_ok() {
-                                            last = Some(name);
+                                    match std::fs::create_dir_all(&dir) {
+                                        Ok(()) => {
+                                            for f in files {
+                                                let file_name = crate::paths::file_name(&f);
+                                                match std::fs::copy(&f, dir.join(&file_name)) {
+                                                    Ok(_) => last = Some(file_name),
+                                                    Err(e) => toasts.error(format!("copy {}: {e}", f.display())),
+                                                }
+                                            }
                                         }
+                                        Err(e) => toasts.error(format!("{}: {e}", dir.display())),
                                     }
-                                    self.folders.remove(&folder);
+                                    folder_cache.remove(&folder);
                                     if let Some(n) = last {
                                         chosen = Some(Some(n));
                                     }
                                 }
                             }
-                        });
-                        if let Some(c) = chosen {
-                            *value = c.clone();
-                            pending.push((name.clone(), c.map(Value::String).unwrap_or(Value::Null)));
+                            if let Some(c) = chosen {
+                                *value = c.clone();
+                                pending.push((name.clone(), c.map(Value::String).unwrap_or(Value::Null)));
+                            }
                         }
+                        ControlKind::Button { .. } | ControlKind::Label { .. } => {}
                     }
-                    ControlKind::Button { .. } | ControlKind::Label { .. } => {}
-                }
+                });
                 ui.end_row();
             }
         });
+        self.folders = folder_cache;
         ui.add_space(10.0);
-        if ui.button("Restore defaults").clicked() {
-            reset = true;
-        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.add(theme::secondary_button("Reset")).clicked() {
+                reset = true;
+            }
+        });
         for (name, value) in pending {
             self.send(backend, toasts, &name, value);
         }

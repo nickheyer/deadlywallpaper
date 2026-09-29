@@ -1,9 +1,11 @@
 //! libmpv rendering through the render API on an NSOpenGL context attached to the slot view.
 #![allow(deprecated)]
 
-use crate::content::Content;
+use crate::content::{Content, View};
 use crate::error::{Error, Result};
+use crate::geom::Size;
 use crate::media::glcap::Capture;
+use crate::media::glquad::{Quad, render_view};
 use crate::media::mpv::{GetProcAddressFn, Handle, RENDER_UPDATE_FRAME, RenderContext};
 use crate::media::player::{MediaContent, MediaSurface, Player, PlayerOptions, Vo, event_bridge};
 use crate::platform::ContentSpec;
@@ -61,6 +63,7 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, mtm: MainThread
             scaler: spec.settings.video.scaler,
             stream_quality: spec.settings.video.stream_quality,
             vo: Vo::Render,
+            slot: slot.size,
         },
         events,
     )?;
@@ -77,6 +80,7 @@ unsafe impl Send for GlContext {}
 
 enum Job {
     Frame,
+    View(View),
     Capture(std::path::PathBuf, Sender<Result<()>>),
     Stop,
 }
@@ -85,6 +89,9 @@ pub struct MediaView {
     jobs: SyncSender<Job>,
     thread: Option<JoinHandle<()>>,
     alive: Arc<AtomicBool>,
+    /// The render thread built the quad renderer, so views other than the whole image work.
+    quad_ready: Arc<AtomicBool>,
+    slot: Size,
     handle_ptr: *mut c_void,
 }
 
@@ -114,22 +121,34 @@ impl MediaView {
         let (w, h) = ((slot.size.w as f64 * scale) as i32, (slot.size.h as f64 * scale) as i32);
         let (jobs, rx) = sync_channel::<Job>(4);
         let alive = Arc::new(AtomicBool::new(true));
+        let quad_ready = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready_rx) = channel::<Result<()>>();
         let wake: Arc<Mutex<Option<SyncSender<Job>>>> = Arc::new(Mutex::new(Some(jobs.clone())));
         let handle_ptr = Box::into_raw(Box::new(wake.clone())) as *mut c_void;
         let gl = GlContext(context);
         let thread_alive = alive.clone();
+        let thread_quad = quad_ready.clone();
         let wake_addr = handle_ptr as usize;
+        let target = Target { w, h, slot: slot.size, dpi: scale };
         let thread = std::thread::Builder::new()
             .name("mpv-render".into())
-            .spawn(move || render_thread(gl, handle, rx, ready_tx, w, h, wake_addr as *mut c_void, thread_alive))
+            .spawn(move || render_thread(gl, handle, rx, ready_tx, target, wake_addr as *mut c_void, thread_alive, thread_quad))
             .map_err(|e| Error::Media(e.to_string()))?;
         match ready_rx.recv() {
-            Ok(Ok(())) => Ok(MediaView { jobs, thread: Some(thread), alive, handle_ptr }),
+            Ok(Ok(())) => Ok(MediaView { jobs, thread: Some(thread), alive, quad_ready, slot: slot.size, handle_ptr }),
             Ok(Err(e)) => Err(e),
             Err(_) => Err(Error::Media("render thread failed to start".into())),
         }
     }
+}
+
+/// The on-screen framebuffer: device pixels, logical slot size, and the ratio between them.
+#[derive(Clone, Copy)]
+struct Target {
+    w: i32,
+    h: i32,
+    slot: Size,
+    dpi: f64,
 }
 
 /// libmpv update callback: nudge the render thread.
@@ -143,7 +162,7 @@ unsafe extern "C" fn on_update(ctx: *mut c_void) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_thread(gl: GlContext, handle: Arc<Handle>, rx: Receiver<Job>, ready: Sender<Result<()>>, w: i32, h: i32, wake_ptr: *mut c_void, alive: Arc<AtomicBool>) {
+fn render_thread(gl: GlContext, handle: Arc<Handle>, rx: Receiver<Job>, ready: Sender<Result<()>>, target: Target, wake_ptr: *mut c_void, alive: Arc<AtomicBool>, quad_ready: Arc<AtomicBool>) {
     let ctx = gl.0;
     ctx.makeCurrentContext();
     let render = match RenderContext::new(&handle, GPA, std::ptr::null_mut(), &[]) {
@@ -154,19 +173,29 @@ fn render_thread(gl: GlContext, handle: Arc<Handle>, rx: Receiver<Job>, ready: S
         }
     };
     let capture = Capture::load(GPA, std::ptr::null_mut());
+    let mut quad = Quad::load(GPA, std::ptr::null_mut());
+    quad_ready.store(quad.is_some(), Ordering::Relaxed);
+    let mut view = View::whole(target.slot);
+    let Target { w, h, slot, dpi } = target;
     render.set_update_callback(Some(on_update), wake_ptr);
     let _ = ready.send(Ok(()));
     while alive.load(Ordering::Relaxed) {
         match rx.recv() {
             Ok(Job::Frame) => {
                 if render.update() & RENDER_UPDATE_FRAME != 0 {
-                    render.render(0, w, h, true);
+                    render_view(&render, &mut quad, &view, slot, 0, w, h, dpi, true);
                     ctx.flushBuffer();
                 }
             }
+            Ok(Job::View(v)) => {
+                view = v;
+                render.update();
+                render_view(&render, &mut quad, &view, slot, 0, w, h, dpi, true);
+                ctx.flushBuffer();
+            }
             Ok(Job::Capture(path, reply)) => {
                 let result = match capture {
-                    Some(gl) => match gl.render_offscreen(w, h, |fbo, w, h| render.render(fbo, w, h, false)).and_then(|p| crate::capture::from_gl_pixels(w as u32, h as u32, &p)) {
+                    Some(gl) => match gl.render_offscreen(w, h, |fbo, w, h| render_view(&render, &mut quad, &view, slot, fbo, w, h, dpi, false)).and_then(|p| crate::capture::from_gl_pixels(w as u32, h as u32, &p)) {
                         Some(img) => crate::capture::save_rgba(img, &path),
                         None => Err(Error::Media("offscreen frame capture failed".into())),
                     },
@@ -176,6 +205,9 @@ fn render_thread(gl: GlContext, handle: Arc<Handle>, rx: Receiver<Job>, ready: S
             }
             Ok(Job::Stop) | Err(_) => break,
         }
+    }
+    if let Some(mut q) = quad.take() {
+        q.destroy();
     }
     render.set_update_callback(None, std::ptr::null_mut());
     // SAFETY: the callback is unset, so the boxed wake sender has no more readers.
@@ -191,6 +223,13 @@ impl MediaSurface for MediaView {
             return Some(Err(Error::Media("render thread is gone".into())));
         }
         Some(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or_else(|_| Err(Error::Media("frame capture timed out".into()))))
+    }
+
+    fn set_view(&self, view: &View, _slot: Size) -> Option<Result<()>> {
+        if !view.is_whole(self.slot) && !self.quad_ready.load(Ordering::Relaxed) {
+            return Some(Err(Error::Media("the OpenGL view renderer is unavailable, so the wallpaper cannot be moved, scaled or turned".into())));
+        }
+        Some(self.jobs.send(Job::View(*view)).map_err(|_| Error::Media("render thread is gone".into())))
     }
 }
 

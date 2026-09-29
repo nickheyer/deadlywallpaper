@@ -1,7 +1,9 @@
 //! libmpv rendering into a GtkGLArea.
 
-use crate::content::Content;
+use crate::content::{Content, View};
 use crate::error::{Error, Result};
+use crate::geom::Size;
+use crate::media::glquad::{Quad, render_view};
 use crate::media::mpv::{Handle, RENDER_PARAM_WL_DISPLAY, RENDER_PARAM_X11_DISPLAY, RENDER_UPDATE_FRAME, RenderContext};
 use crate::media::player::{MediaContent, MediaSurface, Player, PlayerOptions, Vo, event_bridge};
 use crate::platform::ContentSpec;
@@ -31,6 +33,7 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, display: &gdk::
             scaler: spec.settings.video.scaler,
             stream_quality: spec.settings.video.stream_quality,
             vo: Vo::Render,
+            slot: slot.size,
         },
         events,
     )?;
@@ -43,6 +46,10 @@ struct Render {
     handle: Arc<Handle>,
     ctx: Option<RenderContext>,
     capture: Option<gl::Capture>,
+    /// Draws the frame through the view; absent when the program could not be built.
+    quad: Option<Quad>,
+    view: View,
+    slot: Size,
     callback_ctx: *mut SendWeakRef<gtk::GLArea>,
     prefer: *mut c_void,
     x11: *mut c_void,
@@ -92,6 +99,9 @@ impl MediaView {
             handle,
             ctx: None,
             capture: None,
+            quad: None,
+            view: View::whole(slot.size),
+            slot: slot.size,
             callback_ctx: std::ptr::null_mut(),
             prefer: if wayland { gl::PREFER_EGL } else { gl::PREFER_GLX },
             x11: x11_display_ptr(display),
@@ -105,14 +115,14 @@ impl MediaView {
 
         let r = render.clone();
         area.connect_render(move |area, _| {
-            let r = r.borrow();
-            if let (Some(ctx), Some(gl)) = (&r.ctx, r.capture) {
+            let mut r = r.borrow_mut();
+            let scale = area.scale_factor();
+            let (w, h) = (area.allocated_width() * scale, area.allocated_height() * scale);
+            let Render { ctx, capture, quad, view, slot, .. } = &mut *r;
+            if let (Some(ctx), Some(gl)) = (ctx.as_ref(), *capture) {
                 ctx.update();
-                let fbo = gl.current_fbo();
-                let scale = area.scale_factor();
-                let (w, h) = (area.allocated_width() * scale, area.allocated_height() * scale);
                 if w > 0 && h > 0 {
-                    ctx.render(fbo, w, h, true);
+                    render_view(ctx, quad, view, *slot, gl.current_fbo(), w, h, scale as f64, true);
                 }
             }
             glib::Propagation::Stop
@@ -154,6 +164,7 @@ fn ensure_context(area: &gtk::GLArea, render: &Rc<RefCell<Render>>) {
             ctx.set_update_callback(Some(on_update), ptr as *mut c_void);
             r.callback_ctx = ptr;
             r.capture = gl::Capture::load(gl::get_proc_address, r.prefer);
+            r.quad = Quad::load(gl::get_proc_address, r.prefer);
             r.ctx = Some(ctx);
             log::debug!("mpv render context ready ({:?})", area.context().map(|c| c.version()));
         }
@@ -162,6 +173,9 @@ fn ensure_context(area: &gtk::GLArea, render: &Rc<RefCell<Render>>) {
 }
 
 fn release(r: &mut Render) {
+    if let Some(mut quad) = r.quad.take() {
+        quad.destroy();
+    }
     if let Some(ctx) = r.ctx.take() {
         ctx.set_update_callback(None, std::ptr::null_mut());
         drop(ctx);
@@ -177,8 +191,9 @@ impl MediaSurface for MediaView {
     /// Render the current frame into an offscreen buffer on our own GL context, so captures
     /// work with hardware-decoded frames and while the surface is occluded.
     fn capture(&self, path: &std::path::Path) -> Option<Result<()>> {
-        let r = self.render.borrow();
-        let (ctx, gl) = (r.ctx.as_ref()?, r.capture?);
+        let mut r = self.render.borrow_mut();
+        let Render { ctx, capture, quad, view, slot, .. } = &mut *r;
+        let (ctx, gl) = (ctx.as_ref()?, (*capture)?);
         if !self.area.is_realized() {
             return Some(Err(Error::Media("wallpaper surface is not ready".into())));
         }
@@ -188,12 +203,22 @@ impl MediaSurface for MediaView {
             return Some(Err(Error::Media("wallpaper surface has no size".into())));
         }
         self.area.make_current();
-        let pixels = gl.render_offscreen(w, h, |fbo, w, h| ctx.render(fbo, w, h, false));
+        let pixels = gl.render_offscreen(w, h, |fbo, w, h| render_view(ctx, quad, view, *slot, fbo, w, h, scale as f64, false));
         let image = pixels.and_then(|p| crate::capture::from_gl_pixels(w as u32, h as u32, &p));
         Some(match image {
             Some(img) => crate::capture::save_rgba(img, path),
             None => Err(Error::Media("offscreen frame capture failed".into())),
         })
+    }
+
+    fn set_view(&self, view: &View, _slot: Size) -> Option<Result<()>> {
+        let mut r = self.render.borrow_mut();
+        if !view.is_whole(r.slot) && r.quad.is_none() {
+            return Some(Err(Error::Media("OpenGL is unavailable for this display, so the wallpaper cannot be moved, scaled or turned".into())));
+        }
+        r.view = *view;
+        self.area.queue_render();
+        Some(Ok(()))
     }
 }
 

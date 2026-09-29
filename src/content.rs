@@ -1,4 +1,5 @@
 use crate::error::Result;
+use crate::geom::Size;
 use crate::model::Control;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -56,6 +57,56 @@ impl Seek {
     }
 }
 
+/// How an instance's image maps onto its slot. The image is `width`×`height` logical pixels;
+/// it is drawn scaled by `scale`, rotated `rotation` degrees clockwise, with its centre `x`, `y`
+/// pixels from the slot centre. [`View::whole`] shows the whole image edge to edge.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct View {
+    pub width: i32,
+    pub height: i32,
+    pub scale: f64,
+    pub rotation: f64,
+    pub x: f64,
+    pub y: f64,
+}
+
+impl View {
+    pub fn whole(size: Size) -> View {
+        View { width: size.w, height: size.h, scale: 1.0, rotation: 0.0, x: 0.0, y: 0.0 }
+    }
+
+    /// The image covers the slot exactly, one image pixel per slot pixel.
+    pub fn is_whole(&self, slot: Size) -> bool {
+        self.width == slot.w && self.height == slot.h && self.is_plain() && self.x == 0.0 && self.y == 0.0
+    }
+
+    /// Neither scaled nor rotated.
+    pub fn is_plain(&self) -> bool {
+        self.scale == 1.0 && self.rotation == 0.0
+    }
+
+    /// Top-left corner of the scaled, unrotated image in slot pixels.
+    pub fn origin(&self, slot: Size) -> (f64, f64) {
+        (slot.w as f64 / 2.0 + self.x - self.scale * self.width as f64 / 2.0, slot.h as f64 / 2.0 + self.y - self.scale * self.height as f64 / 2.0)
+    }
+
+    /// Slot pixel to image pixel.
+    pub fn to_image(&self, slot: Size, x: f64, y: f64) -> (f64, f64) {
+        let (dx, dy) = (x - slot.w as f64 / 2.0 - self.x, y - slot.h as f64 / 2.0 - self.y);
+        let (s, c) = (-self.rotation).to_radians().sin_cos();
+        let (rx, ry) = (dx * c - dy * s, dx * s + dy * c);
+        (rx / self.scale + self.width as f64 / 2.0, ry / self.scale + self.height as f64 / 2.0)
+    }
+
+    /// Image pixel to slot pixel.
+    #[cfg(test)]
+    pub fn to_slot(&self, slot: Size, x: f64, y: f64) -> (f64, f64) {
+        let (dx, dy) = ((x - self.width as f64 / 2.0) * self.scale, (y - self.height as f64 / 2.0) * self.scale);
+        let (s, c) = self.rotation.to_radians().sin_cos();
+        (dx * c - dy * s + slot.w as f64 / 2.0 + self.x, dx * s + dy * c + slot.h as f64 / 2.0 + self.y)
+    }
+}
+
 /// A live wallpaper instance. Implementations own their native surface; dropping one
 /// removes it from the desktop.
 pub trait Content {
@@ -73,4 +124,30 @@ pub trait Content {
     fn set_input_enabled(&mut self, enabled: bool);
     /// Audio spectrum for visualizer wallpapers, 128 bins.
     fn audio_data(&mut self, bins: &[f32]);
+    /// Show this part of the image; called right after creation and whenever it changes.
+    fn set_view(&mut self, view: &View) -> Result<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn view_maps_both_ways() {
+        let slot = Size { w: 1080, h: 1920 };
+        let v = View { width: 3000, height: 1920, scale: 1.25, rotation: 37.0, x: -300.0, y: 80.0 };
+        for (x, y) in [(0.0, 0.0), (540.0, 960.0), (1080.0, 1920.0), (-200.0, 55.5)] {
+            let (ix, iy) = v.to_image(slot, x, y);
+            let (bx, by) = v.to_slot(slot, ix, iy);
+            assert!((bx - x).abs() < 1e-6 && (by - y).abs() < 1e-6, "{x},{y} came back as {bx},{by}");
+        }
+        let whole = View::whole(slot);
+        assert!(whole.is_whole(slot));
+        assert_eq!(whole.to_image(slot, 10.0, 20.0), (10.0, 20.0));
+        assert_eq!(whole.origin(slot), (0.0, 0.0));
+        assert!(!v.is_whole(slot) && !v.is_plain());
+        let shifted = View { x: -960.0, ..View::whole(Size { w: 3000, h: 1920 }) };
+        assert_eq!(shifted.to_image(slot, 0.0, 0.0), (1920.0, 0.0));
+        assert_eq!(shifted.origin(slot), (-1920.0, 0.0));
+    }
 }

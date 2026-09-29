@@ -21,7 +21,7 @@ mod web;
 use clap::{Parser, Subcommand};
 use error::{Error, Result};
 use ipc::{Request, Response, client};
-use model::Arrangement;
+use model::{Arrangement, Pose};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -58,6 +58,23 @@ enum Command {
     },
     /// Change how wallpapers map onto displays
     Layout { arrangement: Arrangement },
+    /// Move, scale or rotate the spanning image or one display; --reset clears everything
+    Align {
+        /// `image`, a display id, or a 1-based display index
+        target: Option<String>,
+        /// Shift of the centre in pixels
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        x: f64,
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        y: f64,
+        #[arg(long, default_value_t = 1.0)]
+        scale: f64,
+        /// Degrees clockwise
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        rotate: f64,
+        #[arg(long)]
+        reset: bool,
+    },
     /// Set the volume 0-100, or adjust it with +n / -n
     Volume { value: String },
     /// Resume playback
@@ -82,7 +99,7 @@ enum Command {
         #[arg(short, long)]
         display: Option<String>,
     },
-    /// Add a file, folder, Lively package, or URL to the library
+    /// Add a file, a folder of wallpapers, a Lively package, or a URL to the library
     Import { source: String },
     /// Export a wallpaper as a Lively package (.zip)
     Export { wallpaper: String, file: PathBuf },
@@ -145,6 +162,15 @@ fn client_command(cmd: Command) -> Result<()> {
         Command::Set { target, display } => Request::Set { target: absolutize(target), display },
         Command::Close { display } => Request::Close { display },
         Command::Layout { arrangement } => Request::SetArrangement { arrangement, display: None },
+        Command::Align { target, x, y, scale, rotate, reset } => {
+            let pose = Pose { x, y, scale, rotation: rotate };
+            match (reset, target.as_deref()) {
+                (true, _) => Request::ResetAlignment,
+                (false, Some("image")) => Request::AlignImage { pose },
+                (false, Some(display)) => Request::AlignDisplay { display: display.to_string(), pose },
+                (false, None) => return Err(Error::Invalid("expected `image`, a display, or --reset".into())),
+            }
+        }
         Command::Volume { value } => Request::Volume { value },
         Command::Play => Request::Play { play: true },
         Command::Pause => Request::Play { play: false },
@@ -197,7 +223,7 @@ fn print_response(resp: Response) {
                 println!("{}\t{}\t{}\t{}x{}+{}+{}\tscale {:.2}{}", i + 1, d.id, d.name, d.rect.w, d.rect.h, d.rect.x, d.rect.y, d.scale, if d.primary { "\tprimary" } else { "" });
             }
         }
-        Response::Library(items) => {
+        Response::Library(items) | Response::Wallpapers(items) => {
             for w in items {
                 println!("{}\t{}\t{}\t{}", w.id, w.kind, w.title, w.source);
             }

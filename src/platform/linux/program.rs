@@ -1,7 +1,8 @@
 //! External program wallpapers embedded through XEmbed (X11 sessions only).
 
-use crate::content::{Content, ContentEvent, PointerEvent, Seek};
+use crate::content::{Content, ContentEvent, PointerEvent, Seek, View};
 use crate::error::{Error, Result};
+use crate::geom::Size;
 use crate::model::Control;
 use crate::msg::Msg;
 use crate::platform::MsgSenderApi;
@@ -36,9 +37,15 @@ pub fn spawn(spec: &crate::platform::ContentSpec<'_>, slot: &Slot, tx: MsgSender
         .spawn()
         .map_err(|e| Error::Platform(format!("start {}: {e}", exe.display())))?;
     let pid = child.id();
+    // The program window keeps the image's size and moves inside this layout, which clips it
+    // to the display.
+    let inner = gtk::Layout::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    inner.set_size_request(slot.size.w, slot.size.h);
+    slot.container.pack_start(&inner, true, true, 0);
+    inner.show();
     let socket = gtk::Socket::new();
     socket.set_size_request(slot.size.w, slot.size.h);
-    slot.container.pack_start(&socket, true, true, 0);
+    inner.put(&socket, 0, 0);
     socket.show();
     socket.realize();
     let weak: SendWeakRef<gtk::Socket> = socket.downgrade().into();
@@ -59,7 +66,7 @@ pub fn spawn(spec: &crate::platform::ContentSpec<'_>, slot: &Slot, tx: MsgSender
             Err(e) => finder_tx.send(Msg::Content(id, ContentEvent::Exited { reason: e.to_string() })),
         })
         .map_err(|e| Error::Platform(e.to_string()))?;
-    Ok(Box::new(ProgramContent::new(child, socket, id, tx)))
+    Ok(Box::new(ProgramContent::new(child, socket, inner, slot.size, id, tx)))
 }
 
 /// Wait until the process (or a descendant) maps a client window and return its id.
@@ -133,11 +140,13 @@ fn descendants(pid: u32) -> Vec<u32> {
 pub struct ProgramContent {
     pid: u32,
     socket: gtk::Socket,
+    layout: gtk::Layout,
+    slot: Size,
     paused: bool,
 }
 
 impl ProgramContent {
-    fn new(mut child: Child, socket: gtk::Socket, id: crate::content::ContentId, tx: MsgSender) -> ProgramContent {
+    fn new(mut child: Child, socket: gtk::Socket, layout: gtk::Layout, slot: Size, id: crate::content::ContentId, tx: MsgSender) -> ProgramContent {
         let pid = child.id();
         let _ = std::thread::Builder::new().name("program-wait".into()).spawn(move || {
             let status = child.wait();
@@ -147,7 +156,7 @@ impl ProgramContent {
             };
             tx.send(Msg::Content(id, ContentEvent::Exited { reason }));
         });
-        ProgramContent { pid, socket, paused: false }
+        ProgramContent { pid, socket, layout, slot, paused: false }
     }
 
     fn signal(&self, sig: libc::c_int) {
@@ -197,4 +206,15 @@ impl Content for ProgramContent {
     fn set_input_enabled(&mut self, _enabled: bool) {}
 
     fn audio_data(&mut self, _bins: &[f32]) {}
+
+    /// An embedded window can be placed but not scaled or turned.
+    fn set_view(&mut self, view: &View) -> Result<()> {
+        if !view.is_plain() {
+            return Err(Error::Unsupported("program wallpapers can be moved but not scaled or rotated".into()));
+        }
+        let (x, y) = view.origin(self.slot);
+        self.socket.set_size_request(view.width.max(1), view.height.max(1));
+        self.layout.move_(&self.socket, x.round() as i32, y.round() as i32);
+        Ok(())
+    }
 }

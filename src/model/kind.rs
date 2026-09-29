@@ -15,23 +15,55 @@ pub enum Kind {
     Program,
 }
 
+/// Lively wallpaper packages: a zip holding `LivelyInfo.json`.
+pub const PACKAGE_EXTENSIONS: &[&str] = &["zip"];
+
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {
             Kind::Video => "Video",
             Kind::Gif => "GIF",
             Kind::Picture => "Picture",
-            Kind::VideoStream => "Video stream",
+            Kind::VideoStream => "Stream",
             Kind::Web => "Web page",
-            Kind::WebAudio => "Web audio visualizer",
+            Kind::WebAudio => "Visualizer",
             Kind::Url => "Website",
             Kind::Program => "Program",
         }
     }
 
+    /// File extensions, lower case, that import as this kind. Empty for kinds that only come
+    /// from a URL or a Lively package.
+    pub fn extensions(self) -> &'static [&'static str] {
+        match self {
+            Kind::Video => &["wmv", "avi", "flv", "m4v", "mkv", "mov", "mp4", "mp4v", "mpeg4", "mpg", "mpeg", "webm", "ogm", "ogv", "ogx", "ts", "m2ts"],
+            Kind::Gif => &["gif"],
+            Kind::Picture => &["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp", "jfif", "avif", "heic"],
+            Kind::Web => &["html", "htm"],
+            Kind::Program => &["exe", "appimage", "sh", "run"],
+            Kind::VideoStream | Kind::WebAudio | Kind::Url => &[],
+        }
+    }
+
+    /// Every extension the file picker offers: each kind's files plus Lively packages.
+    pub fn importable_extensions() -> Vec<&'static str> {
+        let kinds = [Kind::Video, Kind::Gif, Kind::Picture, Kind::Web, Kind::Program];
+        kinds.iter().flat_map(|k| k.extensions().iter().copied()).chain(PACKAGE_EXTENSIONS.iter().copied()).collect()
+    }
+
     /// Played through libmpv.
     pub fn is_media(self) -> bool {
         matches!(self, Kind::Video | Kind::Gif | Kind::Picture | Kind::VideoStream)
+    }
+
+    /// Can carry sound: everything but still and animated pictures.
+    pub fn has_audio(self) -> bool {
+        !matches!(self, Kind::Picture | Kind::Gif)
+    }
+
+    /// Plays along a timeline that can be restarted or sought.
+    pub fn has_timeline(self) -> bool {
+        matches!(self, Kind::Video | Kind::VideoStream | Kind::Gif)
     }
 
     /// Played through the platform web view.
@@ -55,15 +87,25 @@ impl Kind {
 
     pub fn from_extension(ext: &str) -> Option<Kind> {
         let e = ext.trim_start_matches('.').to_ascii_lowercase();
-        Some(match e.as_str() {
-            "wmv" | "avi" | "flv" | "m4v" | "mkv" | "mov" | "mp4" | "mp4v" | "mpeg4" | "mpg" | "mpeg"
-            | "webm" | "ogm" | "ogv" | "ogx" | "ts" | "m2ts" => Kind::Video,
-            "jpg" | "jpeg" | "png" | "bmp" | "tif" | "tiff" | "webp" | "jfif" | "avif" | "heic" => Kind::Picture,
-            "gif" => Kind::Gif,
-            "html" | "htm" => Kind::Web,
-            "exe" | "appimage" | "sh" | "run" => Kind::Program,
-            _ => return None,
-        })
+        [Kind::Video, Kind::Gif, Kind::Picture, Kind::Web, Kind::Program].into_iter().find(|k| k.extensions().contains(&e.as_str()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extensions_map_back_to_their_kind() {
+        for kind in [Kind::Video, Kind::Gif, Kind::Picture, Kind::Web, Kind::Program] {
+            for ext in kind.extensions() {
+                assert_eq!(Kind::from_extension(ext), Some(kind), "{ext}");
+                assert_eq!(Kind::from_extension(&format!(".{}", ext.to_ascii_uppercase())), Some(kind), "{ext}");
+            }
+        }
+        assert_eq!(Kind::from_extension("txt"), None);
+        let all = Kind::importable_extensions();
+        assert!(all.contains(&"mp4") && all.contains(&"html") && all.contains(&"zip") && all.contains(&"appimage"));
     }
 }
 

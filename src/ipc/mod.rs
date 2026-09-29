@@ -2,7 +2,7 @@ pub mod client;
 pub mod server;
 
 use crate::error::Error;
-use crate::model::{Arrangement, Control, Display, Kind, Layout, Settings, Summary};
+use crate::model::{Arrangement, Control, Display, Kind, Layout, Pose, Settings, Summary};
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use std::io::{BufRead, Write};
@@ -19,6 +19,12 @@ pub enum Request {
     SetSettings { settings: Settings },
     Layout,
     SetArrangement { arrangement: Arrangement, display: Option<String> },
+    /// Move, scale or rotate the spanning image.
+    AlignImage { pose: Pose },
+    /// Move, scale or rotate one display inside the spanning image; the identity pose puts it
+    /// back where the desktop reports it.
+    AlignDisplay { display: String, pose: Pose },
+    ResetAlignment,
     /// `target`: wallpaper id, library directory, file path, URL, `random`, or `reload`.
     Set { target: String, display: Option<String> },
     /// `display: None` closes every wallpaper.
@@ -56,6 +62,8 @@ pub enum Response {
     Controls { path: PathBuf, controls: Vec<(String, Control)> },
     Devices(Vec<AudioDevice>),
     Wallpaper(Summary),
+    /// Everything one import brought in.
+    Wallpapers(Vec<Summary>),
     Text(String),
 }
 
@@ -107,6 +115,8 @@ pub struct Capabilities {
     pub programs: bool,
     /// Web wallpapers can open developer tools.
     pub web_devtools: bool,
+    /// A spanning web wallpaper can be turned by any angle.
+    pub rotate_web: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -170,6 +180,7 @@ mod tests {
             Response::Layout(Layout::default()),
             Response::Controls { path: PathBuf::from("/p"), controls: vec![] },
             Response::Devices(vec![AudioDevice { id: "x".into(), name: "X".into() }]),
+            Response::Wallpapers(vec![]),
             Response::Text("t".into()),
             Response::Status(Status { version: "v".into(), platform: "p".into(), session: "s".into(), window_monitor: "m".into(), capabilities: Capabilities::default(), displays: vec![d], layout: Layout::default(), active: vec![], paused: false, locked: false, on_battery: false }),
         ];
@@ -178,7 +189,13 @@ mod tests {
             let back: Response = serde_json::from_str(&text).expect("deserialize");
             assert_eq!(serde_json::to_string(&back).unwrap(), text);
         }
-        for r in [Request::Status, Request::Set { target: "x".into(), display: None }, Request::SetProperty { wallpaper: String::new(), display: None, name: "n".into(), value: serde_json::Value::Null }] {
+        for r in [
+            Request::Status,
+            Request::Set { target: "x".into(), display: None },
+            Request::SetProperty { wallpaper: String::new(), display: None, name: "n".into(), value: serde_json::Value::Null },
+            Request::AlignImage { pose: Pose::default() },
+            Request::AlignDisplay { display: "a".into(), pose: Pose { x: 1.0, y: -2.0, scale: 1.5, rotation: 90.0 } },
+        ] {
             let text = serde_json::to_string(&r).expect("serialize request");
             let _: Request = serde_json::from_str(&text).expect("deserialize request");
         }

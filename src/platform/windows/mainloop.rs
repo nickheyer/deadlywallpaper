@@ -217,6 +217,7 @@ impl RuntimeApi for Runtime {
                         scaler: spec.settings.video.scaler,
                         stream_quality: spec.settings.video.stream_quality,
                         vo: Vo::Wid(slot.hwnd.0 as isize as i64),
+                        slot: slot.size,
                     },
                     events,
                 )?;
@@ -229,10 +230,40 @@ impl RuntimeApi for Runtime {
                 let builder = crate::web::builder(spec, self.tx.clone())?;
                 let bounds = wry::Rect { position: wry::dpi::PhysicalPosition::new(0, 0).into(), size: wry::dpi::PhysicalSize::new(slot.size.w as u32, slot.size.h as u32).into() };
                 let webview = builder.with_bounds(bounds).build_as_child(slot).map_err(|e| Error::Web(format!("web view: {e}")))?;
-                Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone())))
+                let controller = {
+                    use wry::WebViewExtWindows;
+                    webview.controller()
+                };
+                let slot_size = slot.size;
+                let hook = move |v: &crate::content::View| -> Result<()> { emulate_viewport(&controller, (!v.is_whole(slot_size)).then_some((v.width, v.height))) };
+                Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone(), slot.size).with_view_hook(Box::new(hook)).with_css_view(true)))
             }
             Kind::Program => program::spawn(spec, slot, self.tx.clone()),
             _ => Err(Error::Unsupported(format!("{} wallpapers are not supported", kind.label()))),
         }
+    }
+}
+
+/// Lay the page out at `size` regardless of its window, through the DevTools protocol, so a
+/// spanning page keeps the image's viewport while the window shows this display's part of it.
+fn emulate_viewport(controller: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller, size: Option<(i32, i32)>) -> Result<()> {
+    use crate::platform::windows::{pcwstr, wide};
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    let (method, params) = match size {
+        Some((w, h)) => ("Emulation.setDeviceMetricsOverride", format!(r#"{{"width":{w},"height":{h},"deviceScaleFactor":0,"mobile":false}}"#)),
+        None => ("Emulation.clearDeviceMetricsOverride", "{}".to_string()),
+    };
+    let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |hr: windows::core::Result<()>, _json: String| {
+        if let Err(e) = hr {
+            log::warn!("{method}: {e}");
+        }
+        Ok(())
+    }));
+    let (m, p) = (wide(method), wide(&params));
+    // SAFETY: COM calls on the thread that owns the controller; WebView2 keeps the handler alive
+    // until the call completes.
+    unsafe {
+        let core = controller.CoreWebView2().map_err(|e| Error::Web(format!("webview2: {e}")))?;
+        core.CallDevToolsProtocolMethod(pcwstr(&m), pcwstr(&p), &handler).map_err(|e| Error::Web(format!("{method}: {e}")))
     }
 }

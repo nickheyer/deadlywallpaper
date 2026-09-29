@@ -13,6 +13,8 @@ pub struct Display {
     pub primary: bool,
 }
 
+/// The whole desktop as one rectangle; the Windows shell parents one surface under it.
+#[cfg(windows)]
 pub fn virtual_bounds(displays: &[Display]) -> Rect {
     Rect::bounds(displays.iter().map(|d| &d.rect))
 }

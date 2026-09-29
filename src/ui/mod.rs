@@ -1,5 +1,7 @@
 //! The control window: an egui client of the daemon.
 
+mod about;
+mod align;
 mod app;
 mod customize;
 mod library;
@@ -18,9 +20,14 @@ use std::time::Duration;
 
 /// Messages from worker threads to the UI thread.
 pub enum UiMsg {
+    /// A connection attempt succeeded; the client is handed over to the UI thread.
+    Connected(Box<Client>),
+    /// A connection attempt failed with this message.
+    ConnectFailed(String),
     Event(Event),
     /// Outcome of a background request, labeled for the toast.
     Done { label: String, result: Box<Result<Response>> },
+    /// The event stream ended: the daemon went away.
     Disconnected,
 }
 
@@ -32,10 +39,11 @@ pub fn run() -> Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title(crate::paths::APP_NAME)
             .with_app_id(crate::paths::APP_ID)
-            .with_inner_size([1180.0, 760.0])
-            .with_min_inner_size([900.0, 600.0])
+            .with_inner_size([1220.0, 780.0])
+            .with_min_inner_size([880.0, 560.0])
             .with_icon(icon),
         persist_window: true,
+        centered: true,
         ..Default::default()
     };
     eframe::run_native(
@@ -50,52 +58,76 @@ pub fn run() -> Result<()> {
     .map_err(|e| Error::Platform(format!("window: {e}")))
 }
 
-/// Request plumbing shared by the UI: one blocking connection for quick calls and a
-/// subscription thread that turns daemon events into repaints.
+/// Request plumbing shared by the UI: one blocking connection for quick calls, a subscription
+/// thread that turns daemon events into repaints, and connection attempts that never block
+/// the UI thread.
 pub struct Backend {
     client: Option<Client>,
+    connecting: bool,
     tx: Sender<UiMsg>,
     pub rx: Receiver<UiMsg>,
 }
 
 impl Backend {
-    pub fn connect(ctx: egui::Context) -> Backend {
+    pub fn new() -> Backend {
         let (tx, rx) = channel();
-        let mut backend = Backend { client: None, tx, rx };
-        backend.reconnect(&ctx);
-        backend
+        Backend { client: None, connecting: false, tx, rx }
     }
 
-    pub fn reconnect(&mut self, ctx: &egui::Context) {
-        if self.client.is_some() {
+    /// Start the daemon when needed and connect, on a worker thread. The outcome arrives as
+    /// [`UiMsg::Connected`] or [`UiMsg::ConnectFailed`].
+    pub fn connect(&mut self, ctx: &egui::Context) {
+        if self.client.is_some() || self.connecting {
             return;
         }
-        if let Err(e) = crate::ensure_daemon() {
-            log::warn!("{e}");
-            return;
-        }
-        let Ok(client) = Client::connect_within(Duration::from_secs(3)) else { return };
-        self.client = Some(client);
-        let tx = self.tx.clone();
-        let ctx = ctx.clone();
+        self.connecting = true;
+        let (tx, ctx) = (self.tx.clone(), ctx.clone());
         std::thread::spawn(move || {
-            if let Ok(sub) = Client::connect().and_then(Client::subscribe) {
-                for ev in sub {
-                    let _ = tx.send(UiMsg::Event(ev));
-                    ctx.request_repaint();
+            let result = crate::ensure_daemon().and_then(|_| Client::connect_within(Duration::from_secs(5)));
+            let msg = match result {
+                Ok(client) => UiMsg::Connected(Box::new(client)),
+                Err(e) => UiMsg::ConnectFailed(e.to_string()),
+            };
+            let _ = tx.send(msg);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Adopt a connection made by [`Backend::connect`] and start listening for events.
+    pub fn attach(&mut self, ctx: &egui::Context, client: Client) {
+        self.client = Some(client);
+        self.connecting = false;
+        let (tx, ctx) = (self.tx.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            match Client::connect().and_then(Client::subscribe) {
+                Ok(events) => {
+                    for ev in events {
+                        let _ = tx.send(UiMsg::Event(ev));
+                        ctx.request_repaint();
+                    }
                 }
+                Err(e) => log::warn!("event subscription: {e}"),
             }
             let _ = tx.send(UiMsg::Disconnected);
             ctx.request_repaint();
         });
     }
 
+    pub fn connection_failed(&mut self) {
+        self.connecting = false;
+    }
+
+    pub fn disconnect(&mut self) {
+        self.client = None;
+        self.connecting = false;
+    }
+
     pub fn connected(&self) -> bool {
         self.client.is_some()
     }
 
-    pub fn drop_connection(&mut self) {
-        self.client = None;
+    pub fn connecting(&self) -> bool {
+        self.connecting
     }
 
     /// Synchronous request; the daemon answers these immediately.

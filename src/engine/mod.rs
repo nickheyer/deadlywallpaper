@@ -6,12 +6,13 @@ pub mod playback;
 pub mod stream;
 
 use crate::audio::Capture;
-use crate::content::{Content, ContentEvent, ContentId, PointerEvent, PointerKind, Seek};
+use crate::content::{Content, ContentEvent, ContentId, PointerEvent, PointerKind, Seek, View};
 use crate::error::{Error, Result, ctx};
+use crate::geom::Size;
 use crate::ipc::server::{Reply, Server};
 use crate::ipc::{ActiveInfo, Capabilities, Event, InfoPatch, Request, Response, Status};
 use crate::model::display;
-use crate::model::props::{MEDIA_DEFAULTS, Properties};
+use crate::model::props::Properties;
 use crate::model::wallpaper::PropertySource;
 use crate::model::{Arrangement, Display, Kind, Layout, Placement, Settings, Wallpaper};
 use crate::msg::{Msg, TrayAction};
@@ -31,6 +32,7 @@ struct Active {
     wallpaper: Wallpaper,
     _slot: Slot,
     content: Box<dyn Content>,
+    view: View,
     props_path: Option<PathBuf>,
     loaded: bool,
     paused: Option<bool>,
@@ -232,18 +234,25 @@ impl Engine {
         }
     }
 
-    /// Per-slot property copy, created from the wallpaper's template on first use.
+    /// Per-slot property copy, created from the wallpaper's template on first use. Built-in
+    /// media copies are trimmed to the controls the wallpaper's kind has.
     fn ensure_props(&self, wp: &Wallpaper, slot: &str) -> Result<Option<PathBuf>> {
+        let builtin = (wp.properties == PropertySource::BuiltinMedia).then(|| crate::model::props::media_defaults(wp.kind()));
         let template = match &wp.properties {
             PropertySource::None => return Ok(None),
             PropertySource::File(p) => ctx(std::fs::read_to_string(p), p.display())?,
-            PropertySource::BuiltinMedia => MEDIA_DEFAULTS.to_string(),
+            PropertySource::BuiltinMedia => builtin.as_ref().map(Properties::to_json).transpose()?.unwrap_or_default(),
         };
         let dir = self.paths.properties_dir().join(&wp.id);
         ctx(std::fs::create_dir_all(&dir), dir.display())?;
         let path = dir.join(format!("{}.json", crate::paths::slug(slot)));
         if !path.is_file() {
             ctx(std::fs::write(&path, template), path.display())?;
+        } else if let Some(allowed) = builtin {
+            let mut existing = Properties::load(&path)?;
+            if existing.retain(|name| allowed.get(name).is_some()) {
+                existing.save(&path)?;
+            }
         }
         Ok(Some(path))
     }
@@ -274,6 +283,7 @@ impl Engine {
                 }
             }
         }
+        self.sync_views();
         self.evaluate();
         self.audio_sync();
         self.save_layout();
@@ -288,10 +298,70 @@ impl Engine {
         self.next_id += 1;
         let spec = ContentSpec { id, wallpaper: &wallpaper, audio: p.audio, volume: self.settings.volume, settings: &self.settings };
         let mut content = self.rt.spawn_content(&spec, &slot)?;
+        let view = self.view_of(&p, &display);
+        content.set_view(&view)?;
         content.set_muted(!p.audio);
         content.set_input_enabled(self.settings.input.forward_mouse);
         log::info!("started '{}' on {} ({}x{})", wallpaper.title(), display.name, p.region.w, p.region.h);
-        Ok(Active { id, placement: p, wallpaper, _slot: slot, content, props_path, loaded: false, paused: None, volume: None, started: Instant::now(), thumbnail_pending: false })
+        Ok(Active { id, placement: p, wallpaper, _slot: slot, content, view, props_path, loaded: false, paused: None, volume: None, started: Instant::now(), thumbnail_pending: false })
+    }
+
+    /// What an instance shows: its display's part of the spanning image, or all of its region.
+    fn view_of(&self, p: &Placement, d: &Display) -> View {
+        if p.spanning { self.layout.view_for(d, Layout::span_bounds(&self.displays)) } else { View::whole(Size { w: p.region.w, h: p.region.h }) }
+    }
+
+    /// Push changed views to running instances without restarting them.
+    fn sync_views(&mut self) {
+        let wanted: Vec<View> = self
+            .active
+            .iter()
+            .map(|a| match self.displays.iter().find(|d| d.id == a.placement.display) {
+                Some(d) => self.view_of(&a.placement, d),
+                None => a.view,
+            })
+            .collect();
+        let mut problems = Vec::new();
+        for (a, view) in self.active.iter_mut().zip(wanted) {
+            if a.view != view {
+                match a.content.set_view(&view) {
+                    Ok(()) => a.view = view,
+                    Err(e) => problems.push(e),
+                }
+            }
+        }
+        for e in &problems {
+            self.report(e);
+        }
+    }
+
+    /// Whether the span wallpaper can show `layout`'s views on this desktop.
+    fn check_alignment(&self, layout: &Layout) -> Result<()> {
+        if layout.arrangement != Arrangement::Span {
+            return Err(Error::Invalid("alignment applies to the span arrangement".into()));
+        }
+        let Some(kind) = layout.shared.as_deref().and_then(|id| self.library.get(id).ok()).map(|w| w.kind()) else { return Ok(()) };
+        let bounds = Layout::span_bounds(&self.displays);
+        for d in &self.displays {
+            let v = layout.view_for(d, bounds);
+            if kind == Kind::Program && !v.is_plain() {
+                return Err(Error::Unsupported("program wallpapers can be moved but not scaled or rotated".into()));
+            }
+            if kind.is_web() && v.rotation.abs() > 1e-9 && !self.capabilities.rotate_web {
+                return Err(Error::Unsupported("web wallpapers cannot be rotated on this desktop".into()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Apply `change` to the alignment when the running wallpaper can show the result.
+    fn align(&mut self, change: impl FnOnce(&mut Layout)) -> Result<()> {
+        let mut candidate = self.layout.clone();
+        change(&mut candidate);
+        self.check_alignment(&candidate)?;
+        self.layout = candidate;
+        self.reconcile();
+        Ok(())
     }
 
     fn apply_properties(&mut self, idx: usize) {
@@ -411,6 +481,11 @@ impl Engine {
                 }
                 self.active[idx].loaded = true;
                 self.apply_properties(idx);
+                // Pages lose their view on navigation; every kind takes it again cheaply.
+                let view = self.active[idx].view;
+                if let Err(e) = self.active[idx].content.set_view(&view) {
+                    self.report(&e);
+                }
                 self.active[idx].paused = None;
                 self.active[idx].volume = None;
                 self.evaluate();
@@ -485,7 +560,9 @@ impl Engine {
         }
         let Some(display) = display::at_point(&self.displays, x, y).cloned() else { return };
         for a in self.active.iter_mut().filter(|a| a.placement.display == display.id && a.wallpaper.kind().accepts_pointer()) {
-            a.content.pointer(PointerEvent { x: x - a.placement.region.x, y: y - a.placement.region.y, kind });
+            let slot = Size { w: a.placement.region.w, h: a.placement.region.h };
+            let (ix, iy) = a.view.to_image(slot, (x - a.placement.region.x) as f64, (y - a.placement.region.y) as f64);
+            a.content.pointer(PointerEvent { x: ix.round() as i32, y: iy.round() as i32, kind });
         }
     }
 
@@ -569,6 +646,13 @@ impl Engine {
         });
     }
 
+    /// Tell subscribers about entries an import left out, one message each.
+    fn report_problems(&self, problems: &[String]) {
+        for message in problems {
+            self.broadcast(Event::Error { message: message.clone() });
+        }
+    }
+
     // ---- requests -------------------------------------------------------------------------
 
     fn request(&mut self, req: Request, reply: Reply) -> bool {
@@ -585,18 +669,34 @@ impl Engine {
                 self.reconcile();
                 Response::Ok
             }
+            Request::AlignImage { pose } => self.align(|l| l.set_image_pose(pose)).map_or_else(|e| Response::error(&e), |_| Response::Ok),
+            Request::AlignDisplay { display, pose } => match self.display(Some(&display)) {
+                Ok(d) => self.align(|l| l.set_display_pose(&d.id, pose)).map_or_else(|e| Response::error(&e), |_| Response::Ok),
+                Err(e) => Response::error(&e),
+            },
+            Request::ResetAlignment => {
+                self.layout.reset_alignment();
+                self.reconcile();
+                Response::Ok
+            }
             Request::Set { target, display } => return self.set_target(target, display, reply),
             Request::Close { display } => self.close(display.as_deref()).map_or_else(|e| Response::error(&e), |_| Response::Ok),
             Request::Import { source } => {
                 let lib = self.library.clone();
-                let copy = self.settings.copy_imports;
-                let thumbs = self.settings.thumbnails;
-                let temp = self.paths.temp_dir();
+                let (copy, thumbnails, temp) = (self.settings.copy_imports, self.settings.thumbnails, self.paths.temp_dir());
+                let tx = self.rt.sender();
                 self.job(
-                    move || lib.import(&source, copy, &temp, thumbs),
-                    move |e, r| {
-                        e.broadcast(Event::Library);
-                        reply(r.map_or_else(|err| Response::error(&err), |w| Response::Wallpaper(w.summary())));
+                    move || {
+                        lib.import(&source, &library::ImportOptions { copy, thumbnails, temp_dir: &temp }, &mut |_: &Wallpaper| {
+                            tx.send(Msg::Job(Box::new(|e| e.broadcast(Event::Library))));
+                        })
+                    },
+                    move |e, r| match r {
+                        Ok(imported) => {
+                            e.report_problems(&imported.problems);
+                            reply(Response::Wallpapers(imported.wallpapers.iter().map(Wallpaper::summary).collect()));
+                        }
+                        Err(err) => reply(Response::error(&err)),
                     },
                 );
                 return true;
@@ -760,16 +860,26 @@ impl Engine {
             }
             _ => {
                 let lib = self.library.clone();
-                let (copy, thumbs, temp) = (self.settings.copy_imports, self.settings.thumbnails, self.paths.temp_dir());
+                let (copy, thumbnails, temp) = (self.settings.copy_imports, self.settings.thumbnails, self.paths.temp_dir());
                 let did = d.id.clone();
+                let tx = self.rt.sender();
                 self.job(
-                    move || lib.import(&target, copy, &temp, thumbs),
+                    move || {
+                        lib.import(&target, &library::ImportOptions { copy, thumbnails, temp_dir: &temp }, &mut |_: &Wallpaper| {
+                            tx.send(Msg::Job(Box::new(|e| e.broadcast(Event::Library))));
+                        })
+                    },
                     move |e, r| match r {
-                        Ok(w) => {
-                            e.broadcast(Event::Library);
-                            e.layout.assign(&did, &w.id);
-                            e.reconcile();
-                            reply(Response::Wallpaper(w.summary()));
+                        Ok(imported) => {
+                            e.report_problems(&imported.problems);
+                            match imported.wallpapers.first() {
+                                Some(w) => {
+                                    e.layout.assign(&did, &w.id);
+                                    e.reconcile();
+                                    reply(Response::Wallpaper(w.summary()));
+                                }
+                                None => reply(Response::error(&Error::NotFound("nothing was imported".into()))),
+                            }
                         }
                         Err(err) => reply(Response::error(&err)),
                     },

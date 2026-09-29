@@ -4,7 +4,6 @@
       xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
   <kcfgfile name=""/>
   <group name="General">
-    <!-- Written by the daemon. -->
     <entry name="Impl" type="String"><default></default></entry>
     <entry name="Generation" type="Int"><default>0</default></entry>
     <entry name="Kind" type="String"><default></default></entry>
@@ -20,16 +19,15 @@
     <entry name="Brightness" type="Int"><default>0</default></entry>
     <entry name="Contrast" type="Int"><default>0</default></entry>
     <entry name="Gamma" type="Int"><default>0</default></entry>
-    <entry name="RegionX" type="Int"><default>0</default></entry>
-    <entry name="RegionY" type="Int"><default>0</default></entry>
     <entry name="RegionW" type="Int"><default>0</default></entry>
     <entry name="RegionH" type="Int"><default>0</default></entry>
-    <entry name="ScreenX" type="Int"><default>0</default></entry>
-    <entry name="ScreenY" type="Int"><default>0</default></entry>
+    <entry name="ViewX" type="Double"><default>0</default></entry>
+    <entry name="ViewY" type="Double"><default>0</default></entry>
+    <entry name="ViewScale" type="Double"><default>1.0</default></entry>
+    <entry name="ViewRotation" type="Double"><default>0</default></entry>
     <entry name="Seek" type="String"><default></default></entry>
     <entry name="Screenshot" type="String"><default></default></entry>
     <entry name="Bridge" type="String"><default></default></entry>
-    <!-- Written back by the wallpaper. -->
     <entry name="State" type="String"><default></default></entry>
     <entry name="ScreenshotResult" type="String"><default></default></entry>
   </group>

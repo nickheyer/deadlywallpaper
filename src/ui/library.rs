@@ -1,8 +1,9 @@
+//! The Library page: every wallpaper, filters, search, and the display a click applies to.
+
 use crate::ipc::ActiveInfo;
 use crate::model::{Arrangement, Display, Kind, Summary};
-use crate::ui::theme;
-use crate::ui::widgets::chip;
-use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, StrokeKind};
+use crate::ui::{theme, widgets};
+use eframe::egui::{self, Align, Align2, Button, CornerRadius, CursorIcon, FontId, Layout, Rect, RichText, Sense, Stroke, StrokeKind, UiBuilder};
 use std::path::PathBuf;
 
 pub enum Action {
@@ -15,29 +16,43 @@ pub enum Action {
     Delete { id: String },
     Open { url: String },
     PickFiles,
+    PickFolders,
+    AddLink { url: String },
+    SelectDisplay(String),
+    Filter(Option<Kind>),
+    GoToScreens,
 }
 
-/// Library filters kept by the app between frames.
-#[derive(Default)]
-pub struct Filter {
-    pub kind: Option<Kind>,
-}
-
-pub struct Grid<'a> {
+pub struct View<'a> {
     pub items: &'a [Summary],
-    pub search: &'a str,
-    pub filter: &'a Filter,
+    pub filter: Option<Kind>,
     pub displays: &'a [Display],
     pub active: &'a [ActiveInfo],
     pub arrangement: Arrangement,
     pub selected_display: Option<&'a str>,
-    pub hovering_files: bool,
     pub connected: bool,
+    pub hovering_files: bool,
 }
 
-const CARD_W: f32 = 232.0;
-const IMAGE_H: f32 = 130.0;
-const CARD_H: f32 = IMAGE_H + 58.0;
+/// Page state that outlives a frame.
+#[derive(Default)]
+pub struct State {
+    pub search: String,
+    /// Move keyboard focus into the search box once.
+    pub search_focus: bool,
+    /// The link typed into the Add panel.
+    pub link: String,
+    /// Move keyboard focus into the link field once the Add panel opens.
+    pub link_focus: bool,
+}
+
+/// Popup id of the Add panel, so the empty state can open it too.
+const ADD_POPUP: &str = "library-add";
+
+const MIN_CARD_W: f32 = 210.0;
+const MAX_CARD_W: f32 = 320.0;
+const META_H: f32 = 60.0;
+const GAP: f32 = 14.0;
 
 const KIND_FILTERS: [(Option<Kind>, &str); 7] = [
     (None, "All"),
@@ -49,207 +64,356 @@ const KIND_FILTERS: [(Option<Kind>, &str); 7] = [
     (Some(Kind::Program), "Programs"),
 ];
 
-fn matches_filter(w: &Summary, filter: &Filter) -> bool {
-    match filter.kind {
+fn kind_matches(w: &Summary, filter: Option<Kind>) -> bool {
+    match filter {
         None => true,
         Some(Kind::Web) => w.kind.is_web(),
         Some(k) => w.kind == k,
     }
 }
 
-/// Filter chips; returns the new kind filter when it changed.
-pub fn filter_bar(ui: &mut egui::Ui, filter: &Filter, items: &[Summary]) -> Option<Option<Kind>> {
-    let mut chosen = None;
-    ui.horizontal_wrapped(|ui| {
-        for (kind, label) in KIND_FILTERS {
-            let count = items.iter().filter(|w| matches_filter(w, &Filter { kind })).count();
-            if kind.is_some() && count == 0 {
-                continue;
-            }
-            if chip(ui, filter.kind == kind, format!("{label} · {count}")).clicked() {
-                chosen = Some(kind);
-            }
-        }
-    });
-    chosen
+fn search_matches(w: &Summary, needle: &str) -> bool {
+    needle.is_empty()
+        || w.title.to_lowercase().contains(needle)
+        || w.kind.label().to_lowercase().contains(needle)
+        || w.author.as_deref().is_some_and(|a| a.to_lowercase().contains(needle))
+        || w.desc.as_deref().is_some_and(|d| d.to_lowercase().contains(needle))
 }
 
-pub fn grid(ui: &mut egui::Ui, g: &Grid<'_>) -> Vec<Action> {
+pub fn page(ui: &mut egui::Ui, v: &View<'_>, state: &mut State) -> Vec<Action> {
     let mut actions = Vec::new();
-    let needle = g.search.trim().to_lowercase();
-    let items: Vec<&Summary> = g
-        .items
-        .iter()
-        .filter(|w| matches_filter(w, g.filter))
-        .filter(|w| needle.is_empty() || w.title.to_lowercase().contains(&needle) || w.author.as_deref().is_some_and(|a| a.to_lowercase().contains(&needle)))
-        .collect();
-    if g.hovering_files {
+    let needle = state.search.trim().to_lowercase();
+    let shown: Vec<&Summary> = v.items.iter().filter(|w| kind_matches(w, v.filter) && search_matches(w, &needle)).collect();
+
+    let subtitle = match (v.items.len(), shown.len()) {
+        (0, _) => None,
+        (1, 1) => Some("1 wallpaper".to_string()),
+        (n, m) if m == n => Some(format!("{n} wallpapers")),
+        (n, m) => Some(format!("{m} of {n} wallpapers")),
+    };
+    theme::page_header(ui, "Library", subtitle.as_deref(), |ui| {
+        let add = ui.add(theme::primary("+  Add"));
+        if add.clicked() {
+            state.link_focus = true;
+        }
+        add_popover(ui, &add, state, &mut actions);
+        widgets::search_box(ui, &mut state.search, &mut state.search_focus, 170.0);
+    });
+    ui.add_space(12.0);
+    if v.arrangement == Arrangement::Per && v.displays.len() > 1 {
+        target_bar(ui, v, &mut actions);
+        ui.add_space(6.0);
+    }
+    filter_bar(ui, v, &mut actions);
+    ui.add_space(10.0);
+
+    if v.hovering_files {
         drop_target(ui);
         return actions;
     }
-    if items.is_empty() {
-        empty_state(ui, g, &mut actions);
+    if shown.is_empty() {
+        empty(ui, v, state, &mut actions);
         return actions;
     }
-    egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-        ui.add_space(4.0);
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(14.0, 14.0);
-            for w in items {
-                card(ui, g, w, &mut actions);
-            }
-        });
-        ui.add_space(16.0);
-    });
+    grid(ui, v, &shown, &mut actions);
     actions
 }
 
+/// Everything the Add button offers, in one panel under it: files, folders, and a link.
+fn add_popover(ui: &mut egui::Ui, add: &egui::Response, state: &mut State, actions: &mut Vec<Action>) {
+    let id = egui::Id::new(ADD_POPUP);
+    let frame = theme::popover_frame(ui);
+    egui::Popup::from_toggle_button_response(add)
+        .id(id)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .align(egui::RectAlign::BOTTOM_END)
+        .gap(6.0)
+        .frame(frame)
+        .width(400.0)
+        .show(|ui| {
+            let p = theme::palette(ui);
+            ui.spacing_mut().item_spacing = egui::vec2(8.0, 10.0);
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - 8.0) / 2.0;
+                if ui.add_sized([w, 36.0], theme::secondary_button("Files…")).on_hover_text("Ctrl+O").clicked() {
+                    actions.push(Action::PickFiles);
+                    egui::Popup::close_id(ui.ctx(), id);
+                }
+                if ui.add_sized([w, 36.0], theme::secondary_button("Folders…")).clicked() {
+                    actions.push(Action::PickFolders);
+                    egui::Popup::close_id(ui.ctx(), id);
+                }
+            });
+            widgets::divider(ui);
+            ui.horizontal(|ui| {
+                let button_w = 64.0;
+                let edit = ui.add(
+                    egui::TextEdit::singleline(&mut state.link)
+                        .hint_text(RichText::new("Paste a link").color(p.text_faint))
+                        .desired_width(ui.available_width() - button_w - 8.0)
+                        .margin(egui::Margin::symmetric(10, 8)),
+                );
+                if state.link_focus {
+                    edit.request_focus();
+                    state.link_focus = false;
+                }
+                let url = normalize_link(&state.link);
+                let submit = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let clicked = ui.add_enabled(url.is_some(), theme::primary("Add").min_size(egui::vec2(button_w, 34.0))).clicked();
+                if let Some(url) = url.filter(|_| clicked || submit) {
+                    actions.push(Action::AddLink { url });
+                    state.link.clear();
+                    egui::Popup::close_id(ui.ctx(), id);
+                }
+            });
+        });
+}
+
+/// The URL to import for what was typed, accepting links pasted without a scheme.
+fn normalize_link(text: &str) -> Option<String> {
+    let t = text.trim();
+    if t.is_empty() || t.contains(char::is_whitespace) {
+        return None;
+    }
+    let url = if t.contains("://") { t.to_string() } else { format!("https://{t}") };
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return None;
+    }
+    let host = url.split("://").nth(1).unwrap_or("").split(['/', '?', '#']).next().unwrap_or("");
+    (host.contains('.') || host.contains(':') || host.eq_ignore_ascii_case("localhost")).then_some(url)
+}
+
+fn short_name(d: &Display) -> String {
+    if d.name.chars().count() > 26 { format!("{}…", d.name.chars().take(24).collect::<String>()) } else { d.name.clone() }
+}
+
+/// Which display a click applies to. Shown only when there is a choice to make.
+fn target_bar(ui: &mut egui::Ui, v: &View<'_>, actions: &mut Vec<Action>) {
+    let p = theme::palette(ui);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+        ui.label(RichText::new("Apply to").color(p.text_weak));
+        ui.add_space(2.0);
+        for (i, d) in v.displays.iter().enumerate() {
+            let selected = v.selected_display == Some(d.id.as_str());
+            let running = v.active.iter().find(|a| a.display == d.id);
+            let label = format!("{}  {}", i + 1, short_name(d));
+            let tip = match running {
+                Some(a) => format!("{}\n{}×{}\n▶ {}", d.name, d.rect.w, d.rect.h, a.title),
+                None => format!("{}\n{}×{}", d.name, d.rect.w, d.rect.h),
+            };
+            if widgets::chip(ui, selected, &label).on_hover_text(tip).clicked() {
+                actions.push(Action::SelectDisplay(d.id.clone()));
+            }
+        }
+        ui.add_space(4.0);
+        if ui.link(RichText::new(v.arrangement.label()).small()).on_hover_text("Change on the Screens page").clicked() {
+            actions.push(Action::GoToScreens);
+        }
+    });
+}
+
+fn filter_bar(ui: &mut egui::Ui, v: &View<'_>, actions: &mut Vec<Action>) {
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+        for (kind, label) in KIND_FILTERS {
+            let count = v.items.iter().filter(|w| kind_matches(w, kind)).count();
+            if kind.is_some() && count == 0 {
+                continue;
+            }
+            let text = if v.items.is_empty() { label.to_string() } else { format!("{label}  {count}") };
+            if widgets::chip(ui, v.filter == kind, &text).clicked() {
+                actions.push(Action::Filter(kind));
+            }
+        }
+    });
+}
+
 fn drop_target(ui: &mut egui::Ui) {
+    let p = theme::palette(ui);
     let rect = ui.available_rect_before_wrap();
     let painter = ui.painter_at(rect);
-    painter.rect(rect.shrink(6.0), CornerRadius::same(12), theme::accent(ui).gamma_multiply(0.12), Stroke::new(2.0, theme::accent(ui)), StrokeKind::Inside);
-    painter.text(rect.center(), Align2::CENTER_CENTER, "Drop to add to the library", FontId::proportional(22.0), ui.visuals().strong_text_color());
+    painter.rect(rect.shrink(4.0), CornerRadius::same(14), p.accent_soft, Stroke::new(2.0, p.accent), StrokeKind::Inside);
+    painter.text(rect.center() - egui::vec2(0.0, 18.0), Align2::CENTER_CENTER, "📥", FontId::proportional(36.0), p.accent);
+    painter.text(rect.center() + egui::vec2(0.0, 24.0), Align2::CENTER_CENTER, "Drop to add", FontId::proportional(20.0), p.text_strong);
     ui.allocate_rect(rect, Sense::hover());
 }
 
-fn empty_state(ui: &mut egui::Ui, g: &Grid<'_>, actions: &mut Vec<Action>) {
-    ui.add_space(ui.available_height() * 0.25);
-    ui.vertical_centered(|ui| {
-        ui.add(theme::logo().fit_to_exact_size(egui::vec2(96.0, 96.0)));
-        ui.add_space(10.0);
-        if !g.connected {
-            ui.label(RichText::new("Connecting to the wallpaper daemon…").size(18.0));
-            return;
+fn empty(ui: &mut egui::Ui, v: &View<'_>, state: &mut State, actions: &mut Vec<Action>) {
+    if !v.connected && v.items.is_empty() {
+        widgets::empty_state(ui, "⏳", "Connecting…", "", None);
+    } else if v.items.is_empty() {
+        if widgets::empty_state(ui, "🖼", "Library is empty", "Drop files or folders here.", Some("Add…")) {
+            egui::Popup::open_id(ui.ctx(), egui::Id::new(ADD_POPUP));
+            state.link_focus = true;
         }
-        if g.items.is_empty() {
-            ui.label(RichText::new("Your library is empty").size(20.0).strong());
-            ui.add_space(4.0);
-            ui.label("Add a video, GIF, picture, a web page folder, a Lively .zip, or a link. You can also drop files anywhere in this window.");
-            ui.add_space(12.0);
-            if ui.add(egui::Button::new(RichText::new("＋  Add wallpapers…").size(15.0)).fill(theme::accent(ui)).min_size(egui::vec2(180.0, 36.0))).clicked() {
-                actions.push(Action::PickFiles);
+    } else if widgets::empty_state(ui, "🔍", "Nothing matches", "", Some("Show all")) {
+        state.search.clear();
+        actions.push(Action::Filter(None));
+    }
+}
+
+fn grid(ui: &mut egui::Ui, v: &View<'_>, shown: &[&Summary], actions: &mut Vec<Action>) {
+    egui::ScrollArea::vertical().id_salt("library-grid").auto_shrink([false; 2]).show(ui, |ui| {
+        let avail = ui.available_width();
+        let cols = (((avail + GAP) / (MIN_CARD_W + GAP)).floor() as usize).max(1);
+        let card_w = ((avail - GAP * (cols as f32 - 1.0)) / cols as f32).min(MAX_CARD_W).floor();
+        let image_h = (card_w * 9.0 / 16.0).round();
+        let card_h = image_h + META_H;
+        ui.spacing_mut().item_spacing.y = GAP;
+        ui.add_space(2.0);
+        for row in shown.chunks(cols) {
+            let (row_rect, _) = ui.allocate_exact_size(egui::vec2(avail, card_h), Sense::hover());
+            if !ui.is_rect_visible(row_rect) {
+                continue;
             }
-        } else {
-            ui.label(RichText::new("Nothing matches").size(20.0).strong());
-            ui.add_space(4.0);
-            ui.label("Try another search or filter.");
+            for (i, w) in row.iter().enumerate() {
+                let rect = Rect::from_min_size(row_rect.min + egui::vec2(i as f32 * (card_w + GAP), 0.0), egui::vec2(card_w, card_h));
+                card(ui, v, w, rect, image_h, actions);
+            }
         }
+        ui.add_space(10.0);
     });
 }
 
-fn card(ui: &mut egui::Ui, g: &Grid<'_>, w: &Summary, actions: &mut Vec<Action>) {
-    let on: Vec<&ActiveInfo> = g.active.iter().filter(|a| a.wallpaper == w.id).collect();
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(CARD_W, CARD_H), Sense::click());
-    let hovered = response.hovered() || response.context_menu_opened();
-    let visuals = ui.visuals();
-    let fill = if hovered { visuals.widgets.hovered.weak_bg_fill } else { visuals.faint_bg_color };
-    let stroke = if !on.is_empty() { Stroke::new(2.0, theme::accent(ui)) } else if hovered { Stroke::new(1.0, visuals.widgets.hovered.bg_stroke.color) } else { visuals.widgets.noninteractive.bg_stroke };
-    ui.painter().rect(rect, CornerRadius::same(10), fill, stroke, StrokeKind::Inside);
-
-    let image_rect = Rect::from_min_size(rect.min, egui::vec2(CARD_W, IMAGE_H)).shrink(1.0);
-    let top_corners = CornerRadius { nw: 9, ne: 9, sw: 0, se: 0 };
-    match &w.thumbnail {
-        Some(path) => {
-            ui.put(image_rect, egui::Image::from_uri(format!("file://{}", path.display())).fit_to_exact_size(image_rect.size()).corner_radius(top_corners));
-        }
-        None => {
-            let painter = ui.painter_at(image_rect);
-            painter.rect_filled(image_rect, top_corners, theme::kind_color(w.kind));
-            painter.text(image_rect.center() - egui::vec2(0.0, 8.0), Align2::CENTER_CENTER, theme::kind_glyph(w.kind), FontId::proportional(40.0), Color32::from_white_alpha(210));
-            painter.text(image_rect.center() + egui::vec2(0.0, 26.0), Align2::CENTER_CENTER, w.kind.label(), FontId::proportional(12.0), Color32::from_white_alpha(170));
-        }
-    }
-    if let Some(a) = on.first() {
-        let label = match g.arrangement {
-            Arrangement::Per => format!("▶ Display {}", crate::model::display::index_of(g.displays, &a.display).unwrap_or(0)),
-            Arrangement::Span => "▶ Spanning".to_string(),
-            Arrangement::Duplicate => "▶ Every display".to_string(),
-        };
-        let label = if a.paused { format!("{label} · paused") } else { label };
-        let font = FontId::proportional(12.0);
-        let galley = ui.painter().layout_no_wrap(label, font.clone(), Color32::WHITE);
-        let badge = Rect::from_min_size(image_rect.min + egui::vec2(8.0, 8.0), galley.size() + egui::vec2(14.0, 8.0));
-        ui.painter().rect_filled(badge, CornerRadius::same(6), theme::accent(ui).gamma_multiply(0.95));
-        ui.painter().galley(badge.min + egui::vec2(7.0, 4.0), galley, Color32::WHITE);
-    }
-
-    let text_rect = Rect::from_min_max(egui::pos2(rect.min.x + 12.0, image_rect.max.y + 8.0), rect.max - egui::vec2(12.0, 8.0));
-    let title_rect = Rect::from_min_size(text_rect.min, egui::vec2(text_rect.width() - 28.0, 20.0));
-    ui.put(title_rect, egui::Label::new(RichText::new(&w.title).size(14.0).strong()).truncate().selectable(false));
-    let sub = match w.author.as_deref() {
+fn subtitle(w: &Summary) -> String {
+    match w.author.as_deref() {
         Some(a) => format!("{} · {a}", w.kind.label()),
         None => w.kind.label().to_string(),
-    };
-    let sub_rect = Rect::from_min_size(text_rect.min + egui::vec2(0.0, 24.0), egui::vec2(text_rect.width() - 28.0, 18.0));
-    ui.put(sub_rect, egui::Label::new(RichText::new(sub).small().color(ui.visuals().weak_text_color())).truncate().selectable(false));
-    ui.painter().text(text_rect.right_top() + egui::vec2(0.0, 2.0), Align2::RIGHT_TOP, theme::kind_glyph(w.kind), FontId::proportional(15.0), ui.visuals().weak_text_color());
+    }
+}
+
+fn card(ui: &mut egui::Ui, v: &View<'_>, w: &Summary, rect: Rect, image_h: f32, actions: &mut Vec<Action>) {
+    let p = theme::palette(ui);
+    let id = ui.id().with(("card", &w.id));
+    let response = ui.interact(rect, id, Sense::click());
+    let menu_open = response.context_menu_opened() || egui::Popup::is_id_open(ui.ctx(), id.with("menu"));
+    let hovered = ui.rect_contains_pointer(rect) || menu_open;
+    let instances: Vec<&ActiveInfo> = v.active.iter().filter(|a| a.wallpaper == w.id).collect();
+    let playing = !instances.is_empty();
+    let t = ui.ctx().animate_bool_responsive(id.with("hover"), hovered);
+    let fill = p.surface.lerp_to_gamma(p.surface_hover, t);
+    let stroke = if playing { Stroke::new(1.5, p.accent) } else { Stroke::new(1.0, p.stroke.lerp_to_gamma(p.stroke_strong, t)) };
+    ui.painter().rect(rect, CornerRadius::same(12), fill, stroke, StrokeKind::Inside);
+
+    let image_rect = Rect::from_min_size(rect.min, egui::vec2(rect.width(), image_h)).shrink(1.5);
+    let corners = CornerRadius { nw: 11, ne: 11, sw: 0, se: 0 };
+    let uri = w.thumbnail.as_deref().map(widgets::thumbnail_uri);
+    widgets::thumbnail(ui, image_rect, uri.as_deref(), w.kind, corners);
+
+    if let Some(a) = instances.first() {
+        let glyph = if !a.loaded {
+            "⏳"
+        } else if a.paused {
+            "⏸"
+        } else {
+            "▶"
+        };
+        let label = match v.arrangement {
+            Arrangement::Per if v.displays.len() > 1 => {
+                let mut numbers: Vec<usize> = instances.iter().filter_map(|i| crate::model::display::index_of(v.displays, &i.display)).collect();
+                numbers.sort_unstable();
+                format!("{glyph} {}", numbers.iter().map(usize::to_string).collect::<Vec<_>>().join(" "))
+            }
+            _ => glyph.to_string(),
+        };
+        widgets::badge(ui.painter(), image_rect.min + egui::vec2(8.0, 8.0), Align2::LEFT_TOP, &label, p.accent, p.on_accent);
+    }
 
     if hovered {
-        let btn = Rect::from_min_size(egui::pos2(image_rect.max.x - 78.0, image_rect.max.y - 34.0), egui::vec2(70.0, 26.0));
-        let apply = ui.put(btn, egui::Button::new(RichText::new("Apply").size(13.0)).fill(theme::accent(ui)).corner_radius(CornerRadius::same(6)));
-        if apply.clicked() {
+        let bar_h = 42.0;
+        let bar = Rect::from_min_max(egui::pos2(image_rect.left(), image_rect.bottom() - bar_h), image_rect.right_bottom());
+        ui.painter().rect_filled(bar, CornerRadius::ZERO, p.overlay);
+        let mut child = ui.new_child(UiBuilder::new().id_salt(("card-actions", &w.id)).max_rect(bar.shrink2(egui::vec2(8.0, 6.0))).layout(Layout::right_to_left(Align::Center)));
+        child.spacing_mut().item_spacing.x = 6.0;
+        if child.add(theme::primary("Apply").small()).clicked() {
             actions.push(Action::Apply { id: w.id.clone(), display: None });
         }
+        if w.customizable {
+            let b = Button::new(RichText::new("Customize").color(egui::Color32::WHITE)).fill(egui::Color32::from_white_alpha(40)).stroke(Stroke::NONE).corner_radius(CornerRadius::same(8)).min_size(egui::vec2(0.0, 28.0));
+            if child.add(b).clicked() {
+                actions.push(Action::Customize { id: w.id.clone() });
+            }
+        }
     }
+
+    let meta = Rect::from_min_max(egui::pos2(rect.left() + 12.0, image_rect.bottom() + 9.0), egui::pos2(rect.right() - 8.0, rect.bottom() - 8.0));
+    let more_rect = Rect::from_min_size(egui::pos2(meta.right() - 28.0, meta.top() - 2.0), egui::vec2(28.0, 28.0));
+    let text_w = more_rect.left() - meta.left() - 6.0;
+    widgets::elided(ui.painter(), meta.left_top(), Align2::LEFT_TOP, &w.title, FontId::proportional(14.0), p.text_strong, text_w);
+    widgets::elided(ui.painter(), egui::pos2(meta.left(), meta.top() + 22.0), Align2::LEFT_TOP, &subtitle(w), FontId::proportional(12.0), p.text_weak, text_w);
+
+    let mut child = ui.new_child(UiBuilder::new().id_salt(("card-more", &w.id)).max_rect(more_rect).layout(Layout::centered_and_justified(egui::Direction::LeftToRight)));
+    let more = child.add(Button::new(RichText::new("···").size(16.0).color(if hovered { p.text } else { p.text_faint })).frame_when_inactive(false).min_size(more_rect.size()).corner_radius(CornerRadius::same(7))).on_hover_text("More actions");
+    egui::Popup::menu(&more).id(id.with("menu")).show(|ui| menu_items(ui, v, w, actions));
+
+    let response = response.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(hover_text(w));
     if response.clicked() {
         actions.push(Action::Apply { id: w.id.clone(), display: None });
     }
-    response.on_hover_text(hover_text(w)).context_menu(|ui| {
-        ui.set_min_width(200.0);
-        if g.arrangement == Arrangement::Per && g.displays.len() > 1 {
-            for (i, d) in g.displays.iter().enumerate() {
-                if ui.button(format!("Apply to display {} · {}", i + 1, d.name)).clicked() {
-                    actions.push(Action::Apply { id: w.id.clone(), display: Some(d.id.clone()) });
-                    ui.close();
-                }
-            }
-        } else if ui.button("Apply").clicked() {
-            actions.push(Action::Apply { id: w.id.clone(), display: g.selected_display.map(str::to_owned) });
-            ui.close();
-        }
-        if w.customizable && ui.button("Customize…").clicked() {
-            actions.push(Action::Customize { id: w.id.clone() });
-            ui.close();
-        }
-        ui.separator();
-        if ui.button("Edit details…").clicked() {
-            actions.push(Action::Edit { id: w.id.clone() });
-            ui.close();
-        }
-        if ui.button("Refresh thumbnail").clicked() {
-            actions.push(Action::Thumbnail { id: w.id.clone() });
-            ui.close();
-        }
-        if ui.button("Export as Lively package…").clicked() {
-            actions.push(Action::Export { id: w.id.clone() });
-            ui.close();
-        }
-        if ui.button("Show in folder").clicked() {
-            actions.push(Action::Reveal { path: if w.kind.is_online() { w.dir.clone() } else { PathBuf::from(&w.source) } });
-            ui.close();
-        }
-        if let Some(url) = &w.contact {
-            if url.starts_with("http") && ui.button("Open website").clicked() {
-                actions.push(Action::Open { url: url.clone() });
-                ui.close();
+    response.context_menu(|ui| menu_items(ui, v, w, actions));
+}
+
+fn menu_items(ui: &mut egui::Ui, v: &View<'_>, w: &Summary, actions: &mut Vec<Action>) {
+    let p = theme::palette(ui);
+    ui.set_min_width(230.0);
+    if v.arrangement == Arrangement::Per && v.displays.len() > 1 {
+        for (i, d) in v.displays.iter().enumerate() {
+            if ui.button(RichText::new(format!("Apply to {}  {}", i + 1, short_name(d)))).clicked() {
+                actions.push(Action::Apply { id: w.id.clone(), display: Some(d.id.clone()) });
             }
         }
-        ui.separator();
-        if ui.button(RichText::new("Remove from library…").color(ui.visuals().error_fg_color)).clicked() {
-            actions.push(Action::Delete { id: w.id.clone() });
-            ui.close();
+    } else if ui.button("Apply").clicked() {
+        actions.push(Action::Apply { id: w.id.clone(), display: None });
+    }
+    if w.customizable && ui.button("Customize…").clicked() {
+        actions.push(Action::Customize { id: w.id.clone() });
+    }
+    ui.separator();
+    if ui.button("Edit…").clicked() {
+        actions.push(Action::Edit { id: w.id.clone() });
+    }
+    if ui.button("New thumbnail").clicked() {
+        actions.push(Action::Thumbnail { id: w.id.clone() });
+    }
+    if ui.button("Export…").clicked() {
+        actions.push(Action::Export { id: w.id.clone() });
+    }
+    if ui.button("Show in folder").clicked() {
+        actions.push(Action::Reveal { path: if w.kind.is_online() { w.dir.clone() } else { PathBuf::from(&w.source) } });
+    }
+    if let Some(url) = w.contact.as_deref().filter(|u| u.starts_with("http")) {
+        if ui.button("Website").clicked() {
+            actions.push(Action::Open { url: url.to_string() });
         }
-    });
+    }
+    ui.separator();
+    if ui.button(RichText::new("Remove…").color(p.danger)).clicked() {
+        actions.push(Action::Delete { id: w.id.clone() });
+    }
 }
 
 fn hover_text(w: &Summary) -> String {
-    let mut s = format!("{}\n{}", w.title, w.kind.label());
-    if let Some(a) = &w.author {
-        s.push_str(&format!("\nby {a}"));
-    }
+    let mut s = format!("{}\n{}", w.title, subtitle(w));
     if let Some(d) = &w.desc {
-        s.push('\n');
-        s.push_str(d);
+        s.push_str("\n\n");
+        s.push_str(d.trim());
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_link;
+
+    #[test]
+    fn links_are_normalized() {
+        assert_eq!(normalize_link(" youtube.com/watch?v=x "), Some("https://youtube.com/watch?v=x".into()));
+        assert_eq!(normalize_link("http://localhost:8000"), Some("http://localhost:8000".into()));
+        assert_eq!(normalize_link("https://example.org"), Some("https://example.org".into()));
+        assert_eq!(normalize_link("ftp://a.b"), None);
+        assert_eq!(normalize_link("not a link"), None);
+        assert_eq!(normalize_link("hello"), None);
+        assert_eq!(normalize_link(""), None);
+    }
 }

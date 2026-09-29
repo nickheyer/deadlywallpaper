@@ -19,7 +19,8 @@ pub struct Settings {
     pub video: Video,
     pub web: Web,
     pub input: Input,
-    /// Copy imported media into the library instead of referencing it in place.
+    /// Copy imported files into the library instead of referencing them in place. Web pages
+    /// bring their whole folder.
     pub copy_imports: bool,
     pub thumbnails: bool,
 }

@@ -11,7 +11,7 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSApplicationDidChangeScreenParametersNotification, NSEvent, NSEventModifierFlags, NSEventType};
-use objc2_foundation::{NSDistributedNotificationCenter, NSNotification, NSNotificationCenter, NSObjectProtocol, NSPoint, NSString};
+use objc2_foundation::{NSDistributedNotificationCenter, NSNotification, NSNotificationCenter, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 use std::cell::RefCell;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -158,7 +158,21 @@ impl RuntimeApi for Runtime {
                 let builder = crate::web::builder(spec, self.tx.clone())?;
                 let bounds = wry::Rect { position: wry::dpi::LogicalPosition::new(0.0, 0.0).into(), size: wry::dpi::LogicalSize::new(slot.size.w as f64, slot.size.h as f64).into() };
                 let webview = builder.with_bounds(bounds).build_as_child(slot).map_err(|e| Error::Web(format!("web view: {e}")))?;
-                Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone())))
+                // The slot view becomes the image: framed at the scaled size, laid out at the
+                // image size, turned about its centre. The desktop window clips it.
+                let view = slot.view.clone();
+                let home = view.frame();
+                let slot_size = slot.size;
+                let hook = move |v: &crate::content::View| -> Result<()> {
+                    let (x, y) = v.origin(slot_size);
+                    let (w, h) = (v.width as f64 * v.scale, v.height as f64 * v.scale);
+                    view.setFrameCenterRotation(0.0);
+                    view.setFrame(NSRect::new(NSPoint::new(home.origin.x + x, home.origin.y + home.size.height - y - h), NSSize::new(w, h)));
+                    view.setBoundsSize(NSSize::new(v.width as f64, v.height as f64));
+                    view.setFrameCenterRotation(-v.rotation);
+                    Ok(())
+                };
+                Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone(), slot.size).with_view_hook(Box::new(hook))))
             }
             Kind::Program => Err(Error::Unsupported("program wallpapers are not supported on macOS: another application's window cannot be embedded".into())),
             _ => Err(Error::Unsupported(format!("{} wallpapers are not supported", kind.label()))),

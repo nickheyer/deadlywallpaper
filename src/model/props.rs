@@ -1,4 +1,5 @@
 use crate::error::{Error, Result, ctx};
+use crate::model::Kind;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::path::Path;
@@ -114,6 +115,17 @@ impl Properties {
             .collect()
     }
 
+    /// Keep only the controls `keep` accepts. Returns whether anything was dropped.
+    pub fn retain(&mut self, keep: impl Fn(&str) -> bool) -> bool {
+        let before = self.raw.len();
+        self.raw.retain(|k, _| keep(k));
+        self.raw.len() != before
+    }
+
+    pub fn to_json(&self) -> Result<String> {
+        Ok(serde_json::to_string_pretty(&Value::Object(self.raw.clone()))?)
+    }
+
     pub fn get(&self, name: &str) -> Option<Control> {
         self.raw.get(name).and_then(Control::parse)
     }
@@ -206,12 +218,36 @@ pub const MEDIA_DEFAULTS: &str = r##"{
   "mute": { "type": "checkbox", "text": "Mute", "value": false }
 }"##;
 
+/// The built-in controls that apply to `kind`: pictures have neither speed nor sound, GIFs
+/// have no sound.
+pub fn media_defaults(kind: Kind) -> Properties {
+    let all: Value = serde_json::from_str(MEDIA_DEFAULTS).expect("MEDIA_DEFAULTS is valid JSON");
+    let mut p = Properties::from_value(all).expect("MEDIA_DEFAULTS is an object");
+    p.retain(|name| match name {
+        "speed" => kind.has_timeline(),
+        "mute" => kind.has_audio(),
+        _ => true,
+    });
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn props() -> Properties {
         Properties::from_value(serde_json::from_str(MEDIA_DEFAULTS).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn media_defaults_follow_the_kind() {
+        let names = |k: Kind| media_defaults(k).controls().into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+        let has = |k: Kind, n: &str| names(k).iter().any(|x| x == n);
+        assert!(has(Kind::Video, "mute") && has(Kind::Video, "speed"));
+        assert!(has(Kind::VideoStream, "mute") && has(Kind::VideoStream, "speed"));
+        assert!(!has(Kind::Gif, "mute") && has(Kind::Gif, "speed"));
+        assert!(!has(Kind::Picture, "mute") && !has(Kind::Picture, "speed"));
+        assert!(has(Kind::Picture, "scaler") && has(Kind::Picture, "brightness"));
     }
 
     #[test]

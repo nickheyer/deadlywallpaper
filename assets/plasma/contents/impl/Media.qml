@@ -27,12 +27,26 @@ Item {
         return VideoOutput.Stretch
     }
 
+    // scalable background span image preview for ref
     Item {
         id: region
-        x: media.spanning ? media.cfg.RegionX - media.cfg.ScreenX : 0
-        y: media.spanning ? media.cfg.RegionY - media.cfg.ScreenY : 0
         width: media.spanning ? media.cfg.RegionW : media.width
         height: media.spanning ? media.cfg.RegionH : media.height
+        x: (media.width - width) / 2 + (media.spanning ? media.cfg.ViewX : 0)
+        y: (media.height - height) / 2 + (media.spanning ? media.cfg.ViewY : 0)
+        transform: [
+            Scale {
+                origin.x: region.width / 2
+                origin.y: region.height / 2
+                xScale: media.spanning ? media.cfg.ViewScale : 1
+                yScale: media.spanning ? media.cfg.ViewScale : 1
+            },
+            Rotation {
+                origin.x: region.width / 2
+                origin.y: region.height / 2
+                angle: media.spanning ? media.cfg.ViewRotation : 0
+            }
+        ]
 
         Item {
             id: content

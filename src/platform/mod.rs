@@ -92,6 +92,7 @@ pub trait ShellApi {
     /// Returns `true` when the background surfaces had to be recreated, which invalidates
     /// every slot handed out before.
     fn sync_displays(&mut self, displays: &[Display]) -> Result<bool>;
+    /// A surface for `region` on `display`; content draws its view of the image inside it.
     fn slot(&mut self, display: &Display, region: Rect) -> Result<Self::Slot>;
     /// Called after every engine message: hand desktop areas no slot holds any more back to
     /// the desktop's own wallpaper.

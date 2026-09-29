@@ -158,6 +158,6 @@ impl ShellApi for Shell {
     fn settle(&mut self) {}
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { presenter: "win32".into(), pointer_motion: true, pointer_clicks: true, global_pointer: true, programs: true, web_devtools: true }
+        Capabilities { presenter: "win32".into(), pointer_motion: true, pointer_clicks: true, global_pointer: true, programs: true, web_devtools: true, rotate_web: true }
     }
 }

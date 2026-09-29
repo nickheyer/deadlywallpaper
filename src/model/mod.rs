@@ -9,7 +9,7 @@ pub mod wallpaper;
 pub use display::Display;
 pub use info::Info;
 pub use kind::Kind;
-pub use layout::{Arrangement, Layout, Placement};
+pub use layout::{Arrangement, Layout, Placement, Pose};
 pub use props::Control;
 pub use settings::Settings;
 pub use wallpaper::{Summary, Wallpaper};

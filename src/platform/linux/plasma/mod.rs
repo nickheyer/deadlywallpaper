@@ -115,8 +115,6 @@ type Occupancy = Arc<Mutex<HashMap<i32, (u64, String)>>>;
 
 pub struct Slot {
     pub containments: Vec<i32>,
-    pub region: Rect,
-    pub screen: Rect,
     serial: u64,
     occupancy: Occupancy,
 }
@@ -254,7 +252,8 @@ impl ShellApi for Shell {
         Ok(changed)
     }
 
-    fn slot(&mut self, display: &Display, region: Rect) -> Result<Slot> {
+    /// A Plasma desktop covers exactly its display, so the region is the display itself.
+    fn slot(&mut self, display: &Display, _region: Rect) -> Result<Slot> {
         let containments = self.map.get(&display.id).cloned().unwrap_or_default();
         if containments.is_empty() {
             return Err(Error::Platform(format!("Plasma has no desktop on {} ({}x{} at {},{})", display.name, display.rect.w, display.rect.h, display.rect.x, display.rect.y)));
@@ -266,7 +265,7 @@ impl ShellApi for Shell {
                 o.insert(*c, (serial, display.id.clone()));
             }
         }
-        Ok(Slot { containments, region, screen: display.rect, serial, occupancy: self.occupancy.clone() })
+        Ok(Slot { containments, serial, occupancy: self.occupancy.clone() })
     }
 
     fn settle(&mut self) {
@@ -287,7 +286,7 @@ impl ShellApi for Shell {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { presenter: "plasma".into(), pointer_motion: true, pointer_clicks: false, global_pointer: true, programs: false, web_devtools: false }
+        Capabilities { presenter: "plasma".into(), pointer_motion: true, pointer_clicks: false, global_pointer: true, programs: false, web_devtools: false, rotate_web: true }
     }
 }
 

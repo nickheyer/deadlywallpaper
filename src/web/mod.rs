@@ -1,8 +1,9 @@
 //! Web wallpapers on the platform web view, with Lively's JavaScript API:
 //! `livelyPropertyListener`, `livelyWallpaperPlaybackChanged`, `livelyAudioListener`.
 
-use crate::content::{Content, ContentEvent, ContentId, PointerEvent, PointerKind, Seek};
+use crate::content::{Content, ContentEvent, ContentId, PointerEvent, PointerKind, Seek, View};
 use crate::error::{Error, Result};
+use crate::geom::Size;
 use crate::model::props::ControlKind;
 use crate::model::{Control, Kind};
 use crate::msg::Msg;
@@ -34,6 +35,15 @@ pub const BRIDGE: &str = r#"(() => {
       const init = { bubbles: true, cancelable: true, clientX: x, clientY: y, screenX: x, screenY: y, button: 0, buttons: kind === 'mousemove' ? 0 : 1, view: window };
       target.dispatchEvent(new MouseEvent(kind, init));
       if (kind === 'mouseup') target.dispatchEvent(new MouseEvent('click', init));
+    },
+    view: (w, h, k, r, x, y, sw, sh) => {
+      const s = document.documentElement.style;
+      s.width = w + 'px'; s.height = h + 'px'; s.overflow = 'hidden'; s.transformOrigin = '50% 50%';
+      s.transform = 'translate(' + (sw / 2 - w / 2 + x) + 'px, ' + (sh / 2 - h / 2 + y) + 'px) rotate(' + r + 'deg) scale(' + k + ')';
+    },
+    unview: () => {
+      const s = document.documentElement.style;
+      s.width = ''; s.height = ''; s.overflow = ''; s.transformOrigin = ''; s.transform = '';
     },
   };
   document.addEventListener('DOMContentLoaded', applyVolume);
@@ -163,6 +173,9 @@ fn js(v: &Value) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "null".into())
 }
 
+/// Places the native web view for a view; each platform supplies its own.
+pub type ViewHook = Box<dyn FnMut(&View) -> Result<()>>;
+
 /// A web wallpaper instance.
 pub struct WebContent {
     webview: WebView,
@@ -170,16 +183,42 @@ pub struct WebContent {
     id: ContentId,
     tx: MsgSender,
     input: bool,
+    slot: Size,
+    view: View,
+    hook: Option<ViewHook>,
+    /// The page itself is transformed with CSS, on platforms where the page keeps the image's
+    /// viewport while the window shows only this display's part.
+    css: bool,
 }
 
 impl WebContent {
-    pub fn new(webview: WebView, kind: Kind, id: ContentId, tx: MsgSender) -> WebContent {
-        WebContent { webview, kind, id, tx, input: true }
+    pub fn new(webview: WebView, kind: Kind, id: ContentId, tx: MsgSender, slot: Size) -> WebContent {
+        WebContent { webview, kind, id, tx, input: true, slot, view: View::whole(slot), hook: None, css: false }
+    }
+
+    pub fn with_view_hook(mut self, hook: ViewHook) -> WebContent {
+        self.hook = Some(hook);
+        self
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code, reason = "only WebView2 can lay the page out at the image's size inside a smaller window"))]
+    pub fn with_css_view(mut self, css: bool) -> WebContent {
+        self.css = css;
+        self
     }
 
     fn eval(&self, script: &str) {
         if let Err(e) = self.webview.evaluate_script(script) {
             log::debug!("webview eval: {e}");
+        }
+    }
+
+    fn push_css_view(&self) {
+        let v = &self.view;
+        if v.is_whole(self.slot) {
+            self.eval("__dwp.unview()");
+        } else {
+            self.eval(&format!("__dwp.view({}, {}, {}, {}, {}, {}, {}, {})", v.width, v.height, v.scale, v.rotation, v.x, v.y, self.slot.w, self.slot.h));
         }
     }
 }
@@ -250,6 +289,23 @@ impl Content for WebContent {
         }
         s.push_str("])");
         self.eval(&s);
+    }
+
+    fn set_view(&mut self, view: &View) -> Result<()> {
+        if let Some(hook) = self.hook.as_mut() {
+            hook(view)?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // The slot view is framed for the view; the page fills the image inside it.
+            let bounds = wry::Rect { position: wry::dpi::LogicalPosition::new(0.0, 0.0).into(), size: wry::dpi::LogicalSize::new(view.width as f64, view.height as f64).into() };
+            self.webview.set_bounds(bounds).map_err(|e| Error::Web(format!("web view bounds: {e}")))?;
+        }
+        self.view = *view;
+        if self.css {
+            self.push_css_view();
+        }
+        Ok(())
     }
 }
 

@@ -3,12 +3,39 @@
 use crate::error::{Error, Result, ctx};
 use crate::media::thumb;
 use crate::model::info::FILE_NAME;
+use crate::model::kind::PACKAGE_EXTENSIONS;
 use crate::model::{Info, Kind, Wallpaper};
 use crate::paths::{file_name, nonce, slug};
+use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 pub const THUMBNAIL: &str = "thumbnail.jpg";
+
+#[derive(Clone, Copy)]
+pub struct ImportOptions<'a> {
+    pub copy: bool,
+    pub thumbnails: bool,
+    pub temp_dir: &'a Path,
+}
+
+#[derive(Default)]
+pub struct Imported {
+    pub wallpapers: Vec<Wallpaper>,
+    pub problems: Vec<String>,
+}
+
+impl Imported {
+    fn record(&mut self, result: Result<Wallpaper>, progress: &mut dyn FnMut(&Wallpaper)) {
+        match result {
+            Ok(w) => {
+                progress(&w);
+                self.wallpapers.push(w);
+            }
+            Err(e) => self.problems.push(e.to_string()),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct Library {
@@ -42,31 +69,50 @@ impl Library {
         Err(Error::Io(std::io::Error::other("could not allocate a library directory")))
     }
 
-    /// Bring a file, folder, Lively package, or URL into the library.
-    pub fn import(&self, source: &str, copy_media: bool, temp_dir: &Path, want_thumbnail: bool) -> Result<Wallpaper> {
+    /// Bring a file, folder, Lively package, or URL into the library
+    pub fn import(&self, source: &str, opts: &ImportOptions<'_>, progress: &mut dyn FnMut(&Wallpaper)) -> Result<Imported> {
         ctx(std::fs::create_dir_all(&self.dir), self.dir.display())?;
-        if source.starts_with("http://") || source.starts_with("https://") {
-            return self.import_url(source, want_thumbnail);
-        }
+        let mut out = Imported::default();
         let path = PathBuf::from(source);
-        if path.is_dir() {
-            return self.import_dir(&path, copy_media);
+        let is_url = source.starts_with("http://") || source.starts_with("https://");
+        if !is_url && path.is_dir() {
+            let root = std::path::absolute(&path)?;
+            self.import_tree(&root, opts, &mut HashSet::new(), progress, &mut out);
+            return match (out.wallpapers.is_empty(), out.problems.is_empty()) {
+                (true, true) => Err(Error::Unsupported(format!("{} contains no wallpapers", root.display()))),
+                (true, false) => Err(Error::Invalid(out.problems.join("\n"))),
+                _ => Ok(out),
+            };
         }
-        if !path.is_file() {
+        let wallpaper = if is_url {
+            self.import_url(source, opts.thumbnails)?
+        } else if path.is_file() {
+            self.import_file(&path, opts)?
+        } else {
             return Err(Error::NotFound(format!("{source} does not exist")));
-        }
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-        if ext == "zip" {
-            return self.import_zip(&path);
+        };
+        progress(&wallpaper);
+        out.wallpapers.push(wallpaper);
+        Ok(out)
+    }
+
+    /// One file: a Lively package, a web page, a program, or media.
+    fn import_file(&self, path: &Path, opts: &ImportOptions<'_>) -> Result<Wallpaper> {
+        let ext = extension(path);
+        if PACKAGE_EXTENSIONS.contains(&ext.as_str()) {
+            return self.import_zip(path);
         }
         let kind = Kind::from_extension(&ext)
-            .or_else(|| is_executable(&path).then_some(Kind::Program))
+            .or_else(|| is_executable(path).then_some(Kind::Program))
             .ok_or_else(|| Error::Unsupported(format!("{} is not a supported wallpaper format", if ext.is_empty() { path.display().to_string() } else { format!(".{ext} files") })))?;
+        let source_abs = std::path::absolute(path)?;
+        if kind == Kind::Web {
+            return self.import_web(&source_abs, opts.copy);
+        }
         let title = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Wallpaper".into());
         let dir = self.new_dir(&title)?;
         let mut info = Info { title: title.clone(), kind, ..Info::default() };
-        let source_abs = std::path::absolute(&path)?;
-        if kind.is_media() && copy_media {
+        if kind.is_media() && opts.copy {
             let name = file_name(&source_abs);
             ctx(std::fs::copy(&source_abs, dir.join(&name)), source_abs.display())?;
             info.file_name = name;
@@ -74,14 +120,55 @@ impl Library {
             info.file_name = source_abs.to_string_lossy().into_owned();
             info.is_absolute_path = true;
         }
-        if kind.is_media() && want_thumbnail {
-            match thumb::capture(&source_abs, kind, &dir.join(THUMBNAIL), temp_dir) {
+        if kind.is_media() && opts.thumbnails {
+            match thumb::capture(&source_abs, kind, &dir.join(THUMBNAIL), opts.temp_dir) {
                 Ok(()) => info.thumbnail = Some(THUMBNAIL.into()),
                 Err(e) => log::warn!("thumbnail for {}: {e}", source_abs.display()),
             }
         }
         info.save(&dir.join(FILE_NAME))?;
         Wallpaper::load(&dir)
+    }
+
+    fn import_tree(&self, dir: &Path, opts: &ImportOptions<'_>, seen: &mut HashSet<PathBuf>, progress: &mut dyn FnMut(&Wallpaper), out: &mut Imported) {
+        match std::fs::canonicalize(dir) {
+            Ok(real) => {
+                if !seen.insert(real) {
+                    return;
+                }
+            }
+            Err(e) => {
+                out.problems.push(format!("{}: {e}", dir.display()));
+                return;
+            }
+        }
+        if dir.join(FILE_NAME).is_file() {
+            out.record(self.import_lively_dir(dir).map_err(|e| Error::Invalid(format!("{}: {e}", dir.display()))), progress);
+            return;
+        }
+        if let Some(index) = find_index(dir) {
+            out.record(self.import_web(&index, opts.copy).map_err(|e| Error::Invalid(format!("{}: {e}", dir.display()))), progress);
+            return;
+        }
+        let entries = match std::fs::read_dir(dir) {
+            Ok(rd) => rd,
+            Err(e) => {
+                out.problems.push(format!("{}: {e}", dir.display()));
+                return;
+            }
+        };
+        let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| !file_name(p).starts_with('.')).collect();
+        paths.sort();
+        for p in paths {
+            if p.is_dir() {
+                self.import_tree(&p, opts, seen, progress, out);
+            } else if p.is_file() {
+                let ext = extension(&p);
+                if PACKAGE_EXTENSIONS.contains(&ext.as_str()) || Kind::from_extension(&ext).is_some() {
+                    out.record(self.import_file(&p, opts).map_err(|e| Error::Invalid(format!("{}: {e}", p.display()))), progress);
+                }
+            }
+        }
     }
 
     fn import_url(&self, url: &str, want_thumbnail: bool) -> Result<Wallpaper> {
@@ -106,26 +193,29 @@ impl Library {
         Wallpaper::load(&dir)
     }
 
-    fn import_dir(&self, path: &Path, copy: bool) -> Result<Wallpaper> {
-        let path = std::path::absolute(path)?;
-        if path.join(FILE_NAME).is_file() {
-            if path.parent().is_some_and(|p| p == self.dir) {
-                return Wallpaper::load(&path);
-            }
-            let info = Info::load(&path.join(FILE_NAME))?;
-            let dir = self.new_dir(&info.title)?;
-            copy_tree(&path, &dir)?;
-            return Wallpaper::load(&dir);
+    /// A folder that already is a Lively wallpaper
+    fn import_lively_dir(&self, path: &Path) -> Result<Wallpaper> {
+        if path.parent().is_some_and(|p| p == self.dir) {
+            return Wallpaper::load(path);
         }
-        let index = ["index.html", "index.htm"].into_iter().map(|n| path.join(n)).find(|p| p.is_file()).ok_or_else(|| {
-            Error::Unsupported(format!("{} has neither {FILE_NAME} nor index.html", path.display()))
-        })?;
-        let title = file_name(&path);
+        let info = Info::load(&path.join(FILE_NAME))?;
+        let dir = self.new_dir(&info.title)?;
+        copy_tree(path, &dir)?;
+        Wallpaper::load(&dir)
+    }
+
+    fn import_web(&self, index: &Path, copy: bool) -> Result<Wallpaper> {
+        let root = index.parent().filter(|p| !p.as_os_str().is_empty()).ok_or_else(|| Error::Invalid(format!("{} has no parent folder", index.display())))?;
+        if root.join(FILE_NAME).is_file() {
+            return self.import_lively_dir(root);
+        }
+        let stem = index.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let title = if stem.eq_ignore_ascii_case("index") { file_name(root) } else { stem };
         let dir = self.new_dir(&title)?;
         let mut info = Info { title, kind: Kind::Web, ..Info::default() };
         if copy {
-            copy_tree(&path, &dir)?;
-            info.file_name = file_name(&index);
+            copy_tree(root, &dir)?;
+            info.file_name = file_name(index);
         } else {
             info.file_name = index.to_string_lossy().into_owned();
             info.is_absolute_path = true;
@@ -248,6 +338,14 @@ fn host(url: &str) -> String {
     url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or(url).trim_start_matches("www.").to_string()
 }
 
+fn extension(path: &Path) -> String {
+    path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
+}
+
+fn find_index(dir: &Path) -> Option<PathBuf> {
+    ["index.html", "index.htm"].into_iter().map(|n| dir.join(n)).find(|p| p.is_file())
+}
+
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     ctx(std::fs::create_dir_all(to), to.display())?;
     for entry in ctx(std::fs::read_dir(from), from.display())?.flatten() {
@@ -296,13 +394,22 @@ mod tests {
         dir
     }
 
+    /// Import source for one wallpaper
+    fn one(lib: &Library, source: &Path, copy: bool, root: &Path) -> Result<Wallpaper> {
+        let opts = ImportOptions { copy, thumbnails: false, temp_dir: root };
+        let mut imported = lib.import(source.to_str().unwrap(), &opts, &mut |_| {})?;
+        assert_eq!(imported.wallpapers.len(), 1, "{}", source.display());
+        assert!(imported.problems.is_empty(), "{:?}", imported.problems);
+        Ok(imported.wallpapers.remove(0))
+    }
+
     #[test]
     fn imports_media_by_reference_and_scans() {
         let root = temp();
         let lib = Library { dir: root.join("library") };
         let video = root.join("clip.mp4");
         std::fs::write(&video, b"not really a video").unwrap();
-        let w = lib.import(video.to_str().unwrap(), false, &root, false).unwrap();
+        let w = one(&lib, &video, false, &root).unwrap();
         assert_eq!(w.kind(), Kind::Video);
         assert!(w.info.is_absolute_path);
         assert_eq!(PathBuf::from(&w.source), video);
@@ -322,7 +429,7 @@ mod tests {
         std::fs::write(site.join("index.html"), "<html></html>").unwrap();
         std::fs::write(site.join("assets/a.js"), "1").unwrap();
         std::fs::write(site.join("LivelyProperties.json"), r#"{"hue":{"type":"slider","text":"Hue","value":1,"min":0,"max":9}}"#).unwrap();
-        let copied = lib.import(site.to_str().unwrap(), true, &root, false).unwrap();
+        let copied = one(&lib, &site, true, &root).unwrap();
         assert_eq!(copied.kind(), Kind::Web);
         assert!(!copied.info.is_absolute_path);
         assert!(copied.dir.join("assets/a.js").is_file());
@@ -331,7 +438,7 @@ mod tests {
         let package = root.join("pkg.zip");
         lib.export(&copied, &package).unwrap();
         let other = Library { dir: root.join("other") };
-        let restored = other.import(package.to_str().unwrap(), false, &root, false).unwrap();
+        let restored = one(&other, &package, false, &root).unwrap();
         assert_eq!(restored.title(), copied.title());
         assert!(restored.dir.join("index.html").is_file());
         assert!(restored.dir.join("assets/a.js").is_file());
@@ -346,16 +453,94 @@ mod tests {
     }
 
     #[test]
+    fn html_file_imports_like_its_folder() {
+        let root = temp();
+        let lib = Library { dir: root.join("library") };
+        let site = root.join("aurora");
+        std::fs::create_dir_all(site.join("js")).unwrap();
+        std::fs::write(site.join("index.html"), "<html></html>").unwrap();
+        std::fs::write(site.join("js/app.js"), "1").unwrap();
+        let index = site.join("index.html");
+
+        let referenced = one(&lib, &index, false, &root).unwrap();
+        assert_eq!(referenced.kind(), Kind::Web);
+        assert_eq!(referenced.title(), "aurora");
+        assert!(referenced.info.is_absolute_path);
+        assert_eq!(referenced.root_dir(), site);
+
+        let copied = one(&lib, &index, true, &root).unwrap();
+        assert!(!copied.info.is_absolute_path);
+        assert!(copied.dir.join("index.html").is_file());
+        assert!(copied.dir.join("js/app.js").is_file());
+        assert_eq!(copied.root_dir(), copied.dir);
+
+        let page = site.join("nebula.html");
+        std::fs::write(&page, "<html></html>").unwrap();
+        let named = one(&lib, &page, false, &root).unwrap();
+        assert_eq!(named.title(), "nebula");
+
+        let lively = root.join("packaged");
+        std::fs::create_dir_all(&lively).unwrap();
+        std::fs::write(lively.join("index.html"), "<html></html>").unwrap();
+        std::fs::write(lively.join("LivelyInfo.json"), r#"{"Title":"Packaged","Type":2,"FileName":"index.html"}"#).unwrap();
+        let via_html = one(&lib, &lively.join("index.html"), false, &root).unwrap();
+        assert_eq!(via_html.kind(), Kind::WebAudio);
+        assert_eq!(via_html.title(), "Packaged");
+        assert!(via_html.dir.join("index.html").is_file());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn folder_imports_everything_inside_flat_and_reports_problems() {
+        let root = temp();
+        let lib = Library { dir: root.join("library") };
+        let pack = root.join("pack");
+        for d in ["nested/deeper", "site", "lively", ".hidden"] {
+            std::fs::create_dir_all(pack.join(d)).unwrap();
+        }
+        std::fs::write(pack.join("b.mp4"), "v").unwrap();
+        std::fs::write(pack.join("a.png"), "p").unwrap();
+        std::fs::write(pack.join("notes.txt"), "not a wallpaper").unwrap();
+        std::fs::write(pack.join("nested/deeper/c.gif"), "g").unwrap();
+        std::fs::write(pack.join("site/index.html"), "<html></html>").unwrap();
+        std::fs::write(pack.join("site/extra.mp4"), "belongs to the site").unwrap();
+        std::fs::write(pack.join("lively/LivelyInfo.json"), r#"{"Title":"Packed","Type":7,"FileName":"clip.mp4"}"#).unwrap();
+        std::fs::write(pack.join("lively/clip.mp4"), "v").unwrap();
+        std::fs::write(pack.join(".hidden/d.mp4"), "v").unwrap();
+        std::fs::write(pack.join("broken.zip"), b"PK\x03\x04junk").unwrap();
+
+        let opts = ImportOptions { copy: false, thumbnails: false, temp_dir: &root };
+        let mut seen = Vec::new();
+        let imported = lib.import(pack.to_str().unwrap(), &opts, &mut |w| seen.push(w.title())).unwrap();
+        let mut titles: Vec<String> = imported.wallpapers.iter().map(|w| w.title()).collect();
+        titles.sort();
+        assert_eq!(titles, ["Packed", "a", "b", "c", "site"]);
+        assert_eq!(seen.len(), 5, "progress runs once per wallpaper");
+        assert_eq!(imported.problems.len(), 1, "{:?}", imported.problems);
+        assert!(imported.problems[0].contains("broken.zip"));
+        assert_eq!(lib.scan().len(), 5);
+
+        let nothing = root.join("nothing");
+        std::fs::create_dir_all(&nothing).unwrap();
+        assert!(matches!(lib.import(nothing.to_str().unwrap(), &opts, &mut |_| {}), Err(Error::Unsupported(_))));
+        let only_bad = root.join("only-bad");
+        std::fs::create_dir_all(&only_bad).unwrap();
+        std::fs::write(only_bad.join("x.zip"), b"PK\x03\x04junk").unwrap();
+        assert!(matches!(lib.import(only_bad.to_str().unwrap(), &opts, &mut |_| {}), Err(Error::Invalid(_))));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn rejects_unsupported_and_unsafe_input() {
         let root = temp();
         let lib = Library { dir: root.join("library") };
         let odd = root.join("notes.txt");
         std::fs::write(&odd, "x").unwrap();
-        assert!(matches!(lib.import(odd.to_str().unwrap(), false, &root, false), Err(Error::Unsupported(_))));
-        assert!(matches!(lib.import(root.join("missing.mp4").to_str().unwrap(), false, &root, false), Err(Error::NotFound(_))));
+        assert!(matches!(one(&lib, &odd, false, &root), Err(Error::Unsupported(_))));
+        assert!(matches!(one(&lib, &root.join("missing.mp4"), false, &root), Err(Error::NotFound(_))));
         let bad_zip = root.join("bad.zip");
         std::fs::write(&bad_zip, b"PK\x03\x04junk").unwrap();
-        assert!(lib.import(bad_zip.to_str().unwrap(), false, &root, false).is_err());
+        assert!(one(&lib, &bad_zip, false, &root).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

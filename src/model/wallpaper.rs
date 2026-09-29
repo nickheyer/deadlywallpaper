@@ -35,6 +35,11 @@ pub struct Summary {
     pub author: Option<String>,
     pub desc: Option<String>,
     pub contact: Option<String>,
+    #[serde(default)]
+    pub license: Option<String>,
+    /// Command line arguments of program wallpapers.
+    #[serde(default)]
+    pub arguments: Option<String>,
     pub thumbnail: Option<PathBuf>,
     pub customizable: bool,
     pub source: String,
@@ -130,6 +135,8 @@ impl Wallpaper {
             author: self.info.author.clone().filter(|s| !s.trim().is_empty()),
             desc: self.info.desc.clone().filter(|s| !s.trim().is_empty()),
             contact: self.info.contact.clone().filter(|s| !s.trim().is_empty()),
+            license: self.info.license.clone().filter(|s| !s.trim().is_empty()),
+            arguments: self.info.arguments.clone().filter(|s| !s.trim().is_empty()),
             thumbnail: self.thumbnail.clone(),
             customizable: self.properties != PropertySource::None,
             source: self.source.clone(),

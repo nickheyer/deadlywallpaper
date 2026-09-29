@@ -1,9 +1,11 @@
+//! The Settings page. It edits a draft that the app saves once no control is mid-edit.
+
 use crate::ipc::{AudioDevice, Capabilities};
 use crate::model::Display;
 use crate::model::settings::{AudioOutput, PauseScope, Scaler, Settings, StreamQuality, Theme};
-use crate::ui::theme;
-use crate::ui::widgets::row;
-use eframe::egui;
+use crate::ui::widgets::{divider, row, toggle};
+use crate::ui::{theme, widgets};
+use eframe::egui::{self, RichText};
 
 pub struct Context<'a> {
     pub devices: &'a [AudioDevice],
@@ -11,93 +13,125 @@ pub struct Context<'a> {
     pub capabilities: &'a Capabilities,
 }
 
-fn section(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
-    theme::section_title(ui, title);
-    ui.add_space(4.0);
-    theme::card(ui).show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        add(ui);
-    });
-    ui.add_space(14.0);
+/// UI state that outlives a frame.
+#[derive(Default)]
+pub struct State {
+    /// Focus the application field that was just added.
+    pub focus_new_app: bool,
 }
 
-/// Settings form; returns true when a value changed and should be saved.
-pub fn ui(ui: &mut egui::Ui, s: &mut Settings, cx: &Context<'_>) -> bool {
-    let before = s.clone();
-    let mut slider_active = false;
+fn section(ui: &mut egui::Ui, title: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
+    theme::section_title(ui, title);
+    if !help.is_empty() {
+        theme::hint(ui, help);
+    }
+    ui.add_space(6.0);
+    theme::card_compact(ui).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing.y = 6.0;
+        add(ui);
+    });
+    ui.add_space(18.0);
+}
 
-    section(ui, "General", |ui| {
-        row(ui, "Start with the system", "Launch the wallpaper daemon when you log in", |ui| {
-            ui.checkbox(&mut s.autostart, "");
+/// Draw the form. Returns true while a slider is being dragged or a text field has focus, so
+/// the caller waits before saving.
+pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'_>) -> bool {
+    let p = theme::palette(ui);
+    let mut busy = false;
+
+    section(ui, "General", "", |ui| {
+        row(ui, "Start at login", "", |ui| {
+            toggle(ui, &mut s.autostart);
         });
-        row(ui, "Tray icon", "Pause, shuffle and open the app from the system tray", |ui| {
-            ui.checkbox(&mut s.tray, "");
+        divider(ui);
+        row(ui, "Tray icon", "", |ui| {
+            toggle(ui, &mut s.tray);
         });
-        row(ui, "Appearance", "Colour scheme of this window and of web wallpapers", |ui| {
+        divider(ui);
+        row(ui, "Theme", "", |ui| {
             egui::ComboBox::from_id_salt("theme").selected_text(theme_label(s.theme)).show_ui(ui, |ui| {
                 for t in [Theme::System, Theme::Light, Theme::Dark] {
                     ui.selectable_value(&mut s.theme, t, theme_label(t));
                 }
             });
         });
+        divider(ui);
         let library_dir = s.library_dir.to_string_lossy().into_owned();
         row(ui, "Library folder", &library_dir, |ui| {
-            if ui.button("Change…").clicked() {
+            if ui.add(theme::secondary_button("Change…")).clicked() {
                 if let Some(dir) = rfd::FileDialog::new().set_directory(&s.library_dir).pick_folder() {
                     s.library_dir = dir;
                 }
             }
         });
-        row(ui, "Copy media into the library", "Otherwise imported files are used where they are", |ui| {
-            ui.checkbox(&mut s.copy_imports, "");
+        divider(ui);
+        row(ui, "Copy imports into the library", "", |ui| {
+            toggle(ui, &mut s.copy_imports);
         });
-        row(ui, "Generate thumbnails", "Capture a preview frame for imported and running wallpapers", |ui| {
-            ui.checkbox(&mut s.thumbnails, "");
+        divider(ui);
+        row(ui, "Thumbnails", "", |ui| {
+            toggle(ui, &mut s.thumbnails);
         });
     });
 
-    section(ui, "Playback", |ui| {
-        row(ui, "Pause under fullscreen or covering windows", "Saves power while a game or a maximized window hides the wallpaper", |ui| {
-            ui.checkbox(&mut s.rules.fullscreen_pause, "");
+    section(ui, "Pause", "", |ui| {
+        row(ui, "When a window covers the display", "", |ui| {
+            toggle(ui, &mut s.rules.fullscreen_pause);
         });
-        row(ui, "Pause whenever an application is focused", "", |ui| {
-            ui.add_enabled(s.rules.fullscreen_pause, egui::Checkbox::new(&mut s.rules.focus_pause, ""));
+        divider(ui);
+        ui.add_enabled_ui(s.rules.fullscreen_pause, |ui| {
+            row(ui, "When any window is focused", "", |ui| {
+                toggle(ui, &mut s.rules.focus_pause);
+            });
+            divider(ui);
+            row(ui, "Scope", "", |ui| {
+                egui::ComboBox::from_id_salt("scope").width(210.0)
+                    .selected_text(match s.rules.scope {
+                        PauseScope::Display => "That display",
+                        PauseScope::All => "All displays",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut s.rules.scope, PauseScope::Display, "That display");
+                        ui.selectable_value(&mut s.rules.scope, PauseScope::All, "All displays");
+                    });
+            });
+            divider(ui);
+            row(ui, "Coverage", "", |ui| {
+                let mut percent = (s.rules.coverage * 100.0).round();
+                let r = ui.add(egui::Slider::new(&mut percent, 50.0..=100.0).suffix("%").fixed_decimals(0));
+                busy |= r.dragged();
+                s.rules.coverage = percent / 100.0;
+            });
+            divider(ui);
+            row(ui, "Check interval", "", |ui| {
+                let r = ui.add(egui::Slider::new(&mut s.rules.interval_ms, 100..=5000).suffix(" ms").logarithmic(true));
+                busy |= r.dragged();
+            });
+            divider(ui);
         });
-        row(ui, "When one display is covered", "", |ui| {
-            egui::ComboBox::from_id_salt("scope")
-                .selected_text(match s.rules.scope {
-                    PauseScope::Display => "Pause only that display",
-                    PauseScope::All => "Pause every display",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut s.rules.scope, PauseScope::Display, "Pause only that display");
-                    ui.selectable_value(&mut s.rules.scope, PauseScope::All, "Pause every display");
-                });
+        row(ui, "On battery", "", |ui| {
+            toggle(ui, &mut s.rules.battery_pause);
         });
-        row(ui, "Covered when windows hide", "Share of the work area that counts as covered", |ui| {
-            let mut percent = (s.rules.coverage * 100.0).round();
-            let r = ui.add(egui::Slider::new(&mut percent, 50.0..=100.0).suffix("%").fixed_decimals(0));
-            slider_active |= r.dragged();
-            s.rules.coverage = percent / 100.0;
+        divider(ui);
+        row(ui, "When locked", "", |ui| {
+            toggle(ui, &mut s.rules.lock_pause);
         });
-        row(ui, "Pause on battery", "", |ui| {
-            ui.checkbox(&mut s.rules.battery_pause, "");
-        });
-        row(ui, "Pause while the session is locked", "", |ui| {
-            ui.checkbox(&mut s.rules.lock_pause, "");
-        });
-        row(ui, "Window check interval", "How often window positions are re-evaluated", |ui| {
-            let r = ui.add(egui::Slider::new(&mut s.rules.interval_ms, 100..=5000).suffix(" ms").logarithmic(true));
-            slider_active |= r.dragged();
-        });
-        ui.add_space(6.0);
-        ui.label("Pause while these applications run");
-        theme::hint(ui, "Match on the window's application id or process name, for example steam or firefox");
+        divider(ui);
+        ui.add_space(2.0);
+        ui.label(RichText::new("While running").color(p.text));
+        ui.add_space(2.0);
         let mut remove = None;
+        let count = s.rules.app_pause.len();
         for (i, app) in s.rules.app_pause.iter_mut().enumerate() {
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(app).desired_width(240.0).hint_text("application"));
-                if ui.small_button("✖").clicked() {
+                let r = ui.add(egui::TextEdit::singleline(app).desired_width(260.0).hint_text("process name"));
+                if state.focus_new_app && i + 1 == count {
+                    r.request_focus();
+                    state.focus_new_app = false;
+                }
+                busy |= r.has_focus();
+                if widgets::icon_button(ui, "✖", "Remove").clicked() {
                     remove = Some(i);
                 }
             });
@@ -105,26 +139,30 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, cx: &Context<'_>) -> bool {
         if let Some(i) = remove {
             s.rules.app_pause.remove(i);
         }
-        if ui.small_button("＋ Add application").clicked() {
+        if ui.add(theme::secondary_button("+  Add")).clicked() {
             s.rules.app_pause.push(String::new());
+            state.focus_new_app = true;
+            busy = true;
         }
     });
 
-    section(ui, "Audio", |ui| {
+    section(ui, "Audio", "", |ui| {
         row(ui, "Volume", "", |ui| {
             let r = ui.add(egui::Slider::new(&mut s.volume, 0..=100).suffix("%"));
-            slider_active |= r.dragged();
+            busy |= r.dragged();
         });
-        row(ui, "Sound only while on the desktop", "Mute while another application is focused", |ui| {
-            ui.checkbox(&mut s.audio_only_on_desktop, "");
+        divider(ui);
+        row(ui, "Mute when a window is focused", "", |ui| {
+            toggle(ui, &mut s.audio_only_on_desktop);
         });
-        row(ui, "Play sound on", "", |ui| {
+        divider(ui);
+        row(ui, "Output", "", |ui| {
             let label = match &s.audio_output {
                 AudioOutput::All => "Every display".to_string(),
                 AudioOutput::Primary => "Primary display".to_string(),
                 AudioOutput::Display(id) => cx.displays.iter().find(|d| &d.id == id).map(|d| d.name.clone()).unwrap_or_else(|| id.clone()),
             };
-            egui::ComboBox::from_id_salt("audio_out").selected_text(label).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("audio_out").width(210.0).selected_text(label).show_ui(ui, |ui| {
                 ui.selectable_value(&mut s.audio_output, AudioOutput::All, "Every display");
                 ui.selectable_value(&mut s.audio_output, AudioOutput::Primary, "Primary display");
                 for d in cx.displays {
@@ -132,10 +170,14 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, cx: &Context<'_>) -> bool {
                 }
             });
         });
-        row(ui, "Visualizer input", "Audio source analysed for web audio wallpapers", |ui| {
+        divider(ui);
+        row(ui, "Visualizer input", "", |ui| {
             let current = s.audio_capture_device.clone().unwrap_or_default();
             let label = cx.devices.iter().find(|d| d.id == current).map(|d| d.name.clone()).unwrap_or_else(|| if current.is_empty() { "System output".into() } else { current.clone() });
-            egui::ComboBox::from_id_salt("audio_in").selected_text(label).width(240.0).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("audio_in").width(240.0).selected_text(label).show_ui(ui, |ui| {
+                if cx.devices.is_empty() {
+                    ui.selectable_value(&mut s.audio_capture_device, None, "System output");
+                }
                 for d in cx.devices {
                     let value = if d.id.is_empty() { None } else { Some(d.id.clone()) };
                     ui.selectable_value(&mut s.audio_capture_device, value, &d.name);
@@ -144,63 +186,63 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, cx: &Context<'_>) -> bool {
         });
     });
 
-    section(ui, "Video", |ui| {
+    section(ui, "Video", "", |ui| {
         row(ui, "Hardware decoding", "", |ui| {
-            ui.checkbox(&mut s.video.hw_accel, "");
+            toggle(ui, &mut s.video.hw_accel);
         });
-        row(ui, "Default fit", "How videos, GIFs and pictures fill the screen; adjustable per wallpaper", |ui| {
+        divider(ui);
+        row(ui, "Default fit", "", |ui| {
             egui::ComboBox::from_id_salt("scaler").selected_text(s.video.scaler.label()).show_ui(ui, |ui| {
                 for sc in Scaler::ALL {
                     ui.selectable_value(&mut s.video.scaler, sc, sc.label());
                 }
             });
         });
-        row(ui, "Stream quality", "Maximum resolution for online video streams", |ui| {
+        divider(ui);
+        row(ui, "Stream quality", "", |ui| {
             egui::ComboBox::from_id_salt("quality").selected_text(s.video.stream_quality.label()).show_ui(ui, |ui| {
                 for q in StreamQuality::ALL {
                     ui.selectable_value(&mut s.video.stream_quality, q, q.label());
                 }
             });
         });
-        row(ui, "Start timeout", "Wallpapers that do not start in time are stopped", |ui| {
+        divider(ui);
+        row(ui, "Start timeout", "", |ui| {
             let r = ui.add(egui::Slider::new(&mut s.video.load_timeout_secs, 5..=120).suffix(" s"));
-            slider_active |= r.dragged();
+            busy |= r.dragged();
         });
     });
 
     if cx.capabilities.web_devtools {
-        section(ui, "Web", |ui| {
-            row(ui, "Developer tools", "Allow inspecting web wallpapers", |ui| {
-                ui.checkbox(&mut s.web.devtools, "");
+        section(ui, "Web", "", |ui| {
+            row(ui, "Developer tools", "", |ui| {
+                toggle(ui, &mut s.web.devtools);
             });
         });
     }
 
     if cx.capabilities.pointer_motion || cx.capabilities.pointer_clicks {
-        section(ui, "Input", |ui| {
-            let what = match (cx.capabilities.pointer_motion, cx.capabilities.pointer_clicks) {
-                (true, true) => "Interactive wallpapers react to pointer movement and clicks on the desktop",
-                (true, false) => "Interactive wallpapers react to pointer movement over the desktop",
-                _ => "Interactive wallpapers react to clicks on the desktop",
-            };
-            row(ui, "Forward the pointer to wallpapers", what, |ui| {
-                ui.checkbox(&mut s.input.forward_mouse, "");
+        section(ui, "Input", "", |ui| {
+            row(ui, "Pointer", "", |ui| {
+                toggle(ui, &mut s.input.forward_mouse);
             });
             if cx.capabilities.global_pointer {
-                row(ui, "Keep tracking movement while another application is focused", "", |ui| {
-                    ui.add_enabled(s.input.forward_mouse, egui::Checkbox::new(&mut s.input.always_move, ""));
+                divider(ui);
+                ui.add_enabled_ui(s.input.forward_mouse, |ui| {
+                    row(ui, "Also when a window is focused", "", |ui| {
+                        toggle(ui, &mut s.input.always_move);
+                    });
                 });
             }
         });
     }
 
-    let editing_text = ui.memory(|m| m.focused()).is_some();
-    *s != before && !slider_active && !editing_text
+    busy
 }
 
 fn theme_label(t: Theme) -> &'static str {
     match t {
-        Theme::System => "Follow the system",
+        Theme::System => "System",
         Theme::Light => "Light",
         Theme::Dark => "Dark",
     }

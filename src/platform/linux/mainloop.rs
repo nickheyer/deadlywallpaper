@@ -1,3 +1,4 @@
+use gtk::prelude::*;
 use crate::content::Content;
 use crate::error::{Error, Result};
 use crate::model::{Display, Kind};
@@ -110,9 +111,32 @@ impl RuntimeApi for Runtime {
                 k if k.is_media() => media_view::spawn(spec, slot, self.tx.clone(), &self.display),
                 k if k.is_web() => {
                     let builder = crate::web::builder(spec, self.tx.clone())?;
-                    let webview = builder.build_gtk(&slot.container).map_err(|e| Error::Web(format!("web view: {e}")))?;
+                    // The page keeps the image's size and moves inside this layout, which
+                    // clips it to the display.
+                    let inner = gtk::Layout::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+                    inner.set_size_request(slot.size.w, slot.size.h);
+                    slot.container.pack_start(&inner, true, true, 0);
+                    inner.show();
+                    let webview = builder.build_gtk(&inner).map_err(|e| Error::Web(format!("web view: {e}")))?;
                     tune_webkit(&webview);
-                    Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone())))
+                    let page = {
+                        use wry::WebViewExtUnix;
+                        webview.webview()
+                    };
+                    let slot_size = slot.size;
+                    let hook = move |v: &crate::content::View| -> Result<()> {
+                        if v.rotation != 0.0 {
+                            return Err(Error::Unsupported("web wallpapers cannot be rotated on this desktop".into()));
+                        }
+                        use webkit2gtk::WebViewExt;
+                        let (x, y) = v.origin(slot_size);
+                        let (w, h) = ((v.width as f64 * v.scale).round().max(1.0) as i32, (v.height as f64 * v.scale).round().max(1.0) as i32);
+                        page.set_size_request(w, h);
+                        inner.move_(&page, x.round() as i32, y.round() as i32);
+                        page.set_zoom_level(v.scale);
+                        Ok(())
+                    };
+                    Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone(), slot.size).with_view_hook(Box::new(hook))))
                 }
                 Kind::Program => program::spawn(spec, slot, self.tx.clone(), !shell.is_wayland()),
                 _ => Err(Error::Unsupported(format!("{} wallpapers are not supported", kind.label()))),
@@ -126,7 +150,7 @@ fn tune_webkit(webview: &wry::WebView) {
     use webkit2gtk::{HardwareAccelerationPolicy, SettingsExt, WebViewExt};
     use wry::WebViewExtUnix;
     let wv = webview.webview();
-    if let Some(s) = wv.settings() {
+    if let Some(s) = WebViewExt::settings(&wv) {
         s.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Always);
         s.set_media_playback_requires_user_gesture(false);
         s.set_enable_webgl(true);

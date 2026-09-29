@@ -1,7 +1,8 @@
 //! External program wallpapers re-parented into a wallpaper slot.
 
-use crate::content::{Content, ContentEvent, PointerEvent, PointerKind, Seek};
+use crate::content::{Content, ContentEvent, PointerEvent, PointerKind, Seek, View};
 use crate::error::{Error, Result};
+use crate::geom::Size;
 use crate::model::Control;
 use crate::msg::Msg;
 use crate::platform::windows::{MsgSender, Slot};
@@ -9,6 +10,7 @@ use crate::platform::{ContentSpec, MsgSenderApi};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, WPARAM};
 use windows::core::BOOL;
@@ -37,22 +39,34 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender) -> Result<Box<d
         .map_err(|e| Error::Platform(format!("start {}: {e}", exe.display())))?;
     let pid = child.id();
     let target = slot.hwnd.0 as isize;
-    let (w, h) = (slot.size.w, slot.size.h);
+    let window: Shared<Option<isize>> = Arc::new(Mutex::new(None));
+    let geometry: Shared<(i32, i32, i32, i32)> = Arc::new(Mutex::new((0, 0, slot.size.w, slot.size.h)));
     let timeout = Duration::from_secs(spec.settings.video.load_timeout_secs);
     let id = spec.id;
     let finder_tx = tx.clone();
+    let (found, placement) = (window.clone(), geometry.clone());
     std::thread::Builder::new()
         .name("program-window".into())
         .spawn(move || match find_window(pid, timeout) {
             Ok(hwnd) => {
                 let raw = hwnd.0 as isize;
-                finder_tx.send(Msg::Job(Box::new(move |_| attach(HWND(raw as *mut _), HWND(target as *mut _), w, h))));
+                finder_tx.send(Msg::Job(Box::new(move |_| {
+                    let (x, y, w, h) = *lock(&placement);
+                    attach(HWND(raw as *mut _), HWND(target as *mut _), x, y, w, h);
+                    *lock(&found) = Some(raw);
+                })));
                 finder_tx.send(Msg::Content(id, ContentEvent::Loaded));
             }
             Err(e) => finder_tx.send(Msg::Content(id, ContentEvent::Exited { reason: e.to_string() })),
         })
         .map_err(|e| Error::Platform(e.to_string()))?;
-    Ok(Box::new(ProgramContent::new(child, pid, id, tx)))
+    Ok(Box::new(ProgramContent::new(child, pid, id, tx, window, geometry, slot.size)))
+}
+
+type Shared<T> = Arc<Mutex<T>>;
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 struct Search {
@@ -91,7 +105,7 @@ fn find_window(pid: u32, timeout: Duration) -> Result<HWND> {
     }
 }
 
-fn attach(hwnd: HWND, parent: HWND, w: i32, h: i32) {
+fn attach(hwnd: HWND, parent: HWND, x: i32, y: i32, w: i32, h: i32) {
     // SAFETY: restyling and re-parenting a window we located; failures are non-fatal.
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32 & !(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU | WS_POPUP).0 | WS_CHILD.0;
@@ -99,7 +113,7 @@ fn attach(hwnd: HWND, parent: HWND, w: i32, h: i32) {
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & !(WS_EX_APPWINDOW | WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE).0;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
         let _ = SetParent(hwnd, Some(parent));
-        let _ = SetWindowPos(hwnd, None, 0, 0, w, h, SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        let _ = SetWindowPos(hwnd, None, x, y, w, h, SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
 }
 
@@ -116,12 +130,16 @@ fn nt(name: windows::core::PCSTR) -> Option<NtProcessFn> {
 
 pub struct ProgramContent {
     pid: u32,
-    window: Option<HWND>,
+    /// The program's window once found and re-parented into the slot.
+    window: Shared<Option<isize>>,
+    /// Where the window sits inside the slot: x, y, width, height.
+    geometry: Shared<(i32, i32, i32, i32)>,
+    slot: Size,
     paused: bool,
 }
 
 impl ProgramContent {
-    fn new(mut child: std::process::Child, pid: u32, id: crate::content::ContentId, tx: MsgSender) -> ProgramContent {
+    fn new(mut child: std::process::Child, pid: u32, id: crate::content::ContentId, tx: MsgSender, window: Shared<Option<isize>>, geometry: Shared<(i32, i32, i32, i32)>, slot: Size) -> ProgramContent {
         let _ = std::thread::Builder::new().name("program-wait".into()).spawn(move || {
             let reason = match child.wait() {
                 Ok(s) => format!("program exited with {s}"),
@@ -129,7 +147,11 @@ impl ProgramContent {
             };
             tx.send(Msg::Content(id, ContentEvent::Exited { reason }));
         });
-        ProgramContent { pid, window: None, paused: false }
+        ProgramContent { pid, window, geometry, slot, paused: false }
+    }
+
+    fn window(&self) -> Option<HWND> {
+        lock(&self.window).map(|raw| HWND(raw as *mut _))
     }
 
     fn with_handle(&self, access: windows::Win32::System::Threading::PROCESS_ACCESS_RIGHTS, f: impl FnOnce(HANDLE)) {
@@ -188,7 +210,7 @@ impl Content for ProgramContent {
     }
 
     fn pointer(&mut self, ev: PointerEvent) {
-        let Some(hwnd) = self.window else { return };
+        let Some(hwnd) = self.window() else { return };
         let (msg, wparam) = match ev.kind {
             PointerKind::Move => (WM_MOUSEMOVE, 0usize),
             PointerKind::Down => (WM_LBUTTONDOWN, 1usize),
@@ -202,4 +224,19 @@ impl Content for ProgramContent {
     fn set_input_enabled(&mut self, _enabled: bool) {}
 
     fn audio_data(&mut self, _bins: &[f32]) {}
+
+    /// An embedded window can be placed but not scaled or turned; the slot clips it.
+    fn set_view(&mut self, view: &View) -> Result<()> {
+        if !view.is_plain() {
+            return Err(Error::Unsupported("program wallpapers can be moved but not scaled or rotated".into()));
+        }
+        let (x, y) = view.origin(self.slot);
+        let geometry = (x.round() as i32, y.round() as i32, view.width.max(1), view.height.max(1));
+        *lock(&self.geometry) = geometry;
+        if let Some(hwnd) = self.window() {
+            // SAFETY: moving a child window we embedded; failures are non-fatal.
+            let _ = unsafe { SetWindowPos(hwnd, None, geometry.0, geometry.1, geometry.2, geometry.3, SWP_NOZORDER | SWP_NOACTIVATE) };
+        }
+        Ok(())
+    }
 }

@@ -29,7 +29,6 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, shell: &Shell) 
         return Err(Error::NotFound(format!("{} does not exist", wp.source)));
     }
     let generation = next_generation();
-    let spanning = slot.region != slot.screen;
     let mut values: Vec<(&'static str, Val)> = vec![
         ("Impl", Val::Str(shell.impl_name().to_string())),
         ("Kind", Val::Str(kind.to_string())),
@@ -44,12 +43,13 @@ pub fn spawn(spec: &ContentSpec<'_>, slot: &Slot, tx: MsgSender, shell: &Shell) 
         ("Brightness", Val::Int(0)),
         ("Contrast", Val::Int(0)),
         ("Gamma", Val::Int(0)),
-        ("RegionX", Val::Int(if spanning { slot.region.x as i64 } else { 0 })),
-        ("RegionY", Val::Int(if spanning { slot.region.y as i64 } else { 0 })),
-        ("RegionW", Val::Int(if spanning { slot.region.w as i64 } else { 0 })),
-        ("RegionH", Val::Int(if spanning { slot.region.h as i64 } else { 0 })),
-        ("ScreenX", Val::Int(slot.screen.x as i64)),
-        ("ScreenY", Val::Int(slot.screen.y as i64)),
+        // The view follows through `set_view` as soon as the instance exists.
+        ("RegionW", Val::Int(0)),
+        ("RegionH", Val::Int(0)),
+        ("ViewX", Val::Num(0.0)),
+        ("ViewY", Val::Num(0.0)),
+        ("ViewScale", Val::Num(1.0)),
+        ("ViewRotation", Val::Num(0.0)),
         ("Seek", Val::Str(String::new())),
         ("Screenshot", Val::Str(String::new())),
         ("ScreenshotResult", Val::Str(String::new())),
@@ -262,6 +262,19 @@ impl Content for PlasmaContent {
     fn set_muted(&mut self, muted: bool) {
         self.engine_muted = muted;
         self.write_muted();
+    }
+
+    /// The plugin sizes the content to the image and transforms it about its centre.
+    fn set_view(&mut self, view: &crate::content::View) -> Result<()> {
+        self.write(&[
+            ("RegionW", Val::Int(view.width as i64)),
+            ("RegionH", Val::Int(view.height as i64)),
+            ("ViewX", Val::Num(view.x)),
+            ("ViewY", Val::Num(view.y)),
+            ("ViewScale", Val::Num(view.scale)),
+            ("ViewRotation", Val::Num(view.rotation)),
+        ]);
+        Ok(())
     }
 
     fn seek(&mut self, seek: Seek) {

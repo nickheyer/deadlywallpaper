@@ -1,5 +1,6 @@
-use crate::content::{Content, ContentEvent, ContentId, PointerEvent, Seek};
+use crate::content::{Content, ContentEvent, ContentId, PointerEvent, Seek, View};
 use crate::error::{Error, Result};
+use crate::geom::Size;
 use crate::media::mpv::{self, Handle};
 use crate::model::props::ControlKind;
 use crate::model::settings::{Scaler, StreamQuality};
@@ -9,7 +10,7 @@ use crate::platform::{MsgSender, MsgSenderApi};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Where mpv draws.
 pub enum Vo {
@@ -30,6 +31,8 @@ pub struct PlayerOptions<'a> {
     pub scaler: Scaler,
     pub stream_quality: StreamQuality,
     pub vo: Vo,
+    /// Logical size of the surface mpv draws into.
+    pub slot: Size,
 }
 
 #[derive(Debug)]
@@ -46,7 +49,15 @@ pub struct Player {
     handle: Arc<Handle>,
     kind: Kind,
     source: String,
+    slot: Size,
+    scaler: Mutex<Scaler>,
+    /// The view realized through mpv's own filters and zoom, for surfaces that leave it to mpv.
+    view: Mutex<Option<View>>,
     next_id: u64,
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Player {
@@ -97,7 +108,11 @@ impl Player {
         handle.initialize()?;
         handle.request_log("warn");
         spawn_event_thread(handle.clone(), on_event);
-        Ok(Player { handle, kind: opts.kind, source: opts.source.to_string(), next_id: 1 })
+        Ok(Player { handle, kind: opts.kind, source: opts.source.to_string(), slot: opts.slot, scaler: Mutex::new(opts.scaler), view: Mutex::new(None), next_id: 1 })
+    }
+
+    pub fn slot(&self) -> Size {
+        self.slot
     }
 
     /// Start playback of the configured source.
@@ -135,9 +150,57 @@ impl Player {
     }
 
     pub fn set_scaler(&self, scaler: Scaler) {
-        for (k, v) in scaler.mpv_properties() {
-            report(self.handle.set_str(k, v));
+        *lock(&self.scaler) = scaler;
+        match *lock(&self.view) {
+            Some(view) => self.apply_view(&view, scaler),
+            None => {
+                for (k, v) in scaler.mpv_properties() {
+                    report(self.handle.set_str(k, v));
+                }
+            }
         }
+    }
+
+    /// Show `view` of the image through mpv itself: the frame is fitted to the image size and
+    /// turned by a filter, then zoomed and panned into place.
+    pub fn set_view(&self, view: &View) {
+        if view.is_whole(self.slot) {
+            if lock(&self.view).take().is_some() {
+                report(self.handle.set_str("vf", ""));
+                report(self.handle.set_f64("video-zoom", 0.0));
+                report(self.handle.set_f64("video-pan-x", 0.0));
+                report(self.handle.set_f64("video-pan-y", 0.0));
+                let scaler = *lock(&self.scaler);
+                for (k, v) in scaler.mpv_properties() {
+                    report(self.handle.set_str(k, v));
+                }
+            }
+            return;
+        }
+        *lock(&self.view) = Some(*view);
+        self.apply_view(view, *lock(&self.scaler));
+    }
+
+    fn apply_view(&self, view: &View, scaler: Scaler) {
+        let (w, h) = (view.width.max(1), view.height.max(1));
+        let fit = match scaler {
+            Scaler::Fill => format!("scale={w}:{h}"),
+            Scaler::Uniform => format!("scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"),
+            Scaler::UniformFill => format!("scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"),
+            Scaler::None => format!("crop='min(iw,{w})':'min(ih,{h})',pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"),
+        };
+        let radians = view.rotation.to_radians();
+        let graph = if view.rotation == 0.0 { fit } else { format!("{fit},rotate={radians}:ow=rotw({radians}):oh=roth({radians}):c=black") };
+        report(self.handle.set_str("vf", &format!("lavfi=[{graph}]")));
+        // The turned frame's bounding box, which mpv now shows one to one before zoom and pan.
+        let (sin, cos) = radians.sin_cos();
+        let (bw, bh) = (w as f64 * cos.abs() + h as f64 * sin.abs(), w as f64 * sin.abs() + h as f64 * cos.abs());
+        report(self.handle.set_str("video-unscaled", "yes"));
+        report(self.handle.set_str("keepaspect", "yes"));
+        report(self.handle.set_str("panscan", "0.0"));
+        report(self.handle.set_f64("video-zoom", view.scale.log2()));
+        report(self.handle.set_f64("video-pan-x", view.x / (bw * view.scale)));
+        report(self.handle.set_f64("video-pan-y", view.y / (bh * view.scale)));
     }
 
     /// Map a property control onto an mpv property of the same name.
@@ -257,6 +320,12 @@ pub trait MediaSurface {
         let _ = path;
         None
     }
+
+    /// Show `view` of the image; `None` leaves it to the player.
+    fn set_view(&self, view: &View, slot: Size) -> Option<Result<()>> {
+        let _ = (view, slot);
+        None
+    }
 }
 
 /// A media wallpaper: a platform view (dropped first, so the render context goes before the
@@ -316,4 +385,14 @@ impl Content for MediaContent {
     fn set_input_enabled(&mut self, _enabled: bool) {}
 
     fn audio_data(&mut self, _bins: &[f32]) {}
+
+    fn set_view(&mut self, view: &View) -> Result<()> {
+        match self.view.set_view(view, self.player.slot()) {
+            Some(result) => result,
+            None => {
+                self.player.set_view(view);
+                Ok(())
+            }
+        }
+    }
 }

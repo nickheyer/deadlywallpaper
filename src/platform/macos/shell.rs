@@ -118,6 +118,6 @@ impl ShellApi for Shell {
     fn settle(&mut self) {}
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { presenter: "quartz".into(), pointer_motion: true, pointer_clicks: true, global_pointer: true, programs: false, web_devtools: true }
+        Capabilities { presenter: "quartz".into(), pointer_motion: true, pointer_clicks: true, global_pointer: true, programs: false, web_devtools: true, rotate_web: true }
     }
 }
