@@ -14,18 +14,16 @@ pub enum Page {
     Library,
     Screens,
     Settings,
-    About,
 }
 
 impl Page {
-    const ALL: [Page; 4] = [Page::Library, Page::Screens, Page::Settings, Page::About];
+    const ALL: [Page; 3] = [Page::Library, Page::Screens, Page::Settings];
 
     fn label(self) -> &'static str {
         match self {
             Page::Library => "Library",
             Page::Screens => "Screens",
             Page::Settings => "Settings",
-            Page::About => "About",
         }
     }
 
@@ -34,7 +32,6 @@ impl Page {
             Page::Library => "🖼",
             Page::Screens => "🖥",
             Page::Settings => "⚙",
-            Page::About => "ℹ",
         }
     }
 
@@ -43,7 +40,6 @@ impl Page {
             Page::Library => Key::Num1,
             Page::Screens => Key::Num2,
             Page::Settings => Key::Num3,
-            Page::About => Key::Num4,
         }
     }
 
@@ -52,7 +48,6 @@ impl Page {
             Page::Library => "library",
             Page::Screens => "screens",
             Page::Settings => "settings",
-            Page::About => "about",
         }
     }
 
@@ -65,7 +60,6 @@ impl Page {
             Page::Library => "Ctrl+1",
             Page::Screens => "Ctrl+2",
             Page::Settings => "Ctrl+3",
-            Page::About => "Ctrl+4",
         }
     }
 }
@@ -92,6 +86,7 @@ pub struct App {
     library_state: library::State,
     filter: Option<Kind>,
     page: Page,
+    about_open: bool,
     customize: customize::Panel,
     settings_state: settings::State,
     dialog: Option<Dialog>,
@@ -122,6 +117,7 @@ impl App {
             library_state: library::State::default(),
             filter: None,
             page,
+            about_open: false,
             customize: customize::Panel::default(),
             settings_state: settings::State::default(),
             dialog: None,
@@ -322,7 +318,7 @@ impl App {
         let p = theme::palette(ui);
         ui.horizontal(|ui| {
             ui.add_space(6.0);
-            ui.add(theme::logo().fit_to_exact_size(egui::vec2(30.0, 30.0)));
+            theme::logo(ui, 30.0);
             ui.add_space(2.0);
             ui.label(RichText::new("Deadly Wallpaper").size(15.0).strong().color(p.text_strong));
         });
@@ -334,51 +330,49 @@ impl App {
             }
         }
         ui.spacing_mut().item_spacing.y = 8.0;
+        self.volume_dragging = false;
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-            ui.add_space(2.0);
-            let (connected, paused, playing) = match &self.status {
-                Some(s) => (true, s.paused, s.active.len()),
-                None => (false, false, 0),
+            if widgets::nav_item(ui, false, "ℹ", "About", "Ctrl+4").clicked() {
+                self.about_open = true;
+            }
+            ui.add_space(8.0);
+            widgets::divider(ui);
+            ui.add_space(12.0);
+            let (paused, can_pause, has_audio) = match &self.status {
+                Some(s) => (s.paused, s.active.iter().any(|a| a.kind != Kind::Picture), s.active.iter().any(|a| a.kind.has_audio())),
+                None => (false, false, false),
             };
-            ui.horizontal(|ui| {
-                ui.add_space(4.0);
-                let glyph = match self.volume {
-                    0 => "🔇",
-                    1..=49 => "🔉",
-                    _ => "🔊",
-                };
-                ui.label(RichText::new(glyph).color(p.text_weak));
-                ui.spacing_mut().slider_width = ui.available_width() - 12.0;
-                let slider = ui.add_enabled(connected, egui::Slider::new(&mut self.volume, 0..=100).show_value(false)).on_hover_text(format!("Volume {}%", self.volume));
+            if has_audio {
+                ui.spacing_mut().slider_width = ui.available_width();
+                let slider = ui.add(egui::Slider::new(&mut self.volume, 0..=100).show_value(false)).on_hover_text("Wallpaper volume");
                 self.volume_dragging = slider.dragged();
                 if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {
-                    for s in [&mut self.draft, &mut self.saved].into_iter().flatten() {
-                        s.volume = self.volume;
+                    match self.backend.call(Request::Volume { value: self.volume.to_string() }) {
+                        Ok(_) => {
+                            for s in [&mut self.draft, &mut self.saved].into_iter().flatten() {
+                                s.volume = self.volume;
+                            }
+                        }
+                        Err(e) => {
+                            self.volume = self.saved.as_ref().map_or(75, |s| s.volume);
+                            self.toasts.error(e.to_string());
+                        }
                     }
-                    self.send(Request::Volume { value: self.volume.to_string() });
                 }
-            });
-            if connected {
-                let label = if paused { "▶  Resume" } else { "⏸  Pause" };
-                if ui.add_sized([ui.available_width(), 34.0], theme::secondary_button(label)).clicked() {
+                ui.horizontal(|ui| {
+                    ui.label("Volume");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(format!("{}%", self.volume));
+                    });
+                });
+                ui.add_space(8.0);
+            }
+            if can_pause {
+                let label = if paused { "▶  Resume all" } else { "⏸  Pause all" };
+                if ui.add_sized([ui.available_width(), 32.0], theme::secondary_button(label)).clicked() {
                     self.send(Request::Play { play: paused });
                 }
             }
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.add_space(6.0);
-                let (color, text) = if !connected {
-                    (p.warning, "Offline")
-                } else if paused {
-                    (p.warning, "Paused")
-                } else if playing == 0 {
-                    (p.text_faint, "Idle")
-                } else {
-                    (p.success, "Playing")
-                };
-                widgets::dot(ui, color);
-                ui.label(RichText::new(text).small().color(p.text_weak));
-            });
         });
     }
 
@@ -438,31 +432,23 @@ impl App {
             widgets::empty_state(ui, "🖥", "Connecting…", "", None);
             return;
         };
-        let view = screens::View { status: &status, library: &self.library, selected: self.selected_display.as_deref() };
-        let actions = egui::ScrollArea::vertical().id_salt("screens").auto_shrink([false; 2]).show(ui, |ui| {
-            let actions = screens::page(ui, &view);
-            let selected = self.selected_display.clone().or_else(|| crate::model::display::primary(&status.displays).map(|d| d.id.clone()));
-            let active = status.active.iter().find(|a| Some(&a.display) == selected.as_ref() || status.layout.arrangement != Arrangement::Per).cloned();
+        let selected = status.displays.iter().find(|d| Some(&d.id) == self.selected_display.as_ref())
+            .or_else(|| crate::model::display::primary(&status.displays)).map(|d| d.id.clone());
+        self.selected_display = selected.clone();
+        let active = status.active.iter().find(|a| Some(&a.display) == selected.as_ref() || status.layout.arrangement != Arrangement::Per);
+        let root = active.and_then(|a| self.library.iter().find(|w| w.id == a.wallpaper))
+            .map(|w| if w.absolute { PathBuf::from(&w.source).parent().map(|p| p.to_path_buf()).unwrap_or(w.dir.clone()) } else { w.dir.clone() });
+        let view = screens::View { status: &status, library: &self.library, selected: selected.as_deref() };
+        let actions = screens::page(ui, &view, |ui| {
             if let Some(a) = active.filter(|a| a.customizable) {
-                ui.add_space(6.0);
-                theme::section_title(ui, "Customize");
-                ui.add_space(6.0);
-                theme::card(ui).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    let root = self.library.iter().find(|w| w.id == a.wallpaper).map(|w| if w.absolute { PathBuf::from(&w.source).parent().map(|p| p.to_path_buf()).unwrap_or(w.dir.clone()) } else { w.dir.clone() });
-                    match self.customize.ensure(&mut self.backend, &a.wallpaper, selected.as_deref(), root.unwrap_or_default()) {
-                        Err(e) => {
-                            ui.label(RichText::new(e.to_string()).color(ui.visuals().error_fg_color));
-                        }
-                        Ok(()) if self.customize.is_empty() => theme::hint(ui, "No properties"),
-                        Ok(()) => self.customize.ui(ui, &mut self.backend, &mut self.toasts),
-                    }
-                });
+                match self.customize.ensure(&mut self.backend, &a.wallpaper, selected.as_deref(), root.unwrap_or_default()) {
+                    Err(e) => { ui.colored_label(ui.visuals().error_fg_color, e.to_string()); }
+                    Ok(()) if self.customize.is_empty() => {}
+                    Ok(()) => self.customize.ui(ui, &mut self.backend, &mut self.toasts),
+                }
             }
-            ui.add_space(12.0);
-            actions
         });
-        for action in actions.inner {
+        for action in actions {
             match action {
                 screens::Action::Select(id) => self.selected_display = Some(id),
                 screens::Action::Send(req) => self.send(req),
@@ -472,6 +458,7 @@ impl App {
     }
 
     fn settings_page(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.set_max_width(ui.available_width().min(780.0));
         theme::page_header(ui, "Settings", None, |_| {});
         ui.add_space(14.0);
         let Some(mut draft) = self.draft.clone() else {
@@ -482,11 +469,11 @@ impl App {
             Some(st) => (st.displays.clone(), st.capabilities.clone()),
             None => (Vec::new(), Default::default()),
         };
+        settings::tabs(ui, &mut self.settings_state);
         let busy = egui::ScrollArea::vertical()
             .id_salt("settings")
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                ui.set_max_width(780.0);
                 let cx = settings::Context { devices: &self.devices, displays: &displays, capabilities: &capabilities };
                 settings::ui(ui, &mut draft, &mut self.settings_state, &cx)
             })
@@ -495,16 +482,12 @@ impl App {
         self.commit_settings(ctx, busy);
     }
 
-    fn about_page(&mut self, ui: &mut egui::Ui) {
+    fn about_dialog(&mut self, ctx: &egui::Context) {
         let view = about::View { status: self.status.as_ref(), settings: self.saved.as_ref(), paths: &self.paths };
-        for action in about::page(ui, &view) {
+        for action in about::show(ctx, &view, &mut self.about_open) {
             match action {
-                about::Action::OpenLibraryFolder => {
-                    let dir = self.saved.as_ref().map(|s| s.library_dir.clone()).unwrap_or_else(|| self.paths.default_library_dir());
-                    crate::ui::reveal(&dir);
-                }
-                about::Action::OpenLogFile => crate::ui::open_url(&self.paths.log_file().to_string_lossy()),
-                about::Action::OpenSource => crate::ui::open_url("https://github.com/nickheyer/deadlywallpaper"),
+                about::Action::Open(path) => crate::ui::open_url(&path.to_string_lossy()),
+                about::Action::CopiedDetails => self.toasts.success("Details copied"),
             }
         }
     }
@@ -636,10 +619,14 @@ impl App {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if self.dialog.is_some() {
+        if self.dialog.is_some() || self.about_open {
             return;
         }
         ctx.input_mut(|i| {
+            if i.consume_key(egui::Modifiers::COMMAND, Key::Num4) {
+                self.about_open = true;
+                return;
+            }
             for page in Page::ALL {
                 if i.consume_key(egui::Modifiers::COMMAND, page.key()) {
                     self.page = page;
@@ -679,7 +666,7 @@ impl eframe::App for App {
         }
         let p = theme::palette(root);
         let nav_frame = Frame::new().fill(p.sidebar).inner_margin(Margin { left: 12, right: 12, top: 18, bottom: 14 });
-        egui::Panel::left("nav").exact_size(232.0).resizable(false).show_separator_line(false).frame(nav_frame).show(root, |ui| self.nav(ui));
+        egui::Panel::left("nav").exact_size(216.0).resizable(false).show_separator_line(false).frame(nav_frame).show(root, |ui| self.nav(ui));
         let content_frame = Frame::new().fill(p.bg).inner_margin(Margin { left: 28, right: 28, top: 22, bottom: 16 });
         egui::CentralPanel::default().frame(content_frame).show(root, |ui| {
             self.connection_banner(ui);
@@ -687,10 +674,10 @@ impl eframe::App for App {
                 Page::Library => self.library_page(ctx, ui),
                 Page::Screens => self.screens_page(ui),
                 Page::Settings => self.settings_page(ctx, ui),
-                Page::About => self.about_page(ui),
             }
         });
         self.dialogs(ctx);
+        self.about_dialog(ctx);
         self.toasts.show(ctx);
     }
 }

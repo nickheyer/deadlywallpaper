@@ -9,25 +9,17 @@ use std::time::{Duration, Instant};
 
 pub fn nav_item(ui: &mut egui::Ui, selected: bool, glyph: &str, label: &str, shortcut: &str) -> egui::Response {
     let p = theme::palette(ui);
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 38.0), Sense::click());
-    if ui.is_rect_visible(rect) {
-        let t = ui.ctx().animate_bool_responsive(response.id, selected);
-        let hover = ui.ctx().animate_bool_responsive(response.id.with("h"), response.hovered() && !selected);
-        let fill = p.sidebar.lerp_to_gamma(p.control, hover).lerp_to_gamma(p.accent_soft, t);
-        let painter = ui.painter();
-        painter.rect_filled(rect, CornerRadius::same(9), fill);
-        if selected {
-            let bar = Rect::from_min_size(rect.left_center() - egui::vec2(0.0, 8.0), egui::vec2(3.0, 16.0));
-            painter.rect_filled(bar, CornerRadius::same(2), p.accent);
-        }
-        let color = if selected { p.text_strong } else { p.text.lerp_to_gamma(p.text_strong, hover) };
-        painter.text(rect.left_center() + egui::vec2(16.0, 0.0), Align2::LEFT_CENTER, glyph, FontId::proportional(16.0), if selected { p.accent } else { p.text_weak });
-        painter.text(rect.left_center() + egui::vec2(44.0, 0.0), Align2::LEFT_CENTER, label, FontId::proportional(14.5), color);
-        if response.hovered() {
-            painter.text(rect.right_center() - egui::vec2(12.0, 0.0), Align2::RIGHT_CENTER, shortcut, FontId::proportional(11.0), p.text_faint);
-        }
-    }
-    response.on_hover_cursor(CursorIcon::PointingHand)
+    ui.scope(|ui| {
+        ui.visuals_mut().selection.bg_fill = p.accent_soft;
+        ui.visuals_mut().selection.stroke = Stroke::new(1.0, p.text_strong);
+        ui.add(Button::new(format!("{glyph}   {label}"))
+            .right_text("")
+            .selected(selected)
+            .frame_when_inactive(selected)
+            .corner_radius(CornerRadius::same(6))
+            .min_size(egui::vec2(ui.available_width(), 36.0)))
+            .on_hover_text(shortcut)
+    }).inner
 }
 
 pub fn chip(ui: &mut egui::Ui, selected: bool, text: &str) -> egui::Response {
@@ -53,39 +45,20 @@ pub fn chip(ui: &mut egui::Ui, selected: bool, text: &str) -> egui::Response {
 
 pub fn segmented<T: Copy + PartialEq>(ui: &mut egui::Ui, id_salt: &str, value: &mut T, options: &[(T, &str)]) -> bool {
     let p = theme::palette(ui);
-    let font = TextStyle::Button.resolve(ui.style());
-    let galleys: Vec<_> = options.iter().map(|(_, label)| ui.painter().layout_no_wrap((*label).to_owned(), font.clone(), p.text)).collect();
-    let pad = egui::vec2(14.0, 6.0);
-    let inset = 3.0;
-    let seg_h = galleys.iter().map(|g| g.size().y).fold(0.0_f32, f32::max) + pad.y * 2.0;
-    let widths: Vec<f32> = galleys.iter().map(|g| g.size().x + pad.x * 2.0).collect();
-    let total = widths.iter().sum::<f32>() + inset * 2.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(total, seg_h + inset * 2.0), Sense::hover());
     let mut changed = false;
-    if !ui.is_rect_visible(rect) {
-        return false;
-    }
-    ui.painter().rect(rect, CornerRadius::same(9), p.control, Stroke::new(1.0, p.stroke), StrokeKind::Inside);
-    let mut x = rect.left() + inset;
-    for (i, ((v, _), galley)) in options.iter().zip(galleys).enumerate() {
-        let seg = Rect::from_min_size(egui::pos2(x, rect.top() + inset), egui::vec2(widths[i], seg_h));
-        let resp = ui.interact(seg, ui.id().with((id_salt, i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-        let selected = *value == *v;
-        if resp.clicked() && !selected {
-            *value = *v;
-            changed = true;
-        }
-        let t = ui.ctx().animate_bool_responsive(resp.id, selected);
-        if t > 0.0 {
-            let fill = p.control.lerp_to_gamma(p.elevated, t);
-            ui.painter().rect(seg, CornerRadius::same(7), fill, Stroke::new(1.0, p.stroke_strong.gamma_multiply(t)), StrokeKind::Inside);
-        } else if resp.hovered() {
-            ui.painter().rect_filled(seg, CornerRadius::same(7), p.control_hover);
-        }
-        let fg = if selected { p.text_strong } else { p.text_weak };
-        ui.painter().galley(seg.center() - galley.size() / 2.0, galley, fg);
-        x += widths[i];
-    }
+    ui.push_id(id_salt, |ui| {
+        ui.visuals_mut().selection.bg_fill = p.accent_soft;
+        ui.visuals_mut().selection.stroke = Stroke::new(1.0, p.text_strong);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            for &(option, label) in options {
+                if ui.add(Button::new(label).selected(*value == option)).clicked() && *value != option {
+                    *value = option;
+                    changed = true;
+                }
+            }
+        });
+    });
     changed
 }
 
@@ -170,11 +143,6 @@ pub fn badge(painter: &Painter, pos: Pos2, align: Align2, text: &str, fill: Colo
     painter.rect_filled(rect, rect.height() / 2.0, fill);
     painter.galley(rect.min + pad, galley, fg);
     rect
-}
-
-pub fn dot(ui: &mut egui::Ui, color: Color32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), Sense::hover());
-    ui.painter().circle_filled(rect.center(), 4.0, color);
 }
 
 /// UV rectangle that crops an image of `image` size to cover `target` without distortion.
@@ -361,8 +329,10 @@ impl Toasts {
 pub fn row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egui::Ui)) {
     let p = theme::palette(ui);
     ui.horizontal(|ui| {
-        ui.set_min_height(36.0);
-        let label_w = (ui.available_width() - 270.0).max(160.0);
+        ui.set_min_height(32.0);
+        ui.spacing_mut().item_spacing.x = 20.0;
+        let control_w = (ui.available_width() * 0.48).min(280.0);
+        let label_w = ui.available_width() - control_w - 20.0;
         ui.allocate_ui_with_layout(egui::vec2(label_w, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(label_w);
             ui.spacing_mut().item_spacing.y = 2.0;
@@ -371,7 +341,7 @@ pub fn row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egu
                 ui.add(egui::Label::new(RichText::new(help).small().color(p.text_weak)).wrap());
             }
         });
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), add);
+        ui.allocate_ui_with_layout(egui::vec2(control_w, 0.0), egui::Layout::left_to_right(egui::Align::Center), add);
     });
 }
 

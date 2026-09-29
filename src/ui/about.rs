@@ -3,11 +3,11 @@ use crate::model::Settings;
 use crate::paths::Paths;
 use crate::ui::{theme, widgets};
 use eframe::egui::{self, RichText};
+use std::path::PathBuf;
 
 pub enum Action {
-    OpenLibraryFolder,
-    OpenLogFile,
-    OpenSource,
+    Open(PathBuf),
+    CopiedDetails,
 }
 
 pub struct View<'a> {
@@ -16,105 +16,90 @@ pub struct View<'a> {
     pub paths: &'a Paths,
 }
 
-pub fn page(ui: &mut egui::Ui, v: &View<'_>) -> Vec<Action> {
+pub fn show(ctx: &egui::Context, v: &View<'_>, open: &mut bool) -> Vec<Action> {
     let mut actions = Vec::new();
-    let p = theme::palette(ui);
-    theme::page_header(ui, "About", None, |_| {});
-    ui.add_space(14.0);
-    egui::ScrollArea::vertical().id_salt("about").auto_shrink([false; 2]).show(ui, |ui| {
-        ui.set_max_width(760.0);
-        theme::card(ui).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.add(theme::logo().fit_to_exact_size(egui::vec2(72.0, 72.0)));
-                ui.add_space(6.0);
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 3.0;
-                    ui.label(RichText::new("Deadly Wallpaper").size(20.0).strong().color(p.text_strong));
-                    ui.label(RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION"))).color(p.text_weak));
-                });
+    if !*open {
+        return actions;
+    }
+    let modal = egui::Modal::new(egui::Id::new("about")).frame(theme::dialog_frame(ctx)).show(ctx, |ui| {
+        let p = theme::palette(ui);
+        ui.set_width(440.0_f32.min(ctx.content_rect().width() - 64.0));
+        ui.horizontal(|ui| {
+            theme::logo(ui, 56.0);
+            ui.add_space(8.0);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                ui.label(RichText::new("Deadly Wallpaper").size(22.0).strong().color(p.text_strong));
+                theme::weak(ui, &format!("Version {}", env!("CARGO_PKG_VERSION")));
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if widgets::icon_button(ui, "✖", "Close (Esc)").clicked() {
+                    *open = false;
+                }
             });
         });
-        ui.add_space(14.0);
-        theme::section_title(ui, "Desktop");
-        ui.add_space(6.0);
-        theme::card(ui).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            match v.status {
-                Some(s) => {
-                    egui::Grid::new("about-desktop").num_columns(2).spacing([18.0, 8.0]).show(ui, |ui| {
-                        let rows: [(&str, String); 5] = [
-                            ("Presenter", presenter_label(&s.capabilities.presenter)),
-                            ("Session", format!("{} on {}", s.session, s.platform)),
-                            ("Window monitor", s.window_monitor.clone()),
-                            ("Daemon", format!("deadlywp {}", s.version)),
-                            ("Displays", s.displays.iter().enumerate().map(|(i, d)| format!("{}. {} ({}×{})", i + 1, d.name, d.rect.w, d.rect.h)).collect::<Vec<_>>().join("\n")),
-                        ];
-                        for (k, val) in rows {
-                            ui.label(RichText::new(k).color(p.text_weak));
-                            ui.add(egui::Label::new(RichText::new(val).color(p.text)).wrap());
-                            ui.end_row();
-                        }
-                    });
-                }
-                None => {
-                    theme::weak(ui, "Connecting…");
-                }
-            }
-        });
-        ui.add_space(14.0);
-        theme::section_title(ui, "Files");
-        ui.add_space(6.0);
-        theme::card(ui).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let library = v.settings.map(|s| s.library_dir.clone()).unwrap_or_else(|| v.paths.default_library_dir());
-            if file_row(ui, "Library", &library.display().to_string(), Some("Open")) {
-                actions.push(Action::OpenLibraryFolder);
-            }
-            widgets::divider(ui);
-            if file_row(ui, "Log", &v.paths.log_file().display().to_string(), Some("Open")) {
-                actions.push(Action::OpenLogFile);
-            }
-            widgets::divider(ui);
-            file_row(ui, "Configuration", &v.paths.config_dir.display().to_string(), None);
-        });
-        ui.add_space(14.0);
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
-            if ui.link("GitHub").clicked() {
-                actions.push(Action::OpenSource);
-            }
+            ui.hyperlink_to("Source code", "https://github.com/nickheyer/deadlywallpaper");
             theme::weak(ui, "·");
-            theme::weak(ui, "MIT license");
+            ui.hyperlink_to("MIT license", "https://github.com/nickheyer/deadlywallpaper/blob/HEAD/LICENSE");
         });
         ui.add_space(12.0);
-    });
-    actions
-}
-
-fn presenter_label(presenter: &str) -> String {
-    match presenter {
-        "plasma" => "KDE Plasma wallpaper plugin".into(),
-        "layer-shell" => "Wayland layer shell".into(),
-        "x11" => "X11 keep-below windows".into(),
-        "win32" => "Explorer WorkerW".into(),
-        "quartz" => "macOS desktop-level windows".into(),
-        other => other.to_string(),
-    }
-}
-
-fn file_row(ui: &mut egui::Ui, name: &str, path: &str, button: Option<&str>) -> bool {
-    let p = theme::palette(ui);
-    let mut clicked = false;
-    ui.horizontal(|ui| {
-        ui.set_min_height(32.0);
-        ui.add_sized([110.0, 20.0], egui::Label::new(RichText::new(name).color(p.text_weak)).halign(egui::Align::LEFT));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if let Some(b) = button {
-                clicked = ui.add(theme::secondary_button(b)).clicked();
-                ui.add_space(6.0);
+        widgets::divider(ui);
+        ui.add_space(12.0);
+        let library = v.settings.map(|s| s.library_dir.clone()).unwrap_or_else(|| v.paths.default_library_dir());
+        ui.horizontal_wrapped(|ui| {
+            for (label, path) in [("Library folder", library), ("Open log", v.paths.log_file()), ("Settings folder", v.paths.config_dir.clone())] {
+                if ui.add(theme::secondary_button(label)).on_hover_text(path.display().to_string()).clicked() {
+                    actions.push(Action::Open(path));
+                }
             }
-            ui.add(egui::Label::new(RichText::new(path).monospace().color(p.text)).truncate());
+        });
+        ui.add_space(12.0);
+        egui::CollapsingHeader::new("Technical details").show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 340.0).max(100.0)).show(ui, |ui| {
+                match v.status {
+                    Some(s) => {
+                        egui::Grid::new("about-details").num_columns(2).spacing([16.0, 8.0]).max_col_width(280.0).show(ui, |ui| {
+                            let mut rows = vec![
+                                ("System", format!("{} / {}", s.platform, s.session)),
+                                ("Renderer", s.capabilities.presenter.clone()),
+                                ("Window tracking", s.window_monitor.clone()),
+                            ];
+                            if s.version != env!("CARGO_PKG_VERSION") {
+                                rows.push(("Daemon version", s.version.clone()));
+                            }
+                            for (label, value) in rows {
+                                theme::weak(ui, label);
+                                ui.add(egui::Label::new(value).selectable(true).wrap());
+                                ui.end_row();
+                            }
+                            for (i, display) in s.displays.iter().enumerate() {
+                                theme::weak(ui, &format!("Display {}", i + 1));
+                                ui.add(egui::Label::new(format!("{}\n{} × {}", display.name, display.rect.w, display.rect.h)).selectable(true).wrap());
+                                ui.end_row();
+                            }
+                        });
+                    }
+                    None => theme::weak(ui, "Not connected"),
+                }
+            });
+            ui.add_space(10.0);
+            if ui.add(theme::secondary_button("Copy details")).clicked() {
+                let mut details = format!("Deadly Wallpaper {}", env!("CARGO_PKG_VERSION"));
+                if let Some(status) = v.status {
+                    details.push_str(&format!("\nDaemon: {}\nSystem: {} / {}\nRenderer: {}\nWindow tracking: {}", status.version, status.platform, status.session, status.capabilities.presenter, status.window_monitor));
+                    for (i, display) in status.displays.iter().enumerate() {
+                        details.push_str(&format!("\nDisplay {}: {} ({} × {})", i + 1, display.name, display.rect.w, display.rect.h));
+                    }
+                }
+                ui.ctx().copy_text(details);
+                actions.push(Action::CopiedDetails);
+            }
         });
     });
-    clicked
+    if modal.should_close() {
+        *open = false;
+    }
+    actions
 }

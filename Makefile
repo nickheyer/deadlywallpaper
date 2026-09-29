@@ -11,7 +11,7 @@ BIN          := $(DIST)/$(if $(filter Release,$(CONFIG)),release,debug)/deadlywp
 CARGO_FLAGS  := $(if $(filter Release,$(CONFIG)),--release,)
 export CARGO_TARGET_DIR := $(DIST)
 
-.PHONY: build check test run daemon ui install uninstall check-all shaders clean
+.PHONY: build check test run daemon ui install uninstall check-all shaders icons clean
 
 build:
 	cargo build $(CARGO_FLAGS)
@@ -57,6 +57,13 @@ check-all:
 # Requires qt6-shadertools.
 shaders:
 	qsb --qt6 --qsbversion 64 -o $(ROOT)/assets/plasma/contents/impl/adjust.frag.qsb $(ROOT)/assets/plasma/contents/impl/adjust.frag
+
+# Requires ImageMagick.
+icons:
+	magick $(ROOT)/assets/logo.png -resize 256x256 $(ROOT)/assets/icon.png
+	magick $(ROOT)/assets/logo.png -resize 32x32 $(ROOT)/assets/icon-32.png
+	magick $(ROOT)/assets/logo.png -resize 64x64 $(ROOT)/assets/tray-dark.png
+	cp $(ROOT)/assets/tray-dark.png $(ROOT)/assets/tray-light.png
 
 clean:
 	rm -rf $(DIST) $(BUILD) $(ROOT)/target

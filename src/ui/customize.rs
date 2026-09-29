@@ -70,13 +70,20 @@ impl Panel {
         let p = theme::palette(ui);
         let mut pending: Vec<(String, Value)> = Vec::new();
         let mut reset = false;
+        ui.horizontal(|ui| {
+            theme::section_title(ui, "Adjustments");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                reset = ui.add(theme::secondary_button("Reset")).on_hover_text("Reset wallpaper adjustments").clicked();
+            });
+        });
+        ui.add_space(6.0);
         let throttle_ok = self.last_send.is_none_or(|t| t.elapsed() > Duration::from_millis(60));
-        let label_w = (ui.available_width() * 0.32).clamp(120.0, 220.0);
-        let control_w = (ui.available_width() - label_w - 24.0).clamp(160.0, 520.0);
+        let label_w = (ui.available_width() * 0.3).min(160.0);
+        let control_w = ui.available_width() - label_w - 12.0;
         let root = self.root.clone();
         let mut folder_cache = std::mem::take(&mut self.folders);
-        egui::Grid::new("props").num_columns(2).spacing([16.0, 12.0]).min_col_width(label_w).show(ui, |ui| {
-            ui.spacing_mut().slider_width = control_w - 70.0;
+        egui::Grid::new("props").num_columns(2).spacing([12.0, 8.0]).min_col_width(label_w).max_col_width(control_w).show(ui, |ui| {
+            ui.spacing_mut().slider_width = control_w - 64.0;
             for (i, (name, control)) in self.controls.iter_mut().enumerate() {
                 let label = if control.text.is_empty() { name.clone() } else { control.text.clone() };
                 match &mut control.kind {
@@ -96,7 +103,9 @@ impl Panel {
                     }
                     _ => {}
                 }
-                let l = ui.add(egui::Label::new(RichText::new(&label).color(p.text)).truncate());
+                let l = ui.allocate_ui_with_layout(egui::vec2(label_w, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(egui::Label::new(RichText::new(&label).color(p.text)).wrap())
+                }).inner;
                 if let Some(h) = control.help.as_deref().filter(|h| !h.trim().is_empty()) {
                     l.on_hover_text(h);
                 }
@@ -189,12 +198,6 @@ impl Panel {
             }
         });
         self.folders = folder_cache;
-        ui.add_space(10.0);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add(theme::secondary_button("Reset")).clicked() {
-                reset = true;
-            }
-        });
         for (name, value) in pending {
             self.send(backend, toasts, &name, value);
         }

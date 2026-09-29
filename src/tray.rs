@@ -9,7 +9,7 @@ pub struct Tray {
     pause: CheckMenuItem,
 }
 
-/// Use a light tile behind the logo on dark panels.
+/// The white circle keeps the flower visible on either panel theme.
 fn icon(dark: bool) -> Result<Icon> {
     let bytes: &[u8] = if dark { include_bytes!("../assets/tray-dark.png") } else { include_bytes!("../assets/tray-light.png") };
     let img = image::load_from_memory(bytes).map_err(|e| Error::Platform(format!("tray icon: {e}")))?.into_rgba8();

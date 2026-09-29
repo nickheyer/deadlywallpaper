@@ -4,8 +4,10 @@ use eframe::egui::{self, Button, Color32, CornerRadius, CursorIcon, FontId, Fram
 
 pub const LOGO_URI: &str = "bytes://deadlywp-logo.png";
 
-pub fn logo() -> egui::Image<'static> {
+pub fn logo(ui: &mut egui::Ui, size: f32) {
+    let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
     egui::Image::from_bytes(LOGO_URI, include_bytes!("../../assets/icon.png"))
+        .paint_at(ui, rect);
 }
 
 #[derive(Clone, Copy)]
@@ -54,7 +56,7 @@ impl Palette {
             input: Color32::from_rgb(15, 16, 19),
             text: Color32::from_rgb(225, 226, 231),
             text_strong: Color32::from_rgb(248, 248, 250),
-            text_weak: Color32::from_rgb(150, 153, 163),
+            text_weak: Color32::from_rgb(172, 175, 185),
             text_faint: Color32::from_rgb(100, 103, 114),
             accent: Color32::from_rgb(86, 140, 255),
             accent_hover: Color32::from_rgb(112, 160, 255),
@@ -252,25 +254,22 @@ impl Filled {
 impl egui::Widget for Filled {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         let p = palette(ui);
-        let font = FontId::proportional(if self.small { 13.0 } else { 14.0 });
-        let galley = ui.painter().layout_no_wrap(self.text, font, p.on_accent);
-        let pad = if self.small { egui::vec2(12.0, 5.0) } else { egui::vec2(16.0, 7.0) };
-        let size = (galley.size() + pad * 2.0).max(self.min_size);
-        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-        if ui.is_rect_visible(rect) {
+        ui.scope(|ui| {
             let base = if self.danger { p.danger } else { p.accent };
             let hover = if self.danger { p.danger.lerp_to_gamma(Color32::WHITE, 0.12) } else { p.accent_hover };
-            let fill = if response.is_pointer_button_down_on() {
-                base.lerp_to_gamma(Color32::BLACK, 0.15)
-            } else if response.hovered() {
-                hover
-            } else {
-                base
-            };
-            ui.painter().rect_filled(rect, CornerRadius::same(8), fill);
-            ui.painter().galley(rect.center() - galley.size() / 2.0, galley, p.on_accent);
-        }
-        response.on_hover_cursor(CursorIcon::PointingHand)
+            let visuals = &mut ui.visuals_mut().widgets;
+            visuals.inactive.weak_bg_fill = base;
+            visuals.inactive.bg_fill = base;
+            visuals.inactive.bg_stroke = Stroke::NONE;
+            visuals.hovered.weak_bg_fill = hover;
+            visuals.hovered.bg_fill = hover;
+            visuals.active.weak_bg_fill = base.lerp_to_gamma(Color32::BLACK, 0.15);
+            visuals.active.bg_fill = visuals.active.weak_bg_fill;
+            ui.spacing_mut().button_padding = if self.small { egui::vec2(12.0, 5.0) } else { egui::vec2(16.0, 7.0) };
+            ui.add(Button::new(RichText::new(self.text).size(if self.small { 13.0 } else { 14.0 }).color(p.on_accent))
+                .min_size(self.min_size)
+                .corner_radius(CornerRadius::same(8)))
+        }).inner
     }
 }
 
