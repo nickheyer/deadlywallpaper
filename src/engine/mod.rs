@@ -122,9 +122,8 @@ impl Engine {
             engine.monitor_name,
             engine.displays.len()
         );
-        crate::scheme::watch(engine.rt.sender());
         if engine.settings.tray {
-            match Tray::new(engine.rt.sender(), false, crate::scheme::prefers_dark()) {
+            match Tray::new(engine.rt.sender(), false) {
                 Ok(t) => engine.tray = Some(t),
                 Err(e) => log::warn!("{e}"),
             }
@@ -160,11 +159,6 @@ impl Engine {
             Msg::Displays(list) => self.displays_changed(list),
             Msg::DesktopChanged => self.desktop_changed(),
             Msg::WallpaperDismissed { display } => self.wallpaper_dismissed(&display),
-            Msg::ColorScheme { dark } => {
-                if let Some(t) = &self.tray {
-                    t.set_dark(dark);
-                }
-            }
             Msg::Windows(snapshot) => {
                 self.windows = Some(snapshot);
                 self.evaluate();
@@ -1070,13 +1064,9 @@ impl Engine {
         if old.tray != s.tray {
             match (&self.tray, s.tray) {
                 (None, true) => {
-                    self.tray = Tray::new(
-                        self.rt.sender(),
-                        self.user_paused,
-                        crate::scheme::prefers_dark(),
-                    )
-                    .map_err(|e| log::warn!("{e}"))
-                    .ok()
+                    self.tray = Tray::new(self.rt.sender(), self.user_paused)
+                        .map_err(|e| log::warn!("{e}"))
+                        .ok()
                 }
                 (Some(t), false) => {
                     t.set_visible(false);

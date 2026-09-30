@@ -36,10 +36,6 @@ pub enum Msg {
     WallpaperDismissed {
         display: String,
     },
-    /// The system colour scheme changed.
-    ColorScheme {
-        dark: bool,
-    },
     /// Audio spectrum bins for visualizer wallpapers.
     Audio(Vec<f32>),
     /// Result of background work, applied on the engine thread.

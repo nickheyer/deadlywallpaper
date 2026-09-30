@@ -7,7 +7,7 @@ use crate::platform::linux::{
     canvas, displays, is_wayland, layer, media_view, monitor, plasma, program, session,
     shell::Shell, shell::Slot,
 };
-use crate::platform::{ContentSpec, MainLoopApi, MsgSenderApi, RuntimeApi};
+use crate::platform::{ContentSpec, MainLoopApi, MsgHandler, MsgSenderApi, RuntimeApi};
 use crate::web::WebContent;
 use gtk::prelude::*;
 use std::sync::Arc;
@@ -28,7 +28,7 @@ pub struct MainLoop {
 }
 
 impl MainLoopApi for MainLoop {
-    fn run(self, mut handler: Box<dyn FnMut(Msg) -> bool>) {
+    fn run(self, mut handler: MsgHandler) {
         self.rx.attach(None, move |msg| {
             if handler(msg) {
                 glib::ControlFlow::Continue

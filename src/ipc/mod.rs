@@ -221,6 +221,30 @@ pub struct AudioDevice {
     pub name: String,
 }
 
+pub fn write_line<W: Write, T: Serialize>(w: &mut W, msg: &T) -> std::io::Result<()> {
+    let mut line = serde_json::to_vec(msg)?;
+    line.push(b'\n');
+    w.write_all(&line)?;
+    w.flush()
+}
+
+/// Read one message; `Ok(None)` at end of stream.
+pub fn read_line<R: BufRead, T: DeserializeOwned>(r: &mut R) -> std::io::Result<Option<T>> {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if r.read_line(&mut line)? == 0 {
+            return Ok(None);
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        return serde_json::from_str(&line)
+            .map(Some)
+            .map_err(std::io::Error::other);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,29 +335,5 @@ mod tests {
             let text = serde_json::to_string(&e).expect("serialize event");
             let _: Event = serde_json::from_str(&text).expect("deserialize event");
         }
-    }
-}
-
-pub fn write_line<W: Write, T: Serialize>(w: &mut W, msg: &T) -> std::io::Result<()> {
-    let mut line = serde_json::to_vec(msg)?;
-    line.push(b'\n');
-    w.write_all(&line)?;
-    w.flush()
-}
-
-/// Read one message; `Ok(None)` at end of stream.
-pub fn read_line<R: BufRead, T: DeserializeOwned>(r: &mut R) -> std::io::Result<Option<T>> {
-    let mut line = String::new();
-    loop {
-        line.clear();
-        if r.read_line(&mut line)? == 0 {
-            return Ok(None);
-        }
-        if line.trim().is_empty() {
-            continue;
-        }
-        return serde_json::from_str(&line)
-            .map(Some)
-            .map_err(std::io::Error::other);
     }
 }

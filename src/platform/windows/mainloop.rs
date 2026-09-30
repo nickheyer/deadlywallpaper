@@ -7,7 +7,7 @@ use crate::paths::Paths;
 use crate::platform::windows::{
     displays, input, monitor, pcwstr, program, shell::Shell, shell::Slot, wide,
 };
-use crate::platform::{ContentSpec, MainLoopApi, MsgSenderApi, RuntimeApi};
+use crate::platform::{ContentSpec, MainLoopApi, MsgHandler, MsgSenderApi, RuntimeApi};
 use crate::web::WebContent;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -35,7 +35,7 @@ const WTS_SESSION_UNLOCK: usize = 8;
 const CLASS: &str = "DeadlyWallpaperPump";
 
 thread_local! {
-    static LOOP: RefCell<Option<(Receiver<Msg>, Box<dyn FnMut(Msg) -> bool>)>> = const { RefCell::new(None) };
+    static LOOP: RefCell<Option<(Receiver<Msg>, MsgHandler)>> = const { RefCell::new(None) };
     static TASKBAR_CREATED: RefCell<u32> = const { RefCell::new(0) };
 }
 
@@ -68,7 +68,7 @@ pub struct MainLoop {
 }
 
 impl MainLoopApi for MainLoop {
-    fn run(self, handler: Box<dyn FnMut(Msg) -> bool>) {
+    fn run(self, handler: MsgHandler) {
         LOOP.with(|l| *l.borrow_mut() = Some((self.rx, handler)));
         drain();
         let mut msg = MSG::default();
@@ -121,9 +121,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_SETTINGCHANGE => {
             post(Msg::Displays(displays::list()));
-            post(Msg::ColorScheme {
-                dark: crate::scheme::prefers_dark(),
-            });
             drain();
             LRESULT(0)
         }

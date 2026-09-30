@@ -3,7 +3,7 @@
 use crate::content::{Content, View};
 use crate::error::{Error, Result};
 use crate::geom::Size;
-use crate::media::glquad::{Quad, render_view};
+use crate::media::glquad::{Framebuffer, Quad, render_view};
 use crate::media::mpv::{
     Handle, RENDER_PARAM_WL_DISPLAY, RENDER_PARAM_X11_DISPLAY, RENDER_UPDATE_FRAME, RenderContext,
 };
@@ -151,17 +151,13 @@ impl MediaView {
             if let (Some(ctx), Some(gl)) = (ctx.as_ref(), *capture) {
                 ctx.update();
                 if w > 0 && h > 0 {
-                    render_view(
-                        ctx,
-                        quad,
-                        view,
-                        *slot,
-                        gl.current_fbo(),
+                    let screen = Framebuffer {
+                        fbo: gl.current_fbo(),
                         w,
                         h,
-                        scale as f64,
-                        true,
-                    );
+                        flip_y: true,
+                    };
+                    render_view(ctx, quad, view, *slot, screen, scale as f64);
                 }
             }
             glib::Propagation::Stop
@@ -261,7 +257,13 @@ impl MediaSurface for MediaView {
         }
         self.area.make_current();
         let pixels = gl.render_offscreen(w, h, |fbo, w, h| {
-            render_view(ctx, quad, view, *slot, fbo, w, h, scale as f64, false)
+            let offscreen = Framebuffer {
+                fbo,
+                w,
+                h,
+                flip_y: false,
+            };
+            render_view(ctx, quad, view, *slot, offscreen, scale as f64)
         });
         let image = pixels.and_then(|p| crate::capture::from_gl_pixels(w as u32, h as u32, &p));
         Some(match image {

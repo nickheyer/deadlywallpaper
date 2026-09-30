@@ -10,13 +10,8 @@ pub struct Tray {
 }
 
 /// The white circle keeps the flower visible on either panel theme.
-fn icon(dark: bool) -> Result<Icon> {
-    let bytes: &[u8] = if dark {
-        include_bytes!("../assets/tray-dark.png")
-    } else {
-        include_bytes!("../assets/tray-light.png")
-    };
-    let img = image::load_from_memory(bytes)
+fn icon() -> Result<Icon> {
+    let img = image::load_from_memory(include_bytes!("../assets/tray.png"))
         .map_err(|e| Error::Platform(format!("tray icon: {e}")))?
         .into_rgba8();
     let (w, h) = img.dimensions();
@@ -24,7 +19,7 @@ fn icon(dark: bool) -> Result<Icon> {
 }
 
 impl Tray {
-    pub fn new(tx: MsgSender, paused: bool, dark: bool) -> Result<Tray> {
+    pub fn new(tx: MsgSender, paused: bool) -> Result<Tray> {
         let menu = Menu::new();
         let open = MenuItem::new("Open Deadly Wallpaper", true, None);
         let pause = CheckMenuItem::new("Pause wallpapers", true, paused, None);
@@ -62,7 +57,7 @@ impl Tray {
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_tooltip(crate::paths::APP_NAME)
-            .with_icon(icon(dark)?)
+            .with_icon(icon()?)
             .build()
             .map_err(|e| Error::Platform(format!("tray: {e}")))?;
         Ok(Tray { icon, pause })
@@ -70,17 +65,6 @@ impl Tray {
 
     pub fn set_paused(&self, paused: bool) {
         self.pause.set_checked(paused);
-    }
-
-    pub fn set_dark(&self, dark: bool) {
-        match icon(dark) {
-            Ok(i) => {
-                if let Err(e) = self.icon.set_icon(Some(i)) {
-                    log::warn!("tray icon: {e}");
-                }
-            }
-            Err(e) => log::warn!("{e}"),
-        }
     }
 
     pub fn set_visible(&self, visible: bool) {

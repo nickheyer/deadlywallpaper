@@ -424,9 +424,7 @@ pub fn editor(ui: &mut egui::Ui, scene: &Scene<'_>, max_size: Vec2) -> Option<Ev
     let hover = if drag.is_some() {
         None
     } else {
-        pointer
-            .filter(|pos| area.contains(*pos))
-            .and_then(|pos| hit(pos))
+        pointer.filter(|pos| area.contains(*pos)).and_then(hit)
     };
     let image_stroke = if selected_target == Some(Target::Image) {
         Stroke::new(2.0, p.accent)

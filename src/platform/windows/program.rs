@@ -275,7 +275,7 @@ impl Content for ProgramContent {
             PointerKind::Down => (WM_LBUTTONDOWN, 1usize),
             PointerKind::Up => (WM_LBUTTONUP, 0usize),
         };
-        let lparam = ((ev.y as i32 as u32 as usize) << 16 | (ev.x as i32 as u16 as usize)) as isize;
+        let lparam = ((ev.y as u32 as usize) << 16 | (ev.x as u16 as usize)) as isize;
         // SAFETY: posting to a window we embedded.
         let _ = unsafe { PostMessageW(Some(hwnd), msg, WPARAM(wparam), LPARAM(lparam)) };
     }

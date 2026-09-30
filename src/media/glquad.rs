@@ -5,6 +5,16 @@ use crate::geom::Size;
 use crate::media::mpv::{GetProcAddressFn, RenderContext};
 use std::ffi::{CStr, c_char, c_void};
 
+/// A framebuffer to draw into, `w`×`h` device pixels. `flip_y` turns the frame upside down for
+/// the on-screen buffer, whose rows run bottom-up; off for offscreen readback.
+#[derive(Clone, Copy, Debug)]
+pub struct Framebuffer {
+    pub fbo: i32,
+    pub w: i32,
+    pub h: i32,
+    pub flip_y: bool,
+}
+
 const GL_VERSION: u32 = 0x1F02;
 const GL_TEXTURE_2D: u32 = 0x0DE1;
 const GL_TEXTURE0: u32 = 0x84C0;
@@ -294,10 +304,11 @@ impl Quad {
         Some(self.fbo as i32)
     }
 
-    /// Draw the image texture into `fbo` (`w`×`h` device pixels) through `view` on a slot of
-    /// `slot` logical pixels; `dpi` device pixels per logical pixel. `flip_y` mirrors the flag
-    /// the image was rendered with, so a whole view is an exact copy.
-    pub fn draw(&self, fbo: i32, w: i32, h: i32, view: &View, slot: Size, dpi: f64, flip_y: bool) {
+    /// Draw the image texture into `target` through `view` on a slot of `slot` logical pixels;
+    /// `dpi` device pixels per logical pixel. The target's `flip_y` mirrors the flag the image
+    /// was rendered with, so a whole view is an exact copy.
+    pub fn draw(&self, target: Framebuffer, view: &View, slot: Size, dpi: f64) {
+        let Framebuffer { fbo, w, h, flip_y } = target;
         let (sin, cos) = view.rotation.to_radians().sin_cos();
         let k = view.scale;
         let (iw, ih) = (view.width as f64, view.height as f64);
@@ -380,23 +391,18 @@ impl Quad {
     }
 }
 
-/// Render the current frame into `fbo` (`w`×`h` device pixels): straight when the view is the
-/// whole image, otherwise through `quad`. Nothing is drawn when the view needs the quad and
-/// there is none.
-#[allow(clippy::too_many_arguments)]
+/// Render the current frame into `target`: straight when the view is the whole image, otherwise
+/// through `quad`. Nothing is drawn when the view needs the quad and there is none.
 pub fn render_view(
     ctx: &RenderContext,
     quad: &mut Option<Quad>,
     view: &View,
     slot: Size,
-    fbo: i32,
-    w: i32,
-    h: i32,
+    target: Framebuffer,
     dpi: f64,
-    flip_y: bool,
 ) {
     if view.is_whole(slot) {
-        ctx.render(fbo, w, h, flip_y);
+        ctx.render(target.fbo, target.w, target.h, target.flip_y);
         return;
     }
     let Some(q) = quad else { return };
@@ -404,9 +410,9 @@ pub fn render_view(
         ((view.width as f64) * dpi).round() as i32,
         ((view.height as f64) * dpi).round() as i32,
     );
-    if let Some(target) = q.target(tw.max(1), th.max(1)) {
-        ctx.render(target, tw.max(1), th.max(1), flip_y);
-        q.draw(fbo, w, h, view, slot, dpi, flip_y);
+    if let Some(image_fbo) = q.target(tw.max(1), th.max(1)) {
+        ctx.render(image_fbo, tw.max(1), th.max(1), target.flip_y);
+        q.draw(target, view, slot, dpi);
     }
 }
 

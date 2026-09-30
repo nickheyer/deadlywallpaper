@@ -122,7 +122,7 @@ impl View {
     }
 
     /// Slot pixel to image pixel.
-    pub fn to_image(&self, slot: Size, x: f64, y: f64) -> (f64, f64) {
+    pub fn to_image(self, slot: Size, x: f64, y: f64) -> (f64, f64) {
         let (dx, dy) = (
             x - slot.w as f64 / 2.0 - self.x,
             y - slot.h as f64 / 2.0 - self.y,
@@ -137,7 +137,7 @@ impl View {
 
     /// Image pixel to slot pixel.
     #[cfg(test)]
-    pub fn to_slot(&self, slot: Size, x: f64, y: f64) -> (f64, f64) {
+    pub fn to_slot(self, slot: Size, x: f64, y: f64) -> (f64, f64) {
         let (dx, dy) = (
             (x - self.width as f64 / 2.0) * self.scale,
             (y - self.height as f64 / 2.0) * self.scale,

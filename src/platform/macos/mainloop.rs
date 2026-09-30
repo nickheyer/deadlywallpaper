@@ -4,7 +4,7 @@ use crate::model::{Display, Kind};
 use crate::msg::Msg;
 use crate::paths::Paths;
 use crate::platform::macos::{displays, input, media_view, monitor, shell::Shell, shell::Slot};
-use crate::platform::{ContentSpec, MainLoopApi, MsgSenderApi, RuntimeApi};
+use crate::platform::{ContentSpec, MainLoopApi, MsgHandler, MsgSenderApi, RuntimeApi};
 use crate::web::WebContent;
 use block2::RcBlock;
 use objc2::MainThreadMarker;
@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 thread_local! {
-    static LOOP: RefCell<Option<(Receiver<Msg>, Box<dyn FnMut(Msg) -> bool>)>> = const { RefCell::new(None) };
+    static LOOP: RefCell<Option<(Receiver<Msg>, MsgHandler)>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone)]
@@ -87,7 +87,7 @@ pub struct MainLoop {
 }
 
 impl MainLoopApi for MainLoop {
-    fn run(self, handler: Box<dyn FnMut(Msg) -> bool>) {
+    fn run(self, handler: MsgHandler) {
         LOOP.with(|l| *l.borrow_mut() = Some((self.rx, handler)));
         drain();
         let app = NSApplication::sharedApplication(self.mtm);

@@ -114,20 +114,18 @@ pub fn snapshot() -> Snapshot {
                 continue;
             }
             let mut frame = RECT::default();
-            let bounds = if DwmGetWindowAttribute(
+            let framed = DwmGetWindowAttribute(
                 hwnd,
                 DWMWA_EXTENDED_FRAME_BOUNDS,
                 &mut frame as *mut RECT as *mut _,
                 std::mem::size_of::<RECT>() as u32,
             )
             .is_ok()
-            {
-                rect(frame)
-            } else if GetWindowRect(hwnd, &mut frame).is_ok() {
-                rect(frame)
-            } else {
+                || GetWindowRect(hwnd, &mut frame).is_ok();
+            if !framed {
                 continue;
-            };
+            }
+            let bounds = rect(frame);
             if bounds.is_empty() {
                 continue;
             }

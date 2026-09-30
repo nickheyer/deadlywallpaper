@@ -13,7 +13,6 @@ mod model;
 mod msg;
 mod paths;
 mod platform;
-mod scheme;
 mod tray;
 mod ui;
 mod web;

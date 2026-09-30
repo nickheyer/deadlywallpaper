@@ -225,66 +225,6 @@ fn hex(b: Option<u8>) -> Option<u8> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn serves_filenames_with_url_characters() {
-        let root = tempfile::tempdir().unwrap();
-        let name = "night #1? 100% ü.html";
-        std::fs::write(root.path().join(name), "wallpaper").unwrap();
-        let url = page_url(name);
-        let request = http::Request::builder().uri(url).body(Vec::new()).unwrap();
-        let response = serve(root.path(), request);
-        assert_eq!(response.status(), 200);
-        assert_eq!(response.body().as_ref(), b"wallpaper");
-    }
-
-    #[test]
-    fn rejects_paths_outside_the_wallpaper_folder() {
-        let root = tempfile::tempdir().unwrap();
-        for path in [
-            "../secret",
-            "%2e%2e/secret",
-            "..%5csecret",
-            "%2Fsecret",
-            "C%3A/secret",
-            "%00",
-        ] {
-            assert_eq!(
-                resolve(root.path(), path).unwrap_err().kind(),
-                std::io::ErrorKind::PermissionDenied,
-                "{path}"
-            );
-        }
-        assert_eq!(
-            resolve(root.path(), "missing").unwrap_err().kind(),
-            std::io::ErrorKind::NotFound
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn symlinks_must_stay_inside_the_wallpaper_folder() {
-        let root = tempfile::tempdir().unwrap();
-        let site = root.path().join("site");
-        std::fs::create_dir(&site).unwrap();
-        std::fs::write(root.path().join("secret"), "secret").unwrap();
-        std::fs::write(site.join("asset"), "asset").unwrap();
-        std::os::unix::fs::symlink(root.path().join("secret"), site.join("outside")).unwrap();
-        std::os::unix::fs::symlink(site.join("asset"), site.join("inside")).unwrap();
-        assert_eq!(
-            resolve(&site, "outside").unwrap_err().kind(),
-            std::io::ErrorKind::PermissionDenied
-        );
-        assert_eq!(
-            std::fs::read(resolve(&site, "inside").unwrap()).unwrap(),
-            b"asset"
-        );
-    }
-}
-
 fn js(v: &Value) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "null".into())
 }
@@ -646,4 +586,71 @@ fn snapshot(webview: &WebView, path: PathBuf, done: Done) {
     });
     // SAFETY: the web view is alive and owned by this content; the block is retained by WebKit.
     unsafe { wv.takeSnapshotWithConfiguration_completionHandler(None, &block) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serves_filenames_with_url_characters() {
+        let root = tempfile::tempdir().unwrap();
+        let mut names = vec!["night #1 & 100%+ü=é.html"];
+        if cfg!(not(windows)) {
+            names.push("day ?2 * 3.html");
+        }
+        for name in names {
+            std::fs::write(root.path().join(name), name).unwrap();
+            let request = http::Request::builder()
+                .uri(page_url(name))
+                .body(Vec::new())
+                .unwrap();
+            let response = serve(root.path(), request);
+            assert_eq!(response.status(), 200, "{name}");
+            assert_eq!(response.body().as_ref(), name.as_bytes(), "{name}");
+        }
+    }
+
+    #[test]
+    fn rejects_paths_outside_the_wallpaper_folder() {
+        let root = tempfile::tempdir().unwrap();
+        for path in [
+            "../secret",
+            "%2e%2e/secret",
+            "..%5csecret",
+            "%2Fsecret",
+            "C%3A/secret",
+            "%00",
+        ] {
+            assert_eq!(
+                resolve(root.path(), path).unwrap_err().kind(),
+                std::io::ErrorKind::PermissionDenied,
+                "{path}"
+            );
+        }
+        assert_eq!(
+            resolve(root.path(), "missing").unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_must_stay_inside_the_wallpaper_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let site = root.path().join("site");
+        std::fs::create_dir(&site).unwrap();
+        std::fs::write(root.path().join("secret"), "secret").unwrap();
+        std::fs::write(site.join("asset"), "asset").unwrap();
+        std::os::unix::fs::symlink(root.path().join("secret"), site.join("outside")).unwrap();
+        std::os::unix::fs::symlink(site.join("asset"), site.join("inside")).unwrap();
+        assert_eq!(
+            resolve(&site, "outside").unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+        assert_eq!(
+            std::fs::read(resolve(&site, "inside").unwrap()).unwrap(),
+            b"asset"
+        );
+    }
 }

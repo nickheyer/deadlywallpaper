@@ -5,7 +5,7 @@ use crate::content::{Content, View};
 use crate::error::{Error, Result};
 use crate::geom::Size;
 use crate::media::glcap::Capture;
-use crate::media::glquad::{Quad, render_view};
+use crate::media::glquad::{Framebuffer, Quad, render_view};
 use crate::media::mpv::{GetProcAddressFn, Handle, RENDER_UPDATE_FRAME, RenderContext};
 use crate::media::player::{MediaContent, MediaSurface, Player, PlayerOptions, Vo, event_bridge};
 use crate::platform::ContentSpec;
@@ -104,11 +104,17 @@ enum Job {
 pub struct MediaView {
     jobs: SyncSender<Job>,
     thread: Option<JoinHandle<()>>,
-    alive: Arc<AtomicBool>,
-    /// The render thread built the quad renderer, so views other than the whole image work.
-    quad_ready: Arc<AtomicBool>,
+    flags: Arc<Flags>,
     slot: Size,
     handle_ptr: *mut c_void,
+}
+
+/// State shared between the view and its render thread.
+struct Flags {
+    /// Cleared when the view drops, so the render loop exits.
+    alive: AtomicBool,
+    /// The render thread built the quad renderer, so views other than the whole image work.
+    quad_ready: AtomicBool,
 }
 
 impl MediaView {
@@ -150,14 +156,15 @@ impl MediaView {
             (slot.size.h as f64 * scale) as i32,
         );
         let (jobs, rx) = sync_channel::<Job>(4);
-        let alive = Arc::new(AtomicBool::new(true));
-        let quad_ready = Arc::new(AtomicBool::new(false));
+        let flags = Arc::new(Flags {
+            alive: AtomicBool::new(true),
+            quad_ready: AtomicBool::new(false),
+        });
         let (ready_tx, ready_rx) = channel::<Result<()>>();
         let wake: Arc<Mutex<Option<SyncSender<Job>>>> = Arc::new(Mutex::new(Some(jobs.clone())));
         let handle_ptr = Box::into_raw(Box::new(wake.clone())) as *mut c_void;
         let gl = GlContext(context);
-        let thread_alive = alive.clone();
-        let thread_quad = quad_ready.clone();
+        let thread_flags = flags.clone();
         let wake_addr = handle_ptr as usize;
         let target = Target {
             w,
@@ -175,8 +182,7 @@ impl MediaView {
                     ready_tx,
                     target,
                     wake_addr as *mut c_void,
-                    thread_alive,
-                    thread_quad,
+                    thread_flags,
                 )
             })
             .map_err(|e| Error::Media(e.to_string()))?;
@@ -184,8 +190,7 @@ impl MediaView {
             Ok(Ok(())) => Ok(MediaView {
                 jobs,
                 thread: Some(thread),
-                alive,
-                quad_ready,
+                flags,
                 slot: slot.size,
                 handle_ptr,
             }),
@@ -214,7 +219,6 @@ unsafe extern "C" fn on_update(ctx: *mut c_void) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_thread(
     gl: GlContext,
     handle: Arc<Handle>,
@@ -222,8 +226,7 @@ fn render_thread(
     ready: Sender<Result<()>>,
     target: Target,
     wake_ptr: *mut c_void,
-    alive: Arc<AtomicBool>,
-    quad_ready: Arc<AtomicBool>,
+    flags: Arc<Flags>,
 ) {
     let ctx = gl.0;
     ctx.makeCurrentContext();
@@ -236,30 +239,42 @@ fn render_thread(
     };
     let capture = Capture::load(GPA, std::ptr::null_mut());
     let mut quad = Quad::load(GPA, std::ptr::null_mut());
-    quad_ready.store(quad.is_some(), Ordering::Relaxed);
+    flags.quad_ready.store(quad.is_some(), Ordering::Relaxed);
     let mut view = View::whole(target.slot);
     let Target { w, h, slot, dpi } = target;
+    let screen = Framebuffer {
+        fbo: 0,
+        w,
+        h,
+        flip_y: true,
+    };
     render.set_update_callback(Some(on_update), wake_ptr);
     let _ = ready.send(Ok(()));
-    while alive.load(Ordering::Relaxed) {
+    while flags.alive.load(Ordering::Relaxed) {
         match rx.recv() {
             Ok(Job::Frame) => {
                 if render.update() & RENDER_UPDATE_FRAME != 0 {
-                    render_view(&render, &mut quad, &view, slot, 0, w, h, dpi, true);
+                    render_view(&render, &mut quad, &view, slot, screen, dpi);
                     ctx.flushBuffer();
                 }
             }
             Ok(Job::View(v)) => {
                 view = v;
                 render.update();
-                render_view(&render, &mut quad, &view, slot, 0, w, h, dpi, true);
+                render_view(&render, &mut quad, &view, slot, screen, dpi);
                 ctx.flushBuffer();
             }
             Ok(Job::Capture(path, reply)) => {
                 let result = match capture {
                     Some(gl) => match gl
                         .render_offscreen(w, h, |fbo, w, h| {
-                            render_view(&render, &mut quad, &view, slot, fbo, w, h, dpi, false)
+                            let offscreen = Framebuffer {
+                                fbo,
+                                w,
+                                h,
+                                flip_y: false,
+                            };
+                            render_view(&render, &mut quad, &view, slot, offscreen, dpi)
                         })
                         .and_then(|p| crate::capture::from_gl_pixels(w as u32, h as u32, &p))
                     {
@@ -302,7 +317,7 @@ impl MediaSurface for MediaView {
     }
 
     fn set_view(&self, view: &View, _slot: Size) -> Option<Result<()>> {
-        if !view.is_whole(self.slot) && !self.quad_ready.load(Ordering::Relaxed) {
+        if !view.is_whole(self.slot) && !self.flags.quad_ready.load(Ordering::Relaxed) {
             return Some(Err(Error::Media("the OpenGL view renderer is unavailable, so the wallpaper cannot be moved, scaled or turned".into())));
         }
         Some(
@@ -315,7 +330,7 @@ impl MediaSurface for MediaView {
 
 impl Drop for MediaView {
     fn drop(&mut self) {
-        self.alive.store(false, Ordering::Relaxed);
+        self.flags.alive.store(false, Ordering::Relaxed);
         // SAFETY: the wake box is freed by the render thread; here we only stop new wakes.
         if let Some(w) =
             unsafe { (self.handle_ptr as *const Arc<Mutex<Option<SyncSender<Job>>>>).as_ref() }

@@ -554,12 +554,13 @@ fn add_tree<W: Write + std::io::Seek>(
             .map_err(|e| Error::Invalid(e.to_string()))?
             .to_string_lossy()
             .replace('\\', "/");
-        if !directory && !(prefix.is_empty() && rel == FILE_NAME) {
-            zip.start_file(format!("{prefix}{rel}"), *opts)
-                .map_err(|e| Error::Io(std::io::Error::other(e)))?;
-            let mut f = ctx(std::fs::File::open(path), path.display())?;
-            std::io::copy(&mut f, zip)?;
+        if directory || (prefix.is_empty() && rel == FILE_NAME) {
+            return Ok(());
         }
+        zip.start_file(format!("{prefix}{rel}"), *opts)
+            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
+        let mut f = ctx(std::fs::File::open(path), path.display())?;
+        std::io::copy(&mut f, zip)?;
         Ok(())
     })
 }

@@ -84,10 +84,13 @@ pub trait RuntimeApi: Sized {
     fn spawn_content(&mut self, spec: &ContentSpec<'_>, slot: &Slot) -> Result<Box<dyn Content>>;
 }
 
+/// The engine's message handler; returns `false` to stop the main loop.
+pub type MsgHandler = Box<dyn FnMut(Msg) -> bool>;
+
 /// The native event loop; delivers every [`Msg`] to the handler on the main thread.
 pub trait MainLoopApi {
     /// Run until the handler returns `false`.
-    fn run(self, handler: Box<dyn FnMut(Msg) -> bool>);
+    fn run(self, handler: MsgHandler);
 }
 
 /// Desktop background layer: presents content regions on displays.

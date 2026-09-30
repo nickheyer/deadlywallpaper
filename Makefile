@@ -65,8 +65,7 @@ shaders:
 icons:
 	magick $(ROOT)/assets/logo.png -resize 256x256 $(ROOT)/assets/icon.png
 	magick $(ROOT)/assets/logo.png -resize 32x32 $(ROOT)/assets/icon-32.png
-	magick $(ROOT)/assets/logo.png -resize 64x64 $(ROOT)/assets/tray-dark.png
-	cp $(ROOT)/assets/tray-dark.png $(ROOT)/assets/tray-light.png
+	magick $(ROOT)/assets/logo.png -resize 64x64 $(ROOT)/assets/tray.png
 
 clean:
 	rm -rf $(DIST) $(BUILD) $(ROOT)/target
