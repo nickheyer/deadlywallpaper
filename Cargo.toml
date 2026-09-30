@@ -34,6 +34,7 @@ tray-icon = { version = "0.25", default-features = false, features = ["libappind
 raw-window-handle = "0.6"
 http = "1.1"
 tempfile = "3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"

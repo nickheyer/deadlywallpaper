@@ -456,7 +456,7 @@ mod tests {
                 .uv_rect
         };
         let replacement = uv_of(&mut view, '\u{25FB}');
-        let glyphs = "🖼🖥⚙ℹ🔍✖▶⏸⏮↻🔀🎬🎞📡🌐🎵📥⏳✔⚠🔇🔉🔊·…+×";
+        let glyphs = "🖼🖥⚙ℹ🔍✖▶⏸⏮↻🔀🎬🎞📡🌐🎵📥⏳✔⚠🔇🔉🔊·…+×⬆⬇☰⊞";
         let missing: Vec<char> = glyphs
             .chars()
             .filter(|c| uv_of(&mut view, *c) == replacement)

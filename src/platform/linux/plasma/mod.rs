@@ -360,6 +360,7 @@ impl ShellApi for Shell {
             programs: false,
             web_devtools: false,
             rotate_web: true,
+            loop_blend: true,
         }
     }
 }

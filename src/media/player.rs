@@ -1,6 +1,7 @@
 use crate::content::{Content, ContentEvent, ContentId, PointerEvent, Seek, View};
 use crate::error::{Error, Result};
 use crate::geom::Size;
+use crate::media::looper::Loop;
 use crate::media::mpv::{self, Handle};
 use crate::model::props::ControlKind;
 use crate::model::settings::{Scaler, StreamQuality};
@@ -10,9 +11,11 @@ use crate::platform::{MsgSender, MsgSenderApi};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Where mpv draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Vo {
     /// Render API: the platform view pulls frames through a [`mpv::RenderContext`].
     #[cfg_attr(windows, allow(dead_code, reason = "Windows embeds mpv by window id"))]
@@ -23,8 +26,12 @@ pub enum Vo {
         allow(dead_code, reason = "render-API backends never embed by window id")
     )]
     Wid(i64),
+    /// No output at all: tests drive the cores by the clock alone.
+    #[cfg(test)]
+    Null,
 }
 
+#[derive(Clone, Copy)]
 pub struct PlayerOptions<'a> {
     pub kind: Kind,
     pub source: &'a str,
@@ -37,6 +44,19 @@ pub struct PlayerOptions<'a> {
     /// Logical size of the surface mpv draws into.
     pub slot: Size,
 }
+
+/// How a core handles the end of its clip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Looping {
+    /// mpv starts the file over itself.
+    Native,
+    /// One pass, then hold the last frame while a [`Loop`] hands over to the other core. A
+    /// standby core starts paused on its first frame.
+    Pass { standby: bool },
+}
+
+/// Reply ids for asynchronous commands, unique across every core in the process.
+static NEXT_COMMAND_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug)]
 pub enum PlayerEvent {
@@ -56,7 +76,6 @@ pub struct Player {
     scaler: Mutex<Scaler>,
     /// The view realized through mpv's own filters and zoom, for surfaces that leave it to mpv.
     view: Mutex<Option<View>>,
-    next_id: u64,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -66,6 +85,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 impl Player {
     pub fn new(
         opts: PlayerOptions<'_>,
+        looping: Looping,
         on_event: impl Fn(PlayerEvent) + Send + 'static,
     ) -> Result<Player> {
         let handle = Arc::new(Handle::new(mpv::lib()?)?);
@@ -81,7 +101,15 @@ impl Player {
             ("cursor-autohide", "no".into()),
             ("stop-screensaver", "no".into()),
             ("audio-client-name", "Deadly Wallpaper".into()),
-            ("loop-file", "inf".into()),
+            (
+                "loop-file",
+                if looping == Looping::Native {
+                    "inf"
+                } else {
+                    "no"
+                }
+                .into(),
+            ),
             ("keep-open", "yes".into()),
             ("idle", "yes".into()),
             ("image-display-duration", "inf".into()),
@@ -95,6 +123,8 @@ impl Player {
         ];
         match opts.vo {
             Vo::Render => options.push(("vo", "libmpv".into())),
+            #[cfg(test)]
+            Vo::Null => options.push(("vo", "null".into())),
             Vo::Wid(id) => {
                 options.push(("wid", id.to_string()));
                 options.push(("force-window", "yes".into()));
@@ -104,6 +134,9 @@ impl Player {
         }
         if opts.kind == Kind::Gif {
             options.push(("scale", "nearest".into()));
+        }
+        if looping == (Looping::Pass { standby: true }) {
+            options.push(("pause", "yes".into()));
         }
         if opts.kind == Kind::VideoStream {
             options.push(("ytdl-format", opts.stream_quality.ytdl_format()));
@@ -124,7 +157,6 @@ impl Player {
             slot: opts.slot,
             scaler: Mutex::new(opts.scaler),
             view: Mutex::new(None),
-            next_id: 1,
         })
     }
 
@@ -146,8 +178,42 @@ impl Player {
         report(self.handle.set_flag("pause", paused));
     }
 
-    pub fn set_volume(&self, volume: u8) {
-        report(self.handle.set_f64("volume", volume.min(100) as f64));
+    /// `volume` scaled by `gain` (0 to 1), for cross-fading two cores.
+    pub fn set_volume_scaled(&self, volume: u8, gain: f64) {
+        report(
+            self.handle
+                .set_f64("volume", volume.min(100) as f64 * gain.clamp(0.0, 1.0)),
+        );
+    }
+
+    /// Back to the first frame, precisely; a paused core shows it.
+    pub fn rewind(&self) {
+        report(self.handle.command(&["seek", "0", "absolute+exact"]));
+    }
+
+    /// Length of the loaded clip in seconds, once known.
+    pub fn duration(&self) -> Option<f64> {
+        self.handle.get_f64("duration").filter(|d| *d > 0.0)
+    }
+
+    /// Playback position in seconds; zero before the first frame.
+    pub fn position(&self) -> f64 {
+        self.handle.get_f64("time-pos").unwrap_or(0.0)
+    }
+
+    /// Frames per second as the container declares them, or as decoded frames suggest; 30
+    /// until either is known.
+    pub fn fps(&self) -> f64 {
+        self.handle
+            .get_f64("container-fps")
+            .or_else(|| self.handle.get_f64("estimated-vf-fps"))
+            .filter(|f| *f >= 1.0)
+            .unwrap_or(30.0)
+    }
+
+    /// The clip played to its end and holds the last frame.
+    pub fn eof_reached(&self) -> bool {
+        self.handle.get_flag("eof-reached").unwrap_or(false)
     }
 
     /// Engine mute disables the audio track so a user "mute" control stays independent.
@@ -282,9 +348,8 @@ impl Player {
     }
 
     /// Start an asynchronous frame capture; completion arrives as `CommandDone { id }`.
-    pub fn screenshot(&mut self, path: &std::path::Path) -> Result<u64> {
-        let id = self.next_id;
-        self.next_id += 1;
+    pub fn screenshot(&self, path: &std::path::Path) -> Result<u64> {
+        let id = NEXT_COMMAND_ID.fetch_add(1, Ordering::Relaxed);
         self.handle.command_async(
             id,
             &["screenshot-to-file", &path.to_string_lossy(), "window"],
@@ -385,11 +450,11 @@ pub trait MediaSurface {
     }
 }
 
-/// A media wallpaper: a platform view (dropped first, so the render context goes before the
-/// core) and the player driving it.
+/// A media wallpaper: a platform view (dropped first, so the render contexts go before the
+/// cores) and the looping cores driving it.
 pub struct MediaContent {
     view: Box<dyn MediaSurface>,
-    player: Player,
+    looper: Arc<Loop>,
     pending: Pending,
     id: ContentId,
     tx: MsgSender,
@@ -398,14 +463,14 @@ pub struct MediaContent {
 impl MediaContent {
     pub fn new(
         view: Box<dyn MediaSurface>,
-        player: Player,
+        looper: Arc<Loop>,
         pending: Pending,
         id: ContentId,
         tx: MsgSender,
     ) -> MediaContent {
         MediaContent {
             view,
-            player,
+            looper,
             pending,
             id,
             tx,
@@ -415,23 +480,23 @@ impl MediaContent {
 
 impl Content for MediaContent {
     fn set_paused(&mut self, paused: bool) {
-        self.player.set_paused(paused);
+        self.looper.set_paused(paused);
     }
 
     fn set_volume(&mut self, volume: u8) {
-        self.player.set_volume(volume);
+        self.looper.set_volume(volume);
     }
 
     fn set_muted(&mut self, muted: bool) {
-        self.player.set_engine_muted(muted);
+        self.looper.set_engine_muted(muted);
     }
 
     fn seek(&mut self, seek: Seek) {
-        self.player.seek(seek);
+        self.looper.seek(seek);
     }
 
     fn apply(&mut self, name: &str, control: &Control, value: Option<&Value>) {
-        self.player.apply(name, control, value);
+        self.looper.apply(name, control, value);
     }
 
     fn screenshot(&mut self, path: PathBuf) {
@@ -442,7 +507,7 @@ impl Content for MediaContent {
             ));
             return;
         }
-        match self.player.screenshot(&path) {
+        match self.looper.screenshot(&path) {
             Ok(cmd) => {
                 if let Ok(mut m) = self.pending.lock() {
                     m.insert(cmd, path);
@@ -465,10 +530,10 @@ impl Content for MediaContent {
     fn audio_data(&mut self, _bins: &[f32]) {}
 
     fn set_view(&mut self, view: &View) -> Result<()> {
-        match self.view.set_view(view, self.player.slot()) {
+        match self.view.set_view(view, self.looper.slot()) {
             Some(result) => result,
             None => {
-                self.player.set_view(view);
+                self.looper.set_view(view);
                 Ok(())
             }
         }

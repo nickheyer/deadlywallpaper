@@ -1,7 +1,9 @@
-//! Render libmpv into a texture, then apply View to the slot. Requires a current GL context.
+//! Render libmpv into a texture, then apply View to the slot; two cores blend when a pass
+//! hands over to the next. Requires a current GL context.
 
 use crate::content::View;
 use crate::geom::Size;
+use crate::media::looper::Frame;
 use crate::media::mpv::{GetProcAddressFn, RenderContext};
 use std::ffi::{CStr, c_char, c_void};
 
@@ -51,6 +53,16 @@ const VERTEX_GL: &str = "#version 150\nin vec2 pos;\nout vec2 uv;\nuniform mat3 
 const FRAGMENT_GL: &str = "#version 150\nin vec2 uv;\nout vec4 color;\nuniform sampler2D tex;\nvoid main() {\n  color = texture(tex, uv);\n}\n";
 const VERTEX_ES: &str = "#version 300 es\nprecision highp float;\nin vec2 pos;\nout vec2 uv;\nuniform mat3 m;\nvoid main() {\n  uv = vec2(pos.x, 1.0 - pos.y);\n  vec3 p = m * vec3(pos, 1.0);\n  gl_Position = vec4(p.xy, 0.0, 1.0);\n}\n";
 const FRAGMENT_ES: &str = "#version 300 es\nprecision mediump float;\nin vec2 uv;\nout vec4 color;\nuniform sampler2D tex;\nvoid main() {\n  color = texture(tex, uv);\n}\n";
+const BLEND_GL: &str = "#version 150\nin vec2 uv;\nout vec4 color;\nuniform sampler2D tex;\nuniform sampler2D tex2;\nuniform float t;\nvoid main() {\n  color = mix(texture(tex, uv), texture(tex2, uv), t);\n}\n";
+const BLEND_ES: &str = "#version 300 es\nprecision mediump float;\nin vec2 uv;\nout vec4 color;\nuniform sampler2D tex;\nuniform sampler2D tex2;\nuniform float t;\nvoid main() {\n  color = mix(texture(tex, uv), texture(tex2, uv), t);\n}\n";
+
+/// One rendered image: a texture with a framebuffer over it.
+#[derive(Clone, Copy, Default)]
+struct Layer {
+    texture: u32,
+    fbo: u32,
+    size: (i32, i32),
+}
 
 pub struct Quad {
     get_string: unsafe extern "C" fn(u32) -> *const u8,
@@ -77,9 +89,10 @@ pub struct Quad {
     use_program: unsafe extern "C" fn(u32),
     delete_program: unsafe extern "C" fn(u32),
     get_uniform_location: unsafe extern "C" fn(u32, *const c_char) -> i32,
-    get_attrib_location: unsafe extern "C" fn(u32, *const c_char) -> i32,
+    bind_attrib_location: unsafe extern "C" fn(u32, u32, *const c_char),
     uniform_matrix3fv: unsafe extern "C" fn(i32, i32, u8, *const f32),
     uniform1i: unsafe extern "C" fn(i32, i32),
+    uniform1f: unsafe extern "C" fn(i32, f32),
     gen_vertex_arrays: unsafe extern "C" fn(i32, *mut u32),
     bind_vertex_array: unsafe extern "C" fn(u32),
     delete_vertex_arrays: unsafe extern "C" fn(i32, *const u32),
@@ -96,12 +109,14 @@ pub struct Quad {
     disable: unsafe extern "C" fn(u32),
     get_integerv: unsafe extern "C" fn(u32, *mut i32),
     program: u32,
+    blend_program: u32,
     vao: u32,
     vbo: u32,
     u_matrix: i32,
-    texture: u32,
-    fbo: u32,
-    size: (i32, i32),
+    u_blend_matrix: i32,
+    u_blend_t: i32,
+    /// The active pass, and the incoming one while they blend.
+    layers: [Layer; 2],
 }
 
 impl Quad {
@@ -143,9 +158,10 @@ impl Quad {
             use_program: f!("glUseProgram"),
             delete_program: f!("glDeleteProgram"),
             get_uniform_location: f!("glGetUniformLocation"),
-            get_attrib_location: f!("glGetAttribLocation"),
+            bind_attrib_location: f!("glBindAttribLocation"),
             uniform_matrix3fv: f!("glUniformMatrix3fv"),
             uniform1i: f!("glUniform1i"),
+            uniform1f: f!("glUniform1f"),
             gen_vertex_arrays: f!("glGenVertexArrays"),
             bind_vertex_array: f!("glBindVertexArray"),
             delete_vertex_arrays: f!("glDeleteVertexArrays"),
@@ -162,14 +178,44 @@ impl Quad {
             disable: f!("glDisable"),
             get_integerv: f!("glGetIntegerv"),
             program: 0,
+            blend_program: 0,
             vao: 0,
             vbo: 0,
             u_matrix: -1,
-            texture: 0,
-            fbo: 0,
-            size: (0, 0),
+            u_blend_matrix: -1,
+            u_blend_t: -1,
+            layers: [Layer::default(); 2],
         };
         if q.build() { Some(q) } else { None }
+    }
+
+    /// Compile and link one program; `None` with the failure logged.
+    unsafe fn link(&self, vs_src: &str, fs_src: &str, what: &str) -> Option<u32> {
+        // SAFETY: plain GL object creation on the current context; failures are checked and
+        // every object is released on the error path.
+        unsafe {
+            let vs = self.shader(GL_VERTEX_SHADER, vs_src)?;
+            let Some(fs) = self.shader(GL_FRAGMENT_SHADER, fs_src) else {
+                (self.delete_shader)(vs);
+                return None;
+            };
+            let program = (self.create_program)();
+            (self.attach_shader)(program, vs);
+            (self.attach_shader)(program, fs);
+            // Both programs read the one vertex array, so `pos` must be attribute 0 in each.
+            (self.bind_attrib_location)(program, 0, c"pos".as_ptr());
+            (self.link_program)(program);
+            (self.delete_shader)(vs);
+            (self.delete_shader)(fs);
+            let mut ok = 0;
+            (self.get_programiv)(program, GL_LINK_STATUS, &mut ok);
+            if ok == 0 {
+                log::error!("{what} shader program failed to link");
+                (self.delete_program)(program);
+                return None;
+            }
+            Some(program)
+        }
     }
 
     fn build(&mut self) -> bool {
@@ -181,35 +227,27 @@ impl Quad {
                 && CStr::from_ptr(version as *const c_char)
                     .to_string_lossy()
                     .starts_with("OpenGL ES");
-            let (vs_src, fs_src) = if es {
-                (VERTEX_ES, FRAGMENT_ES)
+            let (vs_src, fs_src, blend_src) = if es {
+                (VERTEX_ES, FRAGMENT_ES, BLEND_ES)
             } else {
-                (VERTEX_GL, FRAGMENT_GL)
+                (VERTEX_GL, FRAGMENT_GL, BLEND_GL)
             };
-            let Some(vs) = self.shader(GL_VERTEX_SHADER, vs_src) else {
+            let Some(program) = self.link(vs_src, fs_src, "view") else {
                 return false;
             };
-            let Some(fs) = self.shader(GL_FRAGMENT_SHADER, fs_src) else {
-                (self.delete_shader)(vs);
-                return false;
-            };
-            let program = (self.create_program)();
-            (self.attach_shader)(program, vs);
-            (self.attach_shader)(program, fs);
-            (self.link_program)(program);
-            (self.delete_shader)(vs);
-            (self.delete_shader)(fs);
-            let mut ok = 0;
-            (self.get_programiv)(program, GL_LINK_STATUS, &mut ok);
-            if ok == 0 {
-                log::error!("view shader program failed to link");
+            let Some(blend) = self.link(vs_src, blend_src, "blend") else {
                 (self.delete_program)(program);
                 return false;
-            }
+            };
             self.program = program;
+            self.blend_program = blend;
             self.u_matrix = (self.get_uniform_location)(program, c"m".as_ptr());
             let u_tex = (self.get_uniform_location)(program, c"tex".as_ptr());
-            let a_pos = (self.get_attrib_location)(program, c"pos".as_ptr());
+            self.u_blend_matrix = (self.get_uniform_location)(blend, c"m".as_ptr());
+            self.u_blend_t = (self.get_uniform_location)(blend, c"t".as_ptr());
+            let u_blend_tex = (self.get_uniform_location)(blend, c"tex".as_ptr());
+            let u_blend_tex2 = (self.get_uniform_location)(blend, c"tex2".as_ptr());
+            let a_pos = 0;
             (self.gen_vertex_arrays)(1, &mut self.vao);
             (self.bind_vertex_array)(self.vao);
             (self.gen_buffers)(1, &mut self.vbo);
@@ -225,6 +263,9 @@ impl Quad {
             (self.bind_vertex_array)(0);
             (self.use_program)(program);
             (self.uniform1i)(u_tex, 0);
+            (self.use_program)(blend);
+            (self.uniform1i)(u_blend_tex, 0);
+            (self.uniform1i)(u_blend_tex2, 1);
             (self.use_program)(0);
         }
         true
@@ -250,13 +291,15 @@ impl Quad {
         }
     }
 
-    /// The framebuffer the image is rendered into, `w`×`h` device pixels; rebuilt when the
-    /// size changes. Returns `None` when the framebuffer cannot be completed.
-    pub fn target(&mut self, w: i32, h: i32) -> Option<i32> {
-        if self.fbo != 0 && self.size == (w, h) {
-            return Some(self.fbo as i32);
+    /// The framebuffer layer `layer` is rendered into, `w`×`h` device pixels; rebuilt when
+    /// the size changes. Returns `None` when the framebuffer cannot be completed.
+    pub fn target(&mut self, layer: usize, w: i32, h: i32) -> Option<i32> {
+        let l = self.layers[layer];
+        if l.fbo != 0 && l.size == (w, h) {
+            return Some(l.fbo as i32);
         }
-        self.release_target();
+        self.release_layer(layer);
+        let mut l = Layer::default();
         // SAFETY: plain GL calls on the current context; the previous framebuffer binding is
         // restored before returning.
         unsafe {
@@ -265,8 +308,8 @@ impl Quad {
                 crate::media::glcap::GL_DRAW_FRAMEBUFFER_BINDING,
                 &mut previous,
             );
-            (self.gen_textures)(1, &mut self.texture);
-            (self.bind_texture)(GL_TEXTURE_2D, self.texture);
+            (self.gen_textures)(1, &mut l.texture);
+            (self.bind_texture)(GL_TEXTURE_2D, l.texture);
             (self.tex_image_2d)(
                 GL_TEXTURE_2D,
                 0,
@@ -282,57 +325,36 @@ impl Quad {
             (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            (self.gen_framebuffers)(1, &mut self.fbo);
-            (self.bind_framebuffer)(GL_FRAMEBUFFER, self.fbo);
+            (self.gen_framebuffers)(1, &mut l.fbo);
+            (self.bind_framebuffer)(GL_FRAMEBUFFER, l.fbo);
             (self.framebuffer_texture_2d)(
                 GL_FRAMEBUFFER,
                 GL_COLOR_ATTACHMENT0,
                 GL_TEXTURE_2D,
-                self.texture,
+                l.texture,
                 0,
             );
             let complete =
                 (self.check_framebuffer_status)(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
             (self.bind_framebuffer)(GL_FRAMEBUFFER, previous as u32);
+            l.size = (w, h);
+            self.layers[layer] = l;
             if !complete {
                 log::error!("image framebuffer {w}x{h} is incomplete");
-                self.release_target();
+                self.release_layer(layer);
                 return None;
             }
         }
-        self.size = (w, h);
-        Some(self.fbo as i32)
+        Some(l.fbo as i32)
     }
 
-    /// Draw the image texture into `target` through `view` on a slot of `slot` logical pixels;
-    /// `dpi` device pixels per logical pixel. The target's `flip_y` mirrors the flag the image
-    /// was rendered with, so a whole view is an exact copy.
-    pub fn draw(&self, target: Framebuffer, view: &View, slot: Size, dpi: f64) {
+    /// Draw layer 0 into `target` through `view` on a slot of `slot` logical pixels, or, with
+    /// `blend`, layer 1 mixed over it by that amount. `dpi` is device pixels per logical
+    /// pixel. The target's `flip_y` mirrors the flag the image was rendered with, so a whole
+    /// view is an exact copy.
+    pub fn draw(&self, target: Framebuffer, view: &View, slot: Size, dpi: f64, blend: Option<f32>) {
         let Framebuffer { fbo, w, h, flip_y } = target;
-        let (sin, cos) = view.rotation.to_radians().sin_cos();
-        let k = view.scale;
-        let (iw, ih) = (view.width as f64, view.height as f64);
-        let ax = 2.0 * dpi / w as f64;
-        let ay = if flip_y {
-            -2.0 * dpi / h as f64
-        } else {
-            2.0 * dpi / h as f64
-        };
-        let oy = if flip_y { 1.0 } else { -1.0 };
-        // Unit square → image pixels → slot pixels (scaled, turned, shifted) → device → clip.
-        let tx = slot.w as f64 / 2.0 + view.x - k * (cos * iw / 2.0 - sin * ih / 2.0);
-        let ty = slot.h as f64 / 2.0 + view.y - k * (sin * iw / 2.0 + cos * ih / 2.0);
-        let m: [f32; 9] = [
-            (ax * k * cos * iw) as f32,
-            (ay * k * sin * iw) as f32,
-            0.0,
-            (ax * -k * sin * ih) as f32,
-            (ay * k * cos * ih) as f32,
-            0.0,
-            (ax * tx - 1.0) as f32,
-            (ay * ty + oy) as f32,
-            1.0,
-        ];
+        let m = matrix(view, slot, w, h, dpi, flip_y);
         // SAFETY: plain GL draw calls on the current context with objects this struct owns.
         unsafe {
             (self.bind_framebuffer)(GL_FRAMEBUFFER, fbo as u32);
@@ -343,36 +365,53 @@ impl Quad {
             (self.disable)(GL_CULL_FACE);
             (self.clear_color)(0.0, 0.0, 0.0, 1.0);
             (self.clear)(GL_COLOR_BUFFER_BIT);
-            (self.use_program)(self.program);
-            (self.uniform_matrix3fv)(self.u_matrix, 1, 0, m.as_ptr());
+            match blend {
+                Some(t) => {
+                    (self.use_program)(self.blend_program);
+                    (self.uniform_matrix3fv)(self.u_blend_matrix, 1, 0, m.as_ptr());
+                    (self.uniform1f)(self.u_blend_t, t.clamp(0.0, 1.0));
+                    (self.active_texture)(GL_TEXTURE0 + 1);
+                    (self.bind_texture)(GL_TEXTURE_2D, self.layers[1].texture);
+                }
+                None => {
+                    (self.use_program)(self.program);
+                    (self.uniform_matrix3fv)(self.u_matrix, 1, 0, m.as_ptr());
+                }
+            }
             (self.active_texture)(GL_TEXTURE0);
-            (self.bind_texture)(GL_TEXTURE_2D, self.texture);
+            (self.bind_texture)(GL_TEXTURE_2D, self.layers[0].texture);
             (self.bind_vertex_array)(self.vao);
             (self.draw_arrays)(GL_TRIANGLE_STRIP, 0, 4);
             (self.bind_vertex_array)(0);
             (self.bind_texture)(GL_TEXTURE_2D, 0);
+            if blend.is_some() {
+                (self.active_texture)(GL_TEXTURE0 + 1);
+                (self.bind_texture)(GL_TEXTURE_2D, 0);
+                (self.active_texture)(GL_TEXTURE0);
+            }
             (self.use_program)(0);
         }
     }
 
-    fn release_target(&mut self) {
+    fn release_layer(&mut self, layer: usize) {
+        let l = self.layers[layer];
         // SAFETY: deleting objects this struct created; zero ids are ignored by GL.
         unsafe {
-            if self.fbo != 0 {
-                (self.delete_framebuffers)(1, &self.fbo);
+            if l.fbo != 0 {
+                (self.delete_framebuffers)(1, &l.fbo);
             }
-            if self.texture != 0 {
-                (self.delete_textures)(1, &self.texture);
+            if l.texture != 0 {
+                (self.delete_textures)(1, &l.texture);
             }
         }
-        self.fbo = 0;
-        self.texture = 0;
-        self.size = (0, 0);
+        self.layers[layer] = Layer::default();
     }
 
     /// Release every GL object; the context must be current.
     pub fn destroy(&mut self) {
-        self.release_target();
+        for layer in 0..self.layers.len() {
+            self.release_layer(layer);
+        }
         // SAFETY: deleting objects this struct created.
         unsafe {
             if self.vbo != 0 {
@@ -384,36 +423,76 @@ impl Quad {
             if self.program != 0 {
                 (self.delete_program)(self.program);
             }
+            if self.blend_program != 0 {
+                (self.delete_program)(self.blend_program);
+            }
         }
         self.vbo = 0;
         self.vao = 0;
         self.program = 0;
+        self.blend_program = 0;
     }
 }
 
-/// Render the current frame into `target`: straight when the view is the whole image, otherwise
-/// through `quad`. Nothing is drawn when the view needs the quad and there is none.
-pub fn render_view(
-    ctx: &RenderContext,
+/// Unit square → image pixels → slot pixels (scaled, turned, shifted) → device → clip.
+fn matrix(view: &View, slot: Size, w: i32, h: i32, dpi: f64, flip_y: bool) -> [f32; 9] {
+    let (sin, cos) = view.rotation.to_radians().sin_cos();
+    let k = view.scale;
+    let (iw, ih) = (view.width as f64, view.height as f64);
+    let ax = 2.0 * dpi / w as f64;
+    let ay = if flip_y {
+        -2.0 * dpi / h as f64
+    } else {
+        2.0 * dpi / h as f64
+    };
+    let oy = if flip_y { 1.0 } else { -1.0 };
+    let tx = slot.w as f64 / 2.0 + view.x - k * (cos * iw / 2.0 - sin * ih / 2.0);
+    let ty = slot.h as f64 / 2.0 + view.y - k * (sin * iw / 2.0 + cos * ih / 2.0);
+    [
+        (ax * k * cos * iw) as f32,
+        (ay * k * sin * iw) as f32,
+        0.0,
+        (ax * -k * sin * ih) as f32,
+        (ay * k * cos * ih) as f32,
+        0.0,
+        (ax * tx - 1.0) as f32,
+        (ay * ty + oy) as f32,
+        1.0,
+    ]
+}
+
+/// Draw `frame` into `target`: the active core straight into it when the view is the whole
+/// image and nothing is fading in, otherwise every core into a layer and the layers through
+/// `quad`. Nothing is drawn when the quad is needed and there is none.
+pub fn render_frame(
+    ctxs: &[RenderContext],
+    frame: Frame,
     quad: &mut Option<Quad>,
     view: &View,
     slot: Size,
     target: Framebuffer,
     dpi: f64,
 ) {
-    if view.is_whole(slot) {
-        ctx.render(target.fbo, target.w, target.h, target.flip_y);
+    let active = &ctxs[frame.active];
+    if frame.fade.is_none() && view.is_whole(slot) {
+        active.render(target.fbo, target.w, target.h, target.flip_y);
         return;
     }
     let Some(q) = quad else { return };
     let (tw, th) = (
-        ((view.width as f64) * dpi).round() as i32,
-        ((view.height as f64) * dpi).round() as i32,
+        (((view.width as f64) * dpi).round() as i32).max(1),
+        (((view.height as f64) * dpi).round() as i32).max(1),
     );
-    if let Some(image_fbo) = q.target(tw.max(1), th.max(1)) {
-        ctx.render(image_fbo, tw.max(1), th.max(1), target.flip_y);
-        q.draw(target, view, slot, dpi);
-    }
+    let Some(fbo) = q.target(0, tw, th) else {
+        return;
+    };
+    active.render(fbo, tw, th, target.flip_y);
+    let blend = frame.fade.and_then(|(incoming, t)| {
+        let fbo = q.target(1, tw, th)?;
+        ctxs[incoming].render(fbo, tw, th, target.flip_y);
+        Some(t)
+    });
+    q.draw(target, view, slot, dpi, blend);
 }
 
 #[cfg(test)]
@@ -446,31 +525,5 @@ mod tests {
             (x0 - 0.0).abs() < 1e-5 && (y0 - 1.0).abs() < 1e-5,
             "{x0},{y0}"
         );
-    }
-
-    fn matrix(view: &View, slot: Size, w: i32, h: i32, dpi: f64, flip_y: bool) -> [f32; 9] {
-        let (sin, cos) = view.rotation.to_radians().sin_cos();
-        let k = view.scale;
-        let (iw, ih) = (view.width as f64, view.height as f64);
-        let ax = 2.0 * dpi / w as f64;
-        let ay = if flip_y {
-            -2.0 * dpi / h as f64
-        } else {
-            2.0 * dpi / h as f64
-        };
-        let oy = if flip_y { 1.0 } else { -1.0 };
-        let tx = slot.w as f64 / 2.0 + view.x - k * (cos * iw / 2.0 - sin * ih / 2.0);
-        let ty = slot.h as f64 / 2.0 + view.y - k * (sin * iw / 2.0 + cos * ih / 2.0);
-        [
-            (ax * k * cos * iw) as f32,
-            (ay * k * sin * iw) as f32,
-            0.0,
-            (ax * -k * sin * ih) as f32,
-            (ay * k * cos * ih) as f32,
-            0.0,
-            (ax * tx - 1.0) as f32,
-            (ay * ty + oy) as f32,
-            1.0,
-        ]
     }
 }

@@ -182,6 +182,18 @@ impl Properties {
         self.raw.len() != before
     }
 
+    /// Append every control of `from` that this copy lacks, so copies made before a control
+    /// existed pick it up. Returns whether anything was added.
+    pub fn add_missing(&mut self, from: &Properties) -> bool {
+        let before = self.raw.len();
+        for (k, v) in &from.raw {
+            if !self.raw.contains_key(k) {
+                self.raw.insert(k.clone(), v.clone());
+            }
+        }
+        self.raw.len() != before
+    }
+
     pub fn to_json(&self) -> Result<String> {
         Ok(serde_json::to_string_pretty(&Value::Object(
             self.raw.clone(),
@@ -312,15 +324,19 @@ pub const MEDIA_DEFAULTS: &str = r##"{
   "contrast": { "type": "slider", "text": "Contrast", "value": 0, "min": -100, "max": 100, "step": 1 },
   "gamma": { "type": "slider", "text": "Gamma", "value": 0, "min": -100, "max": 100, "step": 1 },
   "speed": { "type": "slider", "text": "Speed", "value": 1, "min": 0.25, "max": 5, "step": 0.01 },
+  "loopblend": { "type": "slider", "text": "Loop blend", "help": "Seconds over which the end of each pass cross-fades into the start of the next. 0 cuts straight to the next pass, whose first frame is already decoded.", "value": 0.5, "min": 0, "max": 3, "step": 0.05 },
   "scaler": { "type": "scalerDropdown", "text": "Choose a fit", "help": "Wallpaper scaling", "value": 1, "items": ["None", "Fill", "Uniform", "Uniform Fill"] },
   "mute": { "type": "checkbox", "text": "Mute", "value": false }
 }"##;
 
-pub fn media_defaults(kind: Kind) -> Properties {
+/// The built-in controls a wallpaper of `kind` gets; `loop_blend` when the presenter can
+/// cross-fade passes.
+pub fn media_defaults(kind: Kind, loop_blend: bool) -> Properties {
     let all: Value = serde_json::from_str(MEDIA_DEFAULTS).expect("MEDIA_DEFAULTS is valid JSON");
     let mut p = Properties::from_value(all).expect("MEDIA_DEFAULTS is an object");
     p.retain(|name| match name {
         "speed" => kind.has_timeline(),
+        "loopblend" => loop_blend && kind.loops(),
         "mute" => kind.has_audio(),
         _ => true,
     });
@@ -338,7 +354,7 @@ mod tests {
     #[test]
     fn media_defaults_follow_the_kind() {
         let names = |k: Kind| {
-            media_defaults(k)
+            media_defaults(k, true)
                 .controls()
                 .into_iter()
                 .map(|(n, _)| n)
@@ -350,6 +366,33 @@ mod tests {
         assert!(!has(Kind::Gif, "mute") && has(Kind::Gif, "speed"));
         assert!(!has(Kind::Picture, "mute") && !has(Kind::Picture, "speed"));
         assert!(has(Kind::Picture, "scaler") && has(Kind::Picture, "brightness"));
+        assert!(has(Kind::Video, "loopblend") && has(Kind::Gif, "loopblend"));
+        assert!(!has(Kind::VideoStream, "loopblend") && !has(Kind::Picture, "loopblend"));
+        let without = media_defaults(Kind::Video, false);
+        assert!(without.get("loopblend").is_none() && without.get("speed").is_some());
+    }
+
+    #[test]
+    fn missing_builtin_controls_are_added_to_older_copies() {
+        let mut older = Properties::from_value(serde_json::json!({
+            "speed": {"type": "slider", "text": "Speed", "value": 2, "min": 0.25, "max": 5, "step": 0.01},
+            "stale": {"type": "checkbox", "text": "Gone", "value": true}
+        }))
+        .unwrap();
+        let allowed = media_defaults(Kind::Video, true);
+        assert!(older.retain(|name| allowed.get(name).is_some()));
+        assert!(older.add_missing(&allowed));
+        assert!(!older.add_missing(&allowed), "a second pass adds nothing");
+        let names: Vec<String> = older.controls().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(
+            names[0], "speed",
+            "existing controls keep their place and value"
+        );
+        assert!(matches!(
+            older.get("speed").unwrap().kind,
+            ControlKind::Slider { value, .. } if value == 2.0
+        ));
+        assert!(older.get("loopblend").is_some() && older.get("stale").is_none());
     }
 
     #[test]

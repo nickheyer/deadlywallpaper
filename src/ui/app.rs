@@ -2,11 +2,12 @@ use crate::ipc::{AudioDevice, Event, InfoPatch, Request, Response, Status};
 use crate::model::settings::Theme;
 use crate::model::{Arrangement, Kind, Settings, Summary};
 use crate::paths::Paths;
+use crate::ui::order::{Key as SortKey, Layout as ViewLayout};
 use crate::ui::widgets::{self, Toasts};
 use crate::ui::{Backend, UiMsg, about, customize, library, screens, settings, theme};
 use eframe::egui::{self, Frame, Key, Margin, RichText};
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -65,6 +66,10 @@ impl Page {
 }
 
 const PAGE_KEY: &str = "page";
+const SORT_KEY: &str = "library.sort";
+const SORT_DESCENDING_KEY: &str = "library.descending";
+const GROUPED_KEY: &str = "library.grouped";
+const LAYOUT_KEY: &str = "library.layout";
 
 pub enum Dialog {
     Edit {
@@ -81,6 +86,43 @@ pub enum Dialog {
         id: String,
         title: String,
     },
+    DeleteMany {
+        ids: Vec<String>,
+        titles: Vec<String>,
+    },
+    /// Fields ticked `true` are written to every selected wallpaper, empty values clearing
+    /// them; unticked fields are left alone.
+    EditMany {
+        ids: Vec<String>,
+        author: (bool, String),
+        license: (bool, String),
+        contact: (bool, String),
+        desc: (bool, String),
+    },
+}
+
+/// A file name for each export that is new in `folder` and unique within the batch.
+fn export_names(folder: &Path, titles: &[String]) -> Vec<PathBuf> {
+    let mut used: HashSet<String> = HashSet::new();
+    titles
+        .iter()
+        .map(|title| {
+            let base = crate::paths::slug(title);
+            let mut n = 1;
+            loop {
+                let name = if n == 1 {
+                    format!("{base}.zip")
+                } else {
+                    format!("{base}-{n}.zip")
+                };
+                let path = folder.join(&name);
+                if !path.exists() && used.insert(name) {
+                    return path;
+                }
+                n += 1;
+            }
+        })
+        .collect()
 }
 
 pub struct App {
@@ -108,6 +150,7 @@ pub struct App {
     pick_files_requested: bool,
     connect_error: Option<String>,
     last_connect_attempt: Instant,
+    quitting: bool,
     paths: Paths,
 }
 
@@ -120,6 +163,28 @@ impl App {
             .and_then(|s| s.get_string(PAGE_KEY))
             .and_then(|n| Page::from_name(&n))
             .unwrap_or(Page::Library);
+        let mut library_state = library::State::default();
+        if let Some(storage) = cc.storage {
+            let order = &mut library_state.order;
+            if let Some(key) = storage
+                .get_string(SORT_KEY)
+                .and_then(|n| SortKey::from_name(&n))
+            {
+                order.set_key(key);
+            }
+            if let Some(descending) = storage.get_string(SORT_DESCENDING_KEY) {
+                order.descending = descending == "true";
+            }
+            if let Some(grouped) = storage.get_string(GROUPED_KEY) {
+                order.grouped = grouped == "true";
+            }
+            if let Some(layout) = storage
+                .get_string(LAYOUT_KEY)
+                .and_then(|n| ViewLayout::from_name(&n))
+            {
+                order.layout = layout;
+            }
+        }
         App {
             backend,
             status: None,
@@ -130,7 +195,7 @@ impl App {
             failed_settings: None,
             devices: Vec::new(),
             selected_display: None,
-            library_state: library::State::default(),
+            library_state,
             filter: None,
             page,
             about_open: false,
@@ -143,6 +208,7 @@ impl App {
             pick_files_requested: false,
             connect_error: None,
             last_connect_attempt: Instant::now(),
+            quitting: false,
             paths,
         }
     }
@@ -271,6 +337,10 @@ impl App {
                 UiMsg::Event(Event::Settings) => self.refresh_settings(ctx),
                 UiMsg::Event(Event::Error { message }) => self.toasts.error(message),
                 UiMsg::Event(Event::Info { message }) => self.toasts.info(message),
+                UiMsg::Event(Event::Quit) => {
+                    self.quitting = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
                 UiMsg::Done { label, result } => match *result {
                     Ok(Response::Wallpaper(w)) => {
                         self.toasts.success(format!("{label} {}", w.title))
@@ -282,15 +352,35 @@ impl App {
                     Ok(_) => self.toasts.success(label),
                     Err(e) => self.toasts.error(e.to_string()),
                 },
+                UiMsg::Batch {
+                    verb,
+                    noun,
+                    done,
+                    failed,
+                } => {
+                    if done > 0 {
+                        self.toasts
+                            .success(format!("{verb} {}", library::count(done, noun)));
+                    }
+                    for message in failed.iter().take(3) {
+                        self.toasts.error(message.clone());
+                    }
+                    if failed.len() > 3 {
+                        self.toasts
+                            .error(format!("{} more failed", failed.len() - 3));
+                    }
+                }
                 UiMsg::Disconnected => {
                     self.backend.disconnect();
                     self.status = None;
                     self.customize.clear();
-                    self.connect_error = Some("daemon stopped".into());
+                    if !self.quitting {
+                        self.connect_error = Some("daemon stopped".into());
+                    }
                 }
             }
         }
-        if !self.backend.connected() {
+        if !self.backend.connected() && !self.quitting {
             if !self.backend.connecting()
                 && self.last_connect_attempt.elapsed() > Duration::from_secs(2)
             {
@@ -496,6 +586,7 @@ impl App {
             selected_display: self.selected_display.as_deref(),
             connected: self.backend.connected(),
             hovering_files: ctx.input(|i| !i.raw.hovered_files.is_empty()),
+            shortcuts: self.dialog.is_none() && !self.about_open,
         };
         let actions = library::page(ui, &view, &mut self.library_state);
         self.library_actions(ctx, actions);
@@ -741,8 +832,171 @@ impl App {
                     next = Some(Dialog::Delete { id, title });
                 }
             }
+            Dialog::DeleteMany { ids, titles } => {
+                let modal = egui::Modal::new(egui::Id::new("delete-many"))
+                    .frame(frame)
+                    .show(ctx, |ui| {
+                        ui.set_width(460.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "Remove {}?",
+                                library::count(ids.len(), "wallpaper")
+                            ))
+                            .size(18.0)
+                            .strong()
+                            .color(p.text_strong),
+                        );
+                        ui.add_space(8.0);
+                        for title in titles.iter().take(6) {
+                            ui.label(RichText::new(title).color(p.text_weak));
+                        }
+                        if titles.len() > 6 {
+                            ui.label(
+                                RichText::new(format!("and {} more", titles.len() - 6))
+                                    .color(p.text_weak),
+                            );
+                        }
+                        ui.add_space(14.0);
+                        let mut done = false;
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.add(theme::danger("Remove")).clicked() {
+                                self.backend.batch(
+                                    ctx,
+                                    "Removed",
+                                    "wallpaper",
+                                    ids.iter()
+                                        .map(|id| Request::Delete {
+                                            wallpaper: id.clone(),
+                                        })
+                                        .collect(),
+                                );
+                                done = true;
+                            }
+                            if ui.add(theme::secondary_button("Cancel")).clicked() {
+                                done = true;
+                            }
+                        });
+                        done
+                    });
+                if !modal.inner && !modal.should_close() {
+                    next = Some(Dialog::DeleteMany { ids, titles });
+                }
+            }
+            Dialog::EditMany {
+                ids,
+                mut author,
+                mut license,
+                mut contact,
+                mut desc,
+            } => {
+                let modal = egui::Modal::new(egui::Id::new("edit-many"))
+                    .frame(frame)
+                    .show(ctx, |ui| {
+                        ui.set_width(560.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "Edit {}",
+                                library::count(ids.len(), "wallpaper")
+                            ))
+                            .size(18.0)
+                            .strong()
+                            .color(p.text_strong),
+                        );
+                        ui.add_space(4.0);
+                        theme::hint(
+                            ui,
+                            "Ticked fields are written to every selected wallpaper; leave a \
+                             ticked field empty to clear it.",
+                        );
+                        ui.add_space(10.0);
+                        egui::Grid::new("edit-many")
+                            .num_columns(3)
+                            .spacing([14.0, 10.0])
+                            .show(ui, |ui| {
+                                for (label, (set, value), multiline) in [
+                                    ("Author", &mut author, false),
+                                    ("License", &mut license, false),
+                                    ("Website", &mut contact, false),
+                                    ("Description", &mut desc, true),
+                                ] {
+                                    ui.checkbox(set, "");
+                                    ui.label(RichText::new(label).color(if *set {
+                                        p.text
+                                    } else {
+                                        p.text_weak
+                                    }));
+                                    ui.add_enabled_ui(*set, |ui| {
+                                        if multiline {
+                                            ui.add(
+                                                egui::TextEdit::multiline(value)
+                                                    .desired_rows(3)
+                                                    .desired_width(400.0),
+                                            );
+                                        } else {
+                                            ui.add(
+                                                egui::TextEdit::singleline(value)
+                                                    .desired_width(400.0),
+                                            );
+                                        }
+                                    });
+                                    ui.end_row();
+                                }
+                            });
+                        ui.add_space(14.0);
+                        let any = author.0 || license.0 || contact.0 || desc.0;
+                        let mut done = false;
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.add_enabled(any, theme::primary("Save")).clicked() {
+                                let field =
+                                    |(set, value): &(bool, String)| set.then(|| value.clone());
+                                let patch = InfoPatch {
+                                    title: None,
+                                    author: field(&author),
+                                    license: field(&license),
+                                    contact: field(&contact),
+                                    desc: field(&desc),
+                                    arguments: None,
+                                };
+                                self.backend.batch(
+                                    ctx,
+                                    "Updated",
+                                    "wallpaper",
+                                    ids.iter()
+                                        .map(|id| Request::EditInfo {
+                                            wallpaper: id.clone(),
+                                            patch: patch.clone(),
+                                        })
+                                        .collect(),
+                                );
+                                done = true;
+                            }
+                            if ui.add(theme::secondary_button("Cancel")).clicked() {
+                                done = true;
+                            }
+                        });
+                        done
+                    });
+                if !modal.inner && !modal.should_close() {
+                    next = Some(Dialog::EditMany {
+                        ids,
+                        author,
+                        license,
+                        contact,
+                        desc,
+                    });
+                }
+            }
         }
         self.dialog = next;
+    }
+
+    /// A wallpaper's title, or its id when it has already left the library.
+    fn title_of(&self, id: &str) -> String {
+        self.library
+            .iter()
+            .find(|w| w.id == id)
+            .map(|w| w.title.clone())
+            .unwrap_or_else(|| id.to_string())
     }
 
     fn library_actions(&mut self, ctx: &egui::Context, actions: Vec<library::Action>) {
@@ -777,12 +1031,7 @@ impl App {
                     }
                 }
                 library::Action::Export { id } => {
-                    let title = self
-                        .library
-                        .iter()
-                        .find(|w| w.id == id)
-                        .map(|w| w.title.clone())
-                        .unwrap_or(id.clone());
+                    let title = self.title_of(&id);
                     if let Some(file) = rfd::FileDialog::new()
                         .add_filter("Lively package", &["zip"])
                         .set_file_name(format!("{}.zip", crate::paths::slug(&title)))
@@ -805,12 +1054,7 @@ impl App {
                     Request::Thumbnail { wallpaper: id },
                 ),
                 library::Action::Delete { id } => {
-                    let title = self
-                        .library
-                        .iter()
-                        .find(|w| w.id == id)
-                        .map(|w| w.title.clone())
-                        .unwrap_or(id.clone());
+                    let title = self.title_of(&id);
                     self.dialog = Some(Dialog::Delete { id, title });
                 }
                 library::Action::Open { url } => crate::ui::open_url(&url),
@@ -823,6 +1067,42 @@ impl App {
                 library::Action::SelectDisplay(id) => self.selected_display = Some(id),
                 library::Action::Filter(kind) => self.filter = kind,
                 library::Action::GoToScreens => self.page = Page::Screens,
+                library::Action::BulkEdit { ids } => {
+                    self.dialog = Some(Dialog::EditMany {
+                        ids,
+                        author: (false, String::new()),
+                        license: (false, String::new()),
+                        contact: (false, String::new()),
+                        desc: (false, String::new()),
+                    });
+                }
+                library::Action::BulkThumbnail { ids } => self.backend.batch(
+                    ctx,
+                    "Updated",
+                    "thumbnail",
+                    ids.into_iter()
+                        .map(|id| Request::Thumbnail { wallpaper: id })
+                        .collect(),
+                ),
+                library::Action::BulkExport { ids } => {
+                    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                        let titles: Vec<String> = ids.iter().map(|id| self.title_of(id)).collect();
+                        let files = export_names(&folder, &titles);
+                        self.backend.batch(
+                            ctx,
+                            "Exported",
+                            "wallpaper",
+                            ids.into_iter()
+                                .zip(files)
+                                .map(|(wallpaper, file)| Request::Export { wallpaper, file })
+                                .collect(),
+                        );
+                    }
+                }
+                library::Action::BulkDelete { ids } => {
+                    let titles = ids.iter().map(|id| self.title_of(id)).collect();
+                    self.dialog = Some(Dialog::DeleteMany { ids, titles });
+                }
             }
         }
     }
@@ -856,6 +1136,11 @@ impl App {
 impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         storage.set_string(PAGE_KEY, self.page.name().to_owned());
+        let order = self.library_state.order;
+        storage.set_string(SORT_KEY, order.key.name().to_owned());
+        storage.set_string(SORT_DESCENDING_KEY, order.descending.to_string());
+        storage.set_string(GROUPED_KEY, order.grouped.to_string());
+        storage.set_string(LAYOUT_KEY, order.layout.name().to_owned());
     }
 
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -911,5 +1196,29 @@ impl eframe::App for App {
         self.dialogs(ctx);
         self.about_dialog(ctx);
         self.toasts.show(ctx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::export_names;
+
+    #[test]
+    fn export_names_avoid_existing_files_and_each_other() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("rain.zip"), "taken").unwrap();
+        let names = export_names(
+            dir.path(),
+            &["Rain".into(), "rain".into(), "Snow".into(), "Snow!".into()],
+        );
+        let files: Vec<String> = names
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            files,
+            ["rain-2.zip", "rain-3.zip", "snow.zip", "snow-2.zip"]
+        );
+        assert!(names.iter().all(|p| p.starts_with(dir.path())));
     }
 }

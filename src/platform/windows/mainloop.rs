@@ -1,6 +1,7 @@
 use crate::content::Content;
 use crate::error::{Error, Result};
-use crate::media::player::{MediaContent, MediaSurface, Player, PlayerOptions, Vo, event_bridge};
+use crate::media::looper::Loop;
+use crate::media::player::{MediaContent, MediaSurface, PlayerOptions, Vo, event_bridge};
 use crate::model::{Display, Kind};
 use crate::msg::Msg;
 use crate::paths::Paths;
@@ -257,7 +258,9 @@ impl RuntimeApi for Runtime {
                     return Err(Error::NotFound(format!("{} does not exist", wp.source)));
                 }
                 let (events, pending) = event_bridge(spec.id, self.tx.clone());
-                let player = Player::new(
+                // mpv draws into its own child window here, so passes cannot be composited:
+                // one core loops natively.
+                let looper = Loop::spawn(
                     PlayerOptions {
                         kind,
                         source: &wp.source,
@@ -269,14 +272,15 @@ impl RuntimeApi for Runtime {
                         vo: Vo::Wid(slot.hwnd.0 as isize as i64),
                         slot: slot.size,
                     },
+                    false,
                     events,
                 )?;
-                player.load()?;
+                looper.load()?;
                 struct Surface;
                 impl MediaSurface for Surface {}
                 Ok(Box::new(MediaContent::new(
                     Box::new(Surface),
-                    player,
+                    std::sync::Arc::new(looper),
                     pending,
                     spec.id,
                     self.tx.clone(),

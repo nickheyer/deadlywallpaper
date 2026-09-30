@@ -213,6 +213,7 @@ impl ShellApi for Shell {
             web_devtools: true,
             // A WebKitGTK widget is an axis-aligned rectangle; the page can be moved and zoomed but not turned.
             rotate_web: false,
+            loop_blend: true,
         }
     }
 }

@@ -188,8 +188,11 @@ impl Engine {
         true
     }
 
+    /// Tell every client the application is exiting, then take the wallpapers down.
     fn shutdown(&mut self) -> bool {
         log::info!("shutting down");
+        self.server
+            .broadcast_and_flush(Event::Quit, std::time::Duration::from_millis(500));
         self.active.clear();
         self.rt.shell().settle();
         self.audio = None;
@@ -268,7 +271,7 @@ impl Engine {
     /// media copies are trimmed to the controls the wallpaper's kind has.
     fn ensure_props(&self, wp: &Wallpaper, slot: &str) -> Result<Option<PathBuf>> {
         let builtin = (wp.properties == PropertySource::BuiltinMedia)
-            .then(|| crate::model::props::media_defaults(wp.kind()));
+            .then(|| crate::model::props::media_defaults(wp.kind(), self.capabilities.loop_blend));
         let template = match &wp.properties {
             PropertySource::None => return Ok(None),
             PropertySource::File(p) => ctx(std::fs::read_to_string(p), p.display())?,
@@ -285,7 +288,8 @@ impl Engine {
             crate::paths::write(&path, template)?;
         } else if let Some(allowed) = builtin {
             let mut existing = Properties::load(&path)?;
-            if existing.retain(|name| allowed.get(name).is_some()) {
+            let pruned = existing.retain(|name| allowed.get(name).is_some());
+            if existing.add_missing(&allowed) || pruned {
                 existing.save(&path)?;
             }
         }

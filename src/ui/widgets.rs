@@ -68,12 +68,19 @@ pub fn segmented<T: Copy + PartialEq>(
 ) -> bool {
     let p = theme::palette(ui);
     let mut changed = false;
+    // `horizontal` runs right to left inside a right-to-left parent; walk the options
+    // backwards there so they still read in array order.
+    let reversed = ui.layout().main_dir() == egui::Direction::RightToLeft;
     ui.push_id(id_salt, |ui| {
         ui.visuals_mut().selection.bg_fill = p.accent_soft;
         ui.visuals_mut().selection.stroke = Stroke::new(1.0, p.text_strong);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            for &(option, label) in options {
+            let mut ordered: Vec<&(T, &str)> = options.iter().collect();
+            if reversed {
+                ordered.reverse();
+            }
+            for &&(option, label) in &ordered {
                 if ui
                     .add(Button::new(label).selected(*value == option))
                     .clicked()

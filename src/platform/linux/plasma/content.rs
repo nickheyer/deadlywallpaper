@@ -41,6 +41,10 @@ pub fn spawn(
         ("Muted", Val::Bool(!spec.audio)),
         ("Volume", Val::Num(spec.volume.min(100) as f64 / 100.0)),
         ("Speed", Val::Num(1.0)),
+        (
+            "LoopBlend",
+            Val::Num(crate::media::looper::DEFAULT_BLEND_SECS),
+        ),
         ("Saturation", Val::Int(0)),
         ("Hue", Val::Int(0)),
         ("Brightness", Val::Int(0)),
@@ -397,6 +401,11 @@ impl Content for PlasmaContent {
             "speed" => {
                 if let Some(v) = value.as_f64() {
                     self.write(&[("Speed", Val::Num(v.clamp(0.05, 16.0)))]);
+                }
+            }
+            crate::media::looper::BLEND_CONTROL => {
+                if let Some(v) = value.as_f64() {
+                    self.write(&[("LoopBlend", Val::Num(v.max(0.0)))]);
                 }
             }
             "scaler" => {

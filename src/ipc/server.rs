@@ -5,15 +5,24 @@ use interprocess::local_socket::{Listener, ListenerOptions, SendHalf, Stream};
 use std::io::BufReader;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Answers a request; may be invoked later than the request arrived.
 pub type Reply = Box<dyn FnOnce(Response) + Send + 'static>;
 
 pub type Dispatch = Arc<dyn Fn(Request, Reply) + Send + Sync + 'static>;
 
+/// An event on its way to one subscriber; `done` is signalled once it is on the wire.
+struct Delivery {
+    event: Event,
+    done: Option<Sender<()>>,
+}
+
+type Subscribers = Arc<Mutex<Vec<Sender<Delivery>>>>;
+
 #[derive(Clone, Default)]
 pub struct Server {
-    subscribers: Arc<Mutex<Vec<Sender<Event>>>>,
+    subscribers: Subscribers,
 }
 
 impl Server {
@@ -42,7 +51,38 @@ impl Server {
 
     pub fn broadcast(&self, ev: Event) {
         if let Ok(mut subs) = self.subscribers.lock() {
-            subs.retain(|s| s.send(ev.clone()).is_ok());
+            subs.retain(|s| {
+                s.send(Delivery {
+                    event: ev.clone(),
+                    done: None,
+                })
+                .is_ok()
+            });
+        }
+    }
+
+    /// Deliver `ev` and wait until every subscriber has it on the wire, or `timeout` passes;
+    /// for the final event before the process exits.
+    pub fn broadcast_and_flush(&self, ev: Event, timeout: Duration) {
+        let mut acks = Vec::new();
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.retain(|s| {
+                let (done, ack) = channel();
+                let sent = s
+                    .send(Delivery {
+                        event: ev.clone(),
+                        done: Some(done),
+                    })
+                    .is_ok();
+                if sent {
+                    acks.push(ack);
+                }
+                sent
+            });
+        }
+        let deadline = Instant::now() + timeout;
+        for ack in acks {
+            let _ = ack.recv_timeout(deadline.saturating_duration_since(Instant::now()));
         }
     }
 }
@@ -79,7 +119,7 @@ fn bind() -> Result<Listener> {
     }
 }
 
-fn serve(stream: Stream, dispatch: Dispatch, subs: Arc<Mutex<Vec<Sender<Event>>>>) {
+fn serve(stream: Stream, dispatch: Dispatch, subs: Subscribers) {
     let spawned = std::thread::Builder::new()
         .name("ipc-conn".into())
         .spawn(move || {
@@ -96,15 +136,19 @@ fn serve(stream: Stream, dispatch: Dispatch, subs: Arc<Mutex<Vec<Sender<Event>>>
                     }
                 };
                 if let Request::Subscribe = req {
-                    let (etx, erx) = channel::<Event>();
+                    let (etx, erx) = channel::<Delivery>();
                     if let Ok(mut s) = subs.lock() {
                         s.push(etx);
                     }
                     if send(&tx, &Response::Ok).is_err() {
                         return;
                     }
-                    for ev in erx {
-                        if send(&tx, &ev).is_err() {
+                    for delivery in erx {
+                        let written = send(&tx, &delivery.event);
+                        if let Some(done) = delivery.done {
+                            let _ = done.send(());
+                        }
+                        if written.is_err() {
                             return;
                         }
                     }

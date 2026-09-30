@@ -3,11 +3,12 @@
 use crate::content::{Content, View};
 use crate::error::{Error, Result};
 use crate::geom::Size;
-use crate::media::glquad::{Framebuffer, Quad, render_view};
+use crate::media::glquad::{Framebuffer, Quad, render_frame};
+use crate::media::looper::{Frame, Loop};
 use crate::media::mpv::{
     Handle, RENDER_PARAM_WL_DISPLAY, RENDER_PARAM_X11_DISPLAY, RENDER_UPDATE_FRAME, RenderContext,
 };
-use crate::media::player::{MediaContent, MediaSurface, Player, PlayerOptions, Vo, event_bridge};
+use crate::media::player::{MediaContent, MediaSurface, PlayerOptions, Vo, event_bridge};
 use crate::platform::ContentSpec;
 use crate::platform::linux::canvas::Slot;
 use crate::platform::linux::gl;
@@ -30,7 +31,7 @@ pub fn spawn(
         return Err(Error::NotFound(format!("{} does not exist", wp.source)));
     }
     let (events, pending) = event_bridge(spec.id, tx.clone());
-    let player = Player::new(
+    let looper = Arc::new(Loop::spawn(
         PlayerOptions {
             kind: wp.kind(),
             source: &wp.source,
@@ -42,13 +43,14 @@ pub fn spawn(
             vo: Vo::Render,
             slot: slot.size,
         },
+        true,
         events,
-    )?;
-    let view = MediaView::new(player.handle().clone(), slot, display)?;
-    player.load()?;
+    )?);
+    let view = MediaView::new(looper.clone(), slot, display)?;
+    looper.load()?;
     Ok(Box::new(MediaContent::new(
         Box::new(view),
-        player,
+        looper,
         pending,
         spec.id,
         tx,
@@ -56,8 +58,12 @@ pub fn spawn(
 }
 
 struct Render {
-    handle: Arc<Handle>,
-    ctx: Option<RenderContext>,
+    looper: Arc<Loop>,
+    handles: Vec<Arc<Handle>>,
+    /// One per core, in the looper's order; empty until the GL context exists.
+    ctxs: Vec<RenderContext>,
+    /// What the last redraw showed, so captures repeat it rather than advancing the loop.
+    frame: Frame,
     capture: Option<gl::Capture>,
     /// Draws the frame through the view; absent when the program could not be built.
     quad: Option<Quad>,
@@ -87,19 +93,21 @@ fn pump(area: &gtk::GLArea) {
     };
     let render = unsafe { render.as_ref() }.clone();
     let r = render.borrow();
-    if let Some(ctx) = &r.ctx {
-        if area.is_realized() {
-            area.make_current();
-            if ctx.update() & RENDER_UPDATE_FRAME != 0 {
-                area.queue_render();
-            }
+    if !r.ctxs.is_empty() && area.is_realized() {
+        area.make_current();
+        let mut fresh = false;
+        for ctx in &r.ctxs {
+            fresh |= ctx.update() & RENDER_UPDATE_FRAME != 0;
+        }
+        if fresh {
+            area.queue_render();
         }
     }
 }
 
 impl MediaView {
     /// Create the view and its render context synchronously; fails when OpenGL is unavailable.
-    pub fn new(handle: Arc<Handle>, slot: &Slot, display: &gdk::Display) -> Result<MediaView> {
+    pub fn new(looper: Arc<Loop>, slot: &Slot, display: &gdk::Display) -> Result<MediaView> {
         let area = gtk::GLArea::new();
         area.set_has_alpha(false);
         area.set_has_depth_buffer(false);
@@ -110,9 +118,19 @@ impl MediaView {
         area.set_vexpand(true);
         slot.container.pack_start(&area, true, true, 0);
         let wayland = is_wayland(display);
+        let handles: Vec<Arc<Handle>> = looper
+            .players()
+            .iter()
+            .map(|p| p.handle().clone())
+            .collect();
         let render = Rc::new(RefCell::new(Render {
-            handle,
-            ctx: None,
+            looper,
+            handles,
+            ctxs: Vec::new(),
+            frame: Frame {
+                active: 0,
+                fade: None,
+            },
             capture: None,
             quad: None,
             view: View::whole(slot.size),
@@ -141,15 +159,20 @@ impl MediaView {
                 area.allocated_height() * scale,
             );
             let Render {
-                ctx,
+                looper,
+                ctxs,
+                frame,
                 capture,
                 quad,
                 view,
                 slot,
                 ..
             } = &mut *r;
-            if let (Some(ctx), Some(gl)) = (ctx.as_ref(), *capture) {
-                ctx.update();
+            if let (false, Some(gl)) = (ctxs.is_empty(), *capture) {
+                for ctx in ctxs.iter() {
+                    ctx.update();
+                }
+                *frame = looper.tick();
                 if w > 0 && h > 0 {
                     let screen = Framebuffer {
                         fbo: gl.current_fbo(),
@@ -157,7 +180,7 @@ impl MediaView {
                         h,
                         flip_y: true,
                     };
-                    render_view(ctx, quad, view, *slot, screen, scale as f64);
+                    render_frame(ctxs, *frame, quad, view, *slot, screen, scale as f64);
                 }
             }
             glib::Propagation::Stop
@@ -172,7 +195,7 @@ impl MediaView {
         area.show();
         area.realize();
         ensure_context(&area, &render);
-        if render.borrow().ctx.is_none() {
+        if render.borrow().ctxs.is_empty() {
             slot.container.remove(&area);
             return Err(Error::Media(
                 "OpenGL rendering is unavailable for this display".into(),
@@ -182,9 +205,9 @@ impl MediaView {
     }
 }
 
-/// Create the mpv render context on the area's GL context, once.
+/// Create one mpv render context per core on the area's GL context, once.
 fn ensure_context(area: &gtk::GLArea, render: &Rc<RefCell<Render>>) {
-    if !area.is_realized() || render.borrow().ctx.is_some() {
+    if !area.is_realized() || !render.borrow().ctxs.is_empty() {
         return;
     }
     area.make_current();
@@ -197,29 +220,37 @@ fn ensure_context(area: &gtk::GLArea, render: &Rc<RefCell<Render>>) {
         (RENDER_PARAM_X11_DISPLAY, r.x11),
         (RENDER_PARAM_WL_DISPLAY, r.wl),
     ];
-    match RenderContext::new(&r.handle, gl::get_proc_address, r.prefer, &extra) {
-        Ok(ctx) => {
-            let weak: Box<SendWeakRef<gtk::GLArea>> = Box::new(area.downgrade().into());
-            let ptr = Box::into_raw(weak);
-            ctx.set_update_callback(Some(on_update), ptr as *mut c_void);
-            r.callback_ctx = ptr;
-            r.capture = gl::Capture::load(gl::get_proc_address, r.prefer);
-            r.quad = Quad::load(gl::get_proc_address, r.prefer);
-            r.ctx = Some(ctx);
-            log::debug!(
-                "mpv render context ready ({:?})",
-                area.context().map(|c| c.version())
-            );
+    let mut ctxs = Vec::new();
+    for handle in &r.handles {
+        match RenderContext::new(handle, gl::get_proc_address, r.prefer, &extra) {
+            Ok(ctx) => ctxs.push(ctx),
+            Err(e) => {
+                log::error!("mpv render context: {e}");
+                return;
+            }
         }
-        Err(e) => log::error!("mpv render context: {e}"),
     }
+    let weak: Box<SendWeakRef<gtk::GLArea>> = Box::new(area.downgrade().into());
+    let ptr = Box::into_raw(weak);
+    for ctx in &ctxs {
+        ctx.set_update_callback(Some(on_update), ptr as *mut c_void);
+    }
+    r.callback_ctx = ptr;
+    r.capture = gl::Capture::load(gl::get_proc_address, r.prefer);
+    r.quad = Quad::load(gl::get_proc_address, r.prefer);
+    r.ctxs = ctxs;
+    log::debug!(
+        "{} mpv render context(s) ready ({:?})",
+        r.ctxs.len(),
+        area.context().map(|c| c.version())
+    );
 }
 
 fn release(r: &mut Render) {
     if let Some(mut quad) = r.quad.take() {
         quad.destroy();
     }
-    if let Some(ctx) = r.ctx.take() {
+    for ctx in r.ctxs.drain(..) {
         ctx.set_update_callback(None, std::ptr::null_mut());
         drop(ctx);
     }
@@ -236,14 +267,18 @@ impl MediaSurface for MediaView {
     fn capture(&self, path: &std::path::Path) -> Option<Result<()>> {
         let mut r = self.render.borrow_mut();
         let Render {
-            ctx,
+            ctxs,
+            frame,
             capture,
             quad,
             view,
             slot,
             ..
         } = &mut *r;
-        let (ctx, gl) = (ctx.as_ref()?, (*capture)?);
+        if ctxs.is_empty() {
+            return None;
+        }
+        let gl = (*capture)?;
         if !self.area.is_realized() {
             return Some(Err(Error::Media("wallpaper surface is not ready".into())));
         }
@@ -263,7 +298,7 @@ impl MediaSurface for MediaView {
                 h,
                 flip_y: false,
             };
-            render_view(ctx, quad, view, *slot, offscreen, scale as f64)
+            render_frame(ctxs, *frame, quad, view, *slot, offscreen, scale as f64)
         });
         let image = pixels.and_then(|p| crate::capture::from_gl_pixels(w as u32, h as u32, &p));
         Some(match image {

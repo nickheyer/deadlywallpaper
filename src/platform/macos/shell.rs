@@ -171,6 +171,7 @@ impl ShellApi for Shell {
             programs: false,
             web_devtools: true,
             rotate_web: true,
+            loop_blend: true,
         }
     }
 }

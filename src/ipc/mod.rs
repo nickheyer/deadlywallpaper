@@ -151,8 +151,14 @@ pub enum Event {
     Displays,
     Settings,
     Playback,
-    Error { message: String },
-    Info { message: String },
+    Error {
+        message: String,
+    },
+    Info {
+        message: String,
+    },
+    /// The daemon is exiting for good; clients close rather than reconnect.
+    Quit,
 }
 
 /// What the presenter on this desktop can do; the UI shows only settings that apply.
@@ -174,6 +180,9 @@ pub struct Capabilities {
     pub web_devtools: bool,
     /// A spanning web wallpaper can be turned by any angle.
     pub rotate_web: bool,
+    /// Video and GIF passes can cross-fade into the next one: the presenter composites two
+    /// decoders. Without it looping is seamless but cuts.
+    pub loop_blend: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -328,6 +337,7 @@ mod tests {
         }
         for e in [
             Event::Library,
+            Event::Quit,
             Event::Error {
                 message: "e".into(),
             },

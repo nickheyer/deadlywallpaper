@@ -84,6 +84,11 @@ impl Kind {
         matches!(self, Kind::Video | Kind::VideoStream | Kind::Gif)
     }
 
+    /// A finite local clip that starts over when it ends.
+    pub fn loops(self) -> bool {
+        matches!(self, Kind::Video | Kind::Gif)
+    }
+
     /// Played through the platform web view.
     pub fn is_web(self) -> bool {
         matches!(self, Kind::Web | Kind::WebAudio | Kind::Url)

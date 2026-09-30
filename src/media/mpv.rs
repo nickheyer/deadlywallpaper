@@ -102,6 +102,8 @@ type CommandFn = unsafe extern "C" fn(*mut mpv_handle, *mut *const c_char) -> c_
 type CommandAsyncFn = unsafe extern "C" fn(*mut mpv_handle, u64, *mut *const c_char) -> c_int;
 type SetPropertyFn =
     unsafe extern "C" fn(*mut mpv_handle, *const c_char, c_int, *mut c_void) -> c_int;
+type GetPropertyFn =
+    unsafe extern "C" fn(*mut mpv_handle, *const c_char, c_int, *mut c_void) -> c_int;
 type WaitEventFn = unsafe extern "C" fn(*mut mpv_handle, f64) -> *mut mpv_event;
 type RequestLogFn = unsafe extern "C" fn(*mut mpv_handle, *const c_char) -> c_int;
 type ErrorStringFn = unsafe extern "C" fn(c_int) -> *const c_char;
@@ -134,6 +136,7 @@ pub struct Lib {
     command: CommandFn,
     command_async: CommandAsyncFn,
     set_property: SetPropertyFn,
+    get_property: GetPropertyFn,
     wait_event: WaitEventFn,
     request_log_messages: RequestLogFn,
     error_string: ErrorStringFn,
@@ -239,6 +242,7 @@ impl Lib {
                 command: sym(&lib, b"mpv_command\0")?,
                 command_async: sym(&lib, b"mpv_command_async\0")?,
                 set_property: sym(&lib, b"mpv_set_property\0")?,
+                get_property: sym(&lib, b"mpv_get_property\0")?,
                 wait_event: sym(&lib, b"mpv_wait_event\0")?,
                 request_log_messages: sym(&lib, b"mpv_request_log_messages\0")?,
                 error_string: sym(&lib, b"mpv_error_string\0")?,
@@ -450,6 +454,39 @@ impl Handle {
         } else {
             Ok(())
         }
+    }
+
+    /// Read a numeric property; `None` while it is unavailable (no file loaded, or unknown
+    /// for this file).
+    pub fn get_f64(&self, name: &str) -> Option<f64> {
+        let n = cstr(name);
+        let mut v: f64 = 0.0;
+        // SAFETY: valid handle, NUL-terminated name, and a double-sized buffer for FORMAT_DOUBLE.
+        let r = unsafe {
+            (self.lib.get_property)(
+                self.ptr,
+                n.as_ptr(),
+                FORMAT_DOUBLE,
+                &mut v as *mut f64 as *mut c_void,
+            )
+        };
+        (r >= 0 && v.is_finite()).then_some(v)
+    }
+
+    /// Read a boolean property; `None` while it is unavailable.
+    pub fn get_flag(&self, name: &str) -> Option<bool> {
+        let n = cstr(name);
+        let mut v: c_int = 0;
+        // SAFETY: valid handle, NUL-terminated name, and an int-sized buffer for FORMAT_FLAG.
+        let r = unsafe {
+            (self.lib.get_property)(
+                self.ptr,
+                n.as_ptr(),
+                FORMAT_FLAG,
+                &mut v as *mut c_int as *mut c_void,
+            )
+        };
+        (r >= 0).then_some(v != 0)
     }
 
     /// Block up to `timeout` seconds for the next event.

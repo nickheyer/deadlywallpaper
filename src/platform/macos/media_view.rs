@@ -5,9 +5,10 @@ use crate::content::{Content, View};
 use crate::error::{Error, Result};
 use crate::geom::Size;
 use crate::media::glcap::Capture;
-use crate::media::glquad::{Framebuffer, Quad, render_view};
+use crate::media::glquad::{Framebuffer, Quad, render_frame};
+use crate::media::looper::{Frame, Loop};
 use crate::media::mpv::{GetProcAddressFn, Handle, RENDER_UPDATE_FRAME, RenderContext};
-use crate::media::player::{MediaContent, MediaSurface, Player, PlayerOptions, Vo, event_bridge};
+use crate::media::player::{MediaContent, MediaSurface, PlayerOptions, Vo, event_bridge};
 use crate::platform::ContentSpec;
 use crate::platform::macos::{MsgSender, Slot};
 use libloading::Library;
@@ -63,7 +64,7 @@ pub fn spawn(
         return Err(Error::NotFound(format!("{} does not exist", wp.source)));
     }
     let (events, pending) = event_bridge(spec.id, tx.clone());
-    let player = Player::new(
+    let looper = Arc::new(Loop::spawn(
         PlayerOptions {
             kind: wp.kind(),
             source: &wp.source,
@@ -75,13 +76,14 @@ pub fn spawn(
             vo: Vo::Render,
             slot: slot.size,
         },
+        true,
         events,
-    )?;
-    let view = MediaView::new(player.handle().clone(), slot, mtm)?;
-    player.load()?;
+    )?);
+    let view = MediaView::new(looper.clone(), slot, mtm)?;
+    looper.load()?;
     Ok(Box::new(MediaContent::new(
         Box::new(view),
-        player,
+        looper,
         pending,
         spec.id,
         tx,
@@ -118,7 +120,7 @@ struct Flags {
 }
 
 impl MediaView {
-    pub fn new(handle: Arc<Handle>, slot: &Slot, mtm: MainThreadMarker) -> Result<MediaView> {
+    pub fn new(looper: Arc<Loop>, slot: &Slot, mtm: MainThreadMarker) -> Result<MediaView> {
         let attrs: [u32; 9] = [
             NS_OPENGL_PFA_OPENGL_PROFILE,
             NS_OPENGL_PROFILE_VERSION_3_2_CORE,
@@ -177,7 +179,7 @@ impl MediaView {
             .spawn(move || {
                 render_thread(
                     gl,
-                    handle,
+                    looper,
                     rx,
                     ready_tx,
                     target,
@@ -221,7 +223,7 @@ unsafe extern "C" fn on_update(ctx: *mut c_void) {
 
 fn render_thread(
     gl: GlContext,
-    handle: Arc<Handle>,
+    looper: Arc<Loop>,
     rx: Receiver<Job>,
     ready: Sender<Result<()>>,
     target: Target,
@@ -230,12 +232,24 @@ fn render_thread(
 ) {
     let ctx = gl.0;
     ctx.makeCurrentContext();
-    let render = match RenderContext::new(&handle, GPA, std::ptr::null_mut(), &[]) {
-        Ok(r) => r,
-        Err(e) => {
-            let _ = ready.send(Err(e));
-            return;
+    let handles: Vec<Arc<Handle>> = looper
+        .players()
+        .iter()
+        .map(|p| p.handle().clone())
+        .collect();
+    let mut renders = Vec::new();
+    for handle in &handles {
+        match RenderContext::new(handle, GPA, std::ptr::null_mut(), &[]) {
+            Ok(r) => renders.push(r),
+            Err(e) => {
+                let _ = ready.send(Err(e));
+                return;
+            }
         }
+    }
+    let mut frame = Frame {
+        active: 0,
+        fade: None,
     };
     let capture = Capture::load(GPA, std::ptr::null_mut());
     let mut quad = Quad::load(GPA, std::ptr::null_mut());
@@ -248,20 +262,30 @@ fn render_thread(
         h,
         flip_y: true,
     };
-    render.set_update_callback(Some(on_update), wake_ptr);
+    for render in &renders {
+        render.set_update_callback(Some(on_update), wake_ptr);
+    }
     let _ = ready.send(Ok(()));
     while flags.alive.load(Ordering::Relaxed) {
         match rx.recv() {
             Ok(Job::Frame) => {
-                if render.update() & RENDER_UPDATE_FRAME != 0 {
-                    render_view(&render, &mut quad, &view, slot, screen, dpi);
+                let mut fresh = false;
+                for render in &renders {
+                    fresh |= render.update() & RENDER_UPDATE_FRAME != 0;
+                }
+                if fresh {
+                    frame = looper.tick();
+                    render_frame(&renders, frame, &mut quad, &view, slot, screen, dpi);
                     ctx.flushBuffer();
                 }
             }
             Ok(Job::View(v)) => {
                 view = v;
-                render.update();
-                render_view(&render, &mut quad, &view, slot, screen, dpi);
+                for render in &renders {
+                    render.update();
+                }
+                frame = looper.tick();
+                render_frame(&renders, frame, &mut quad, &view, slot, screen, dpi);
                 ctx.flushBuffer();
             }
             Ok(Job::Capture(path, reply)) => {
@@ -274,7 +298,7 @@ fn render_thread(
                                 h,
                                 flip_y: false,
                             };
-                            render_view(&render, &mut quad, &view, slot, offscreen, dpi)
+                            render_frame(&renders, frame, &mut quad, &view, slot, offscreen, dpi)
                         })
                         .and_then(|p| crate::capture::from_gl_pixels(w as u32, h as u32, &p))
                     {
@@ -293,10 +317,12 @@ fn render_thread(
     if let Some(mut q) = quad.take() {
         q.destroy();
     }
-    render.set_update_callback(None, std::ptr::null_mut());
-    // SAFETY: the callback is unset, so the boxed wake sender has no more readers.
+    for render in &renders {
+        render.set_update_callback(None, std::ptr::null_mut());
+    }
+    // SAFETY: every callback is unset, so the boxed wake sender has no more readers.
     drop(unsafe { Box::from_raw(wake_ptr as *mut Arc<Mutex<Option<SyncSender<Job>>>>) });
-    drop(render);
+    drop(renders);
     NSOpenGLContext::clearCurrentContext();
 }
 

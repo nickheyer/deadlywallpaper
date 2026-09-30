@@ -3,6 +3,7 @@ mod align;
 mod app;
 mod customize;
 mod library;
+mod order;
 mod screens;
 mod settings;
 mod theme;
@@ -23,6 +24,13 @@ pub enum UiMsg {
     Done {
         label: String,
         result: Box<Result<Response>>,
+    },
+    /// Outcome of a [`Backend::batch`]: how many requests succeeded and why the rest failed.
+    Batch {
+        verb: &'static str,
+        noun: &'static str,
+        done: usize,
+        failed: Vec<String>,
     },
     Disconnected,
 }
@@ -142,6 +150,40 @@ impl Backend {
             }
             other => other,
         }
+    }
+
+    /// Run several requests in order on one background connection; the tally comes back as
+    /// [`UiMsg::Batch`], worded as "`verb` N `noun`s".
+    pub fn batch(
+        &self,
+        ctx: &egui::Context,
+        verb: &'static str,
+        noun: &'static str,
+        reqs: Vec<Request>,
+    ) {
+        let (tx, ctx) = (self.tx.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let mut done = 0;
+            let mut failed = Vec::new();
+            match Client::connect() {
+                Ok(mut client) => {
+                    for req in &reqs {
+                        match client.call(req) {
+                            Ok(_) => done += 1,
+                            Err(e) => failed.push(e.to_string()),
+                        }
+                    }
+                }
+                Err(e) => failed.push(e.to_string()),
+            }
+            let _ = tx.send(UiMsg::Batch {
+                verb,
+                noun,
+                done,
+                failed,
+            });
+            ctx.request_repaint();
+        });
     }
 
     /// Long-running request on its own connection; the result comes back as [`UiMsg::Done`].
