@@ -103,6 +103,7 @@ impl Panel {
         let control_w = ui.available_width() - label_w - 12.0;
         let root = self.root.clone();
         let mut folder_cache = std::mem::take(&mut self.folders);
+        let hidden = hidden_controls(&self.controls);
         egui::Grid::new("props")
             .num_columns(2)
             .spacing([12.0, 8.0])
@@ -111,6 +112,9 @@ impl Panel {
             .show(ui, |ui| {
                 ui.spacing_mut().slider_width = control_w - 64.0;
                 for (i, (name, control)) in self.controls.iter_mut().enumerate() {
+                    if hidden.contains(name) {
+                        continue;
+                    }
                     let label = if control.text.is_empty() {
                         name.clone()
                     } else {
@@ -289,6 +293,68 @@ impl Panel {
                                     ));
                                 }
                             }
+                            ControlKind::File { value, filter } => {
+                                let shown = if value.is_empty() {
+                                    "(none)".to_string()
+                                } else {
+                                    crate::paths::file_name(std::path::Path::new(value.as_str()))
+                                };
+                                let mut chosen: Option<String> = None;
+                                if ui
+                                    .add(theme::secondary_button("Choose…"))
+                                    .on_hover_text(value.as_str())
+                                    .clicked()
+                                {
+                                    let mut dialog = rfd::FileDialog::new();
+                                    if !filter.is_empty() {
+                                        let exts: Vec<&str> =
+                                            filter.iter().map(String::as_str).collect();
+                                        dialog = dialog.add_filter("Supported files", &exts);
+                                    }
+                                    if let Some(f) = dialog.pick_file() {
+                                        chosen = Some(f.to_string_lossy().into_owned());
+                                    }
+                                }
+                                if !value.is_empty()
+                                    && widgets::icon_button(ui, "✖", "Clear").clicked()
+                                {
+                                    chosen = Some(String::new());
+                                }
+                                ui.add(
+                                    egui::Label::new(RichText::new(shown).color(p.text_weak))
+                                        .truncate(),
+                                );
+                                if let Some(c) = chosen {
+                                    *value = c.clone();
+                                    pending.push((name.clone(), Value::String(c)));
+                                }
+                            }
+                            ControlKind::Folder { value, .. } => {
+                                let shown = if value.is_empty() {
+                                    "(none)".to_string()
+                                } else {
+                                    value.clone()
+                                };
+                                let mut chosen: Option<String> = None;
+                                if ui.add(theme::secondary_button("Choose…")).clicked() {
+                                    if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                                        chosen = Some(d.to_string_lossy().into_owned());
+                                    }
+                                }
+                                if !value.is_empty()
+                                    && widgets::icon_button(ui, "✖", "Clear").clicked()
+                                {
+                                    chosen = Some(String::new());
+                                }
+                                ui.add(
+                                    egui::Label::new(RichText::new(shown).color(p.text_weak))
+                                        .truncate(),
+                                );
+                                if let Some(c) = chosen {
+                                    *value = c.clone();
+                                    pending.push((name.clone(), Value::String(c)));
+                                }
+                            }
                             ControlKind::Button { .. } | ControlKind::Label { .. } => {}
                         }
                     });
@@ -308,6 +374,25 @@ impl Panel {
             }
         }
     }
+}
+
+/// Names of controls whose Wallpaper Engine display condition does not hold right now.
+fn hidden_controls(controls: &[(String, Control)]) -> std::collections::HashSet<String> {
+    let lookup = |name: &str| -> Option<Value> {
+        controls
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, c)| crate::we::project::we_value(c, c.value().as_ref()).unwrap_or(Value::Null))
+    };
+    controls
+        .iter()
+        .filter(|(_, c)| {
+            c.condition
+                .as_deref()
+                .is_some_and(|cond| !crate::we::condition::holds(cond, &lookup))
+        })
+        .map(|(n, _)| n.clone())
+        .collect()
 }
 
 fn folder_files(

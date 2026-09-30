@@ -11,10 +11,12 @@ mod logger;
 mod media;
 mod model;
 mod msg;
+mod nowplaying;
 mod paths;
 mod platform;
 mod tray;
 mod ui;
+mod we;
 mod web;
 
 use clap::{Parser, Subcommand};
@@ -108,8 +110,49 @@ enum Command {
     Export { wallpaper: String, file: PathBuf },
     /// Remove a wallpaper from the library
     Delete { wallpaper: String },
+    /// Browse the Steam Workshop for Wallpaper Engine and fetch wallpapers from it
+    Workshop {
+        #[command(subcommand)]
+        command: WorkshopCommand,
+    },
     /// Stop the daemon
     Quit,
+}
+
+#[derive(Subcommand)]
+enum WorkshopCommand {
+    /// Search the Workshop; no words lists what is trending
+    Search {
+        words: Vec<String>,
+        /// trend, recent, updated, subscribers or rated
+        #[arg(short, long, default_value = "trend")]
+        sort: String,
+        /// scene, video, web or application
+        #[arg(short = 't', long = "type")]
+        kind: Option<String>,
+        /// Days the trend sort ranks over: 1, 7, 30, 90, 180 or 365
+        #[arg(long, default_value_t = 7)]
+        days: u32,
+        /// Include items rated Questionable or Mature
+        #[arg(long)]
+        mature: bool,
+        #[arg(short, long, default_value_t = 1)]
+        page: u32,
+    },
+    /// Show one item: an id or its Steam page URL
+    Show { item: String },
+    /// Fetch an item through Steam and add it to the library; --display applies it there
+    Get {
+        item: String,
+        #[arg(short, long)]
+        display: Option<String>,
+    },
+    /// Add every item Steam has downloaded and refresh the ones Steam updated
+    Sync,
+    /// Where Steam and Wallpaper Engine are, and every downloaded item
+    Status,
+    /// Stop waiting for an item's download
+    Forget { item: String },
 }
 
 fn main() {
@@ -229,11 +272,108 @@ fn client_command(cmd: Command) -> Result<()> {
             file: std::path::absolute(file)?,
         },
         Command::Delete { wallpaper } => Request::Delete { wallpaper },
+        Command::Workshop { command } => return workshop_command(command),
         Command::Quit => Request::Quit,
         Command::Daemon | Command::Ui => unreachable!("handled by run"),
     };
     print_response(client::call(&req)?);
     Ok(())
+}
+
+fn workshop_item_ref(item: &str) -> Result<u64> {
+    we::workshop::parse_ref(item)
+        .ok_or_else(|| Error::Invalid(format!("'{item}' is not a workshop item id or URL")))
+}
+
+fn workshop_command(cmd: WorkshopCommand) -> Result<()> {
+    use we::workshop::{Client, Query, Sort};
+    let req = match cmd {
+        WorkshopCommand::Search {
+            words,
+            sort,
+            kind,
+            days,
+            mature,
+            page,
+        } => {
+            let query = Query {
+                text: words.join(" "),
+                sort: Sort::parse(&sort)
+                    .ok_or_else(|| Error::Invalid(format!("'{sort}' is not a sort order")))?,
+                days,
+                kind: kind
+                    .map(|k| {
+                        we::project::ProjectType::parse(&k)
+                            .ok_or_else(|| Error::Invalid(format!("'{k}' is not a wallpaper type")))
+                    })
+                    .transpose()?,
+                tags: Vec::new(),
+                mature,
+                page,
+            };
+            let client = Client::new(&paths::Paths::discover()?.cache_dir);
+            let found = client.browse(&query)?;
+            println!(
+                "page {} of {} ({} items)",
+                found.page, found.pages, found.total
+            );
+            for item in &found.items {
+                print_workshop_item(item, false);
+            }
+            return Ok(());
+        }
+        WorkshopCommand::Show { item } => {
+            let id = workshop_item_ref(&item)?;
+            let client = Client::new(&paths::Paths::discover()?.cache_dir);
+            print_workshop_item(&client.item(id)?, true);
+            return Ok(());
+        }
+        WorkshopCommand::Get { item, display } => Request::WorkshopGet {
+            id: workshop_item_ref(&item)?,
+            title: None,
+            author: None,
+            display,
+        },
+        WorkshopCommand::Sync => Request::WorkshopSync,
+        WorkshopCommand::Status => Request::WorkshopStatus,
+        WorkshopCommand::Forget { item } => Request::WorkshopForget {
+            id: workshop_item_ref(&item)?,
+        },
+    };
+    print_response(client::call(&req)?);
+    Ok(())
+}
+
+fn print_workshop_item(item: &we::workshop::Item, full: bool) {
+    let kind = item.kind().map(|k| k.name()).unwrap_or("?");
+    let rating = item.rating().map(|r| r.tag()).unwrap_or("-");
+    println!(
+        "{}\t{}\t{}\t{} subs\t{}\t{}",
+        item.id,
+        kind,
+        rating,
+        item.subscriptions,
+        item.title,
+        item.author.as_deref().unwrap_or("")
+    );
+    if full {
+        println!("url: {}", item.url());
+        if let Some(p) = &item.preview_url {
+            println!("preview: {p}");
+        }
+        println!("tags: {}", item.tags.join(", "));
+        println!(
+            "size: {:.1} MB  updated: {}  favorites: {}  views: {}  stars: {}",
+            item.size as f64 / 1_048_576.0,
+            item.updated,
+            item.favorites,
+            item.views,
+            item.stars.map(|s| s.to_string()).unwrap_or_else(|| "-".into())
+        );
+        if !item.description.trim().is_empty() {
+            println!("\n{}", item.description.trim());
+        }
+    }
 }
 
 /// Existing filesystem paths are sent absolute so the daemon resolves them correctly.
@@ -310,6 +450,41 @@ fn print_response(resp: Response) {
             }
         }
         Response::Wallpaper(w) => println!("{}\t{}\t{}\t{}", w.id, w.kind, w.title, w.source),
+        Response::Workshop(ws) => {
+            let shown = |p: &Option<PathBuf>| {
+                p.as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "not found".into())
+            };
+            println!("steam: {}", shown(&ws.steam.steam_dir));
+            println!("wallpaper engine: {}", shown(&ws.steam.install_dir));
+            println!(
+                "assets: {}{}",
+                shown(&ws.steam.assets_dir),
+                if ws.steam.assets_overridden {
+                    " (from settings)"
+                } else {
+                    ""
+                }
+            );
+            for id in &ws.pending {
+                println!("{id}\tpending\t\t");
+            }
+            for item in &ws.items {
+                let state = match (&item.wallpaper, item.stale) {
+                    (Some(_), true) => "update available",
+                    (Some(_), false) => "in library",
+                    (None, _) => "downloaded",
+                };
+                println!(
+                    "{}\t{}\t{}\t{}",
+                    item.id,
+                    state,
+                    item.title,
+                    item.wallpaper.as_deref().unwrap_or("")
+                );
+            }
+        }
         other @ (Response::Settings(_)
         | Response::Layout(_)
         | Response::Controls { .. }

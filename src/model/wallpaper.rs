@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 use crate::model::info::{FILE_NAME, PROPERTIES_FILE_NAME};
 use crate::model::{Info, Kind};
+use crate::we::project::Project;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,6 +14,8 @@ pub enum PropertySource {
     File(PathBuf),
     /// Media wallpapers get the built-in libmpv controls.
     BuiltinMedia,
+    /// A Wallpaper Engine wallpaper's `general.properties`, read from this `project.json`.
+    WallpaperEngine(PathBuf),
 }
 
 /// A library entry: a directory holding `LivelyInfo.json`.
@@ -25,6 +28,35 @@ pub struct Wallpaper {
     pub source: String,
     pub thumbnail: Option<PathBuf>,
     pub properties: PropertySource,
+    /// The Wallpaper Engine project this entry was made from, when it is one.
+    pub we: Option<Project>,
+}
+
+/// Where a Wallpaper Engine entry came from on the Steam Workshop.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkshopOrigin {
+    pub id: u64,
+    /// Steam's `timeupdated` of the download this entry was made from.
+    pub updated: Option<u64>,
+    /// The folder Steam downloaded the item to.
+    pub source: Option<PathBuf>,
+}
+
+impl WorkshopOrigin {
+    pub const FILE_NAME: &str = "workshop.json";
+
+    pub fn load(dir: &Path) -> Option<WorkshopOrigin> {
+        let text = std::fs::read_to_string(dir.join(WorkshopOrigin::FILE_NAME)).ok()?;
+        serde_json::from_str(&text).ok().filter(|o: &WorkshopOrigin| o.id > 0)
+    }
+
+    pub fn save(&self, dir: &Path) -> Result<()> {
+        crate::paths::write(
+            &dir.join(WorkshopOrigin::FILE_NAME),
+            serde_json::to_string_pretty(self)?,
+        )
+    }
 }
 
 /// Wire form of a wallpaper for the UI and CLI.
@@ -62,6 +94,12 @@ pub struct Summary {
     /// and for content copied into the library.
     #[serde(default)]
     pub folder: Option<PathBuf>,
+    /// Steam Workshop item this wallpaper was made from.
+    #[serde(default)]
+    pub workshop: Option<u64>,
+    /// Wallpaper Engine tags, for Wallpaper Engine wallpapers.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Seconds since the Unix epoch.
@@ -132,9 +170,24 @@ impl Wallpaper {
             .filter(|t| !t.is_empty())
             .map(|t| dir.join(Path::new(t).file_name().unwrap_or_default()))
             .filter(|p| p.is_file());
+        let project_path = dir.join(crate::we::project::FILE_NAME);
+        let we = project_path
+            .is_file()
+            .then(|| Project::load(&project_path))
+            .and_then(|r| match r {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    log::warn!("{e}");
+                    None
+                }
+            });
         let properties = if kind.is_media() {
             PropertySource::BuiltinMedia
         } else if kind == Kind::Url {
+            PropertySource::None
+        } else if we.as_ref().is_some_and(|p| !p.properties.is_empty()) {
+            PropertySource::WallpaperEngine(project_path.clone())
+        } else if we.is_some() {
             PropertySource::None
         } else {
             let root = if info.is_absolute_path {
@@ -162,7 +215,14 @@ impl Wallpaper {
             source,
             thumbnail,
             properties,
+            we,
         }
+    }
+
+    /// Whether the wallpaper wants the audio spectrum: web visualizers and Wallpaper Engine
+    /// wallpapers that declare audio processing.
+    pub fn wants_audio(&self) -> bool {
+        self.kind() == Kind::WebAudio || self.we.as_ref().is_some_and(|p| p.audio)
     }
 
     pub fn kind(&self) -> Kind {
@@ -265,6 +325,8 @@ impl Wallpaper {
             added: self.added(),
             modified,
             folder: self.source_folder(),
+            workshop: WorkshopOrigin::load(&self.dir).map(|o| o.id),
+            tags: self.we.as_ref().map(|p| p.tags.clone()).unwrap_or_default(),
         }
     }
 }

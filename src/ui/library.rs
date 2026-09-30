@@ -146,9 +146,10 @@ const CHECK: f32 = 18.0;
 /// Width the sort, group and layout controls need on the filter row.
 const CONTROLS_W: f32 = 400.0;
 
-const KIND_FILTERS: [(Option<Kind>, &str); 7] = [
+const KIND_FILTERS: [(Option<Kind>, &str); 8] = [
     (None, "All"),
     (Some(Kind::Video), "Videos"),
+    (Some(Kind::Scene), "Scenes"),
     (Some(Kind::Web), "Web"),
     (Some(Kind::Picture), "Pictures"),
     (Some(Kind::Gif), "GIFs"),
@@ -159,9 +160,14 @@ const KIND_FILTERS: [(Option<Kind>, &str); 7] = [
 fn kind_matches(w: &Summary, filter: Option<Kind>) -> bool {
     match filter {
         None => true,
-        Some(Kind::Web) => w.kind.is_web(),
+        Some(Kind::Web) => w.kind.is_web() && w.kind != Kind::Scene,
         Some(k) => w.kind == k,
     }
+}
+
+/// The Steam page of a wallpaper made from a workshop item.
+fn workshop_url(w: &Summary) -> Option<String> {
+    w.workshop.map(crate::we::project::workshop_url)
 }
 
 fn search_matches(w: &Summary, needle: &str) -> bool {
@@ -979,6 +985,16 @@ fn card(
             pick.sel.toggle(&w.id);
         }
     }
+    if w.workshop.is_some() && !tile.hovered {
+        widgets::badge(
+            ui.painter(),
+            image_rect.right_bottom() + egui::vec2(-8.0, -8.0),
+            Align2::RIGHT_BOTTOM,
+            "🏪",
+            Color32::from_black_alpha(150),
+            Color32::WHITE,
+        );
+    }
 
     if tile.hovered {
         let bar_h = 42.0;
@@ -1097,8 +1113,9 @@ fn list_row(
     };
     let folder_w = remaining - title_w - 16.0;
 
-    let badge_w = if tile.instances.is_empty() { 0.0 } else { 64.0 };
-    let title = widgets::elided(
+    let badge_w = if tile.instances.is_empty() { 0.0 } else { 64.0 }
+        + if w.workshop.is_some() { 24.0 } else { 0.0 };
+    let mut title = widgets::elided(
         ui.painter(),
         egui::pos2(text_left, rect.top() + 10.0),
         Align2::LEFT_TOP,
@@ -1107,6 +1124,15 @@ fn list_row(
         p.text_strong,
         title_w - badge_w,
     );
+    if w.workshop.is_some() {
+        title = ui.painter().text(
+            egui::pos2(title.right() + 6.0, title.center().y),
+            Align2::LEFT_CENTER,
+            "🏪",
+            FontId::proportional(12.0),
+            p.text_weak,
+        );
+    }
     if let Some(label) = playing_label(v, &tile.instances) {
         widgets::badge(
             ui.painter(),
@@ -1312,7 +1338,11 @@ fn menu_items(
             },
         });
     }
-    if let Some(url) = w.contact.as_deref().filter(|u| u.starts_with("http")) {
+    if let Some(url) = workshop_url(w) {
+        if ui.button("Open on Steam Workshop").clicked() {
+            actions.push(Action::Open { url });
+        }
+    } else if let Some(url) = w.contact.as_deref().filter(|u| u.starts_with("http")) {
         if ui.button("Website").clicked() {
             actions.push(Action::Open {
                 url: url.to_string(),
@@ -1360,6 +1390,13 @@ fn hover_text(w: &Summary, selecting: bool) -> String {
     if let Some(d) = &w.desc {
         s.push_str("\n\n");
         s.push_str(d.trim());
+    }
+    if let Some(id) = w.workshop {
+        s.push_str(&format!("\n\n🏪 Steam Workshop item {id}"));
+    }
+    if !w.tags.is_empty() {
+        s.push_str("\nTags: ");
+        s.push_str(&w.tags.join(", "));
     }
     s.push_str("\n\n");
     s.push_str(&order::detail(w, Key::Format).unwrap_or_default());

@@ -338,7 +338,9 @@ impl Player {
             }
             ControlKind::Textbox { .. }
             | ControlKind::Color { .. }
-            | ControlKind::FolderDropdown { .. } => {
+            | ControlKind::FolderDropdown { .. }
+            | ControlKind::File { .. }
+            | ControlKind::Folder { .. } => {
                 if let Some(s) = value.as_str() {
                     report(self.handle.set_str(name, s));
                 }
@@ -527,7 +529,9 @@ impl Content for MediaContent {
 
     fn set_input_enabled(&mut self, _enabled: bool) {}
 
-    fn audio_data(&mut self, _bins: &[f32]) {}
+    fn audio_data(&mut self, _spectrum: &crate::audio::Spectrum) {}
+
+    fn media(&mut self, _event: &crate::nowplaying::MediaEvent) {}
 
     fn set_view(&mut self, view: &View) -> Result<()> {
         match self.view.set_view(view, self.looper.slot()) {

@@ -1,6 +1,6 @@
 //! PulseAudio / PipeWire capture of the default sink monitor (or a chosen source).
 
-use crate::audio::{Analyzer, Sink, WINDOW, downmix};
+use crate::audio::{Analyzer, Sink, WINDOW};
 use crate::error::{Error, Result};
 use crate::ipc::AudioDevice;
 use libpulse_binding::context::{Context, FlagSet as ContextFlags, State};
@@ -42,7 +42,7 @@ pub fn start(device: Option<String>, stop: Arc<AtomicBool>, mut sink: Sink) -> R
     std::thread::Builder::new()
         .name("audio-capture".into())
         .spawn(move || {
-            let mut analyzer = Analyzer::new();
+            let mut analyzer = Analyzer::new(2);
             let mut bytes = vec![0u8; WINDOW * 2 * 4];
             while !stop.load(Ordering::Relaxed) {
                 if let Err(e) = simple.read(&mut bytes) {
@@ -53,8 +53,8 @@ pub fn start(device: Option<String>, stop: Arc<AtomicBool>, mut sink: Sink) -> R
                     .chunks_exact(4)
                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
-                if let Some(bins) = analyzer.push(&downmix(&samples, 2)) {
-                    sink(bins);
+                if let Some(spectrum) = analyzer.push(&samples) {
+                    sink(spectrum);
                 }
             }
         })

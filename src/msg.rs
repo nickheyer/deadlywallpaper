@@ -36,8 +36,10 @@ pub enum Msg {
     WallpaperDismissed {
         display: String,
     },
-    /// Audio spectrum bins for visualizer wallpapers.
-    Audio(Vec<f32>),
+    /// Audio spectrum for visualizer wallpapers.
+    Audio(crate::audio::Spectrum),
+    /// The system media session changed, for wallpapers with media listeners.
+    Media(crate::nowplaying::MediaEvent),
     /// Result of background work, applied on the engine thread.
     Job(Box<dyn FnOnce(&mut Engine) + Send>),
     Quit,

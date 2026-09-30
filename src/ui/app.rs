@@ -4,7 +4,7 @@ use crate::model::{Arrangement, Kind, Settings, Summary};
 use crate::paths::Paths;
 use crate::ui::order::{Key as SortKey, Layout as ViewLayout};
 use crate::ui::widgets::{self, Toasts};
-use crate::ui::{Backend, UiMsg, about, customize, library, screens, settings, theme};
+use crate::ui::{Backend, UiMsg, about, customize, library, screens, settings, theme, workshop};
 use eframe::egui::{self, Frame, Key, Margin, RichText};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -13,16 +13,18 @@ use std::time::{Duration, Instant, SystemTime};
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Page {
     Library,
+    Workshop,
     Screens,
     Settings,
 }
 
 impl Page {
-    const ALL: [Page; 3] = [Page::Library, Page::Screens, Page::Settings];
+    const ALL: [Page; 4] = [Page::Library, Page::Workshop, Page::Screens, Page::Settings];
 
     fn label(self) -> &'static str {
         match self {
             Page::Library => "Library",
+            Page::Workshop => "Workshop",
             Page::Screens => "Screens",
             Page::Settings => "Settings",
         }
@@ -31,6 +33,7 @@ impl Page {
     fn glyph(self) -> &'static str {
         match self {
             Page::Library => "🖼",
+            Page::Workshop => "🏪",
             Page::Screens => "🖥",
             Page::Settings => "⚙",
         }
@@ -39,14 +42,16 @@ impl Page {
     fn key(self) -> Key {
         match self {
             Page::Library => Key::Num1,
-            Page::Screens => Key::Num2,
-            Page::Settings => Key::Num3,
+            Page::Workshop => Key::Num2,
+            Page::Screens => Key::Num3,
+            Page::Settings => Key::Num4,
         }
     }
 
     fn name(self) -> &'static str {
         match self {
             Page::Library => "library",
+            Page::Workshop => "workshop",
             Page::Screens => "screens",
             Page::Settings => "settings",
         }
@@ -59,8 +64,9 @@ impl Page {
     fn shortcut(self) -> &'static str {
         match self {
             Page::Library => "Ctrl+1",
-            Page::Screens => "Ctrl+2",
-            Page::Settings => "Ctrl+3",
+            Page::Workshop => "Ctrl+2",
+            Page::Screens => "Ctrl+3",
+            Page::Settings => "Ctrl+4",
         }
     }
 }
@@ -143,6 +149,7 @@ pub struct App {
     about_open: bool,
     customize: customize::Panel,
     settings_state: settings::State,
+    workshop: workshop::State,
     dialog: Option<Dialog>,
     toasts: Toasts,
     volume: u8,
@@ -201,6 +208,7 @@ impl App {
             about_open: false,
             customize: customize::Panel::default(),
             settings_state: settings::State::default(),
+            workshop: workshop::State::new(&paths.cache_dir),
             dialog: None,
             toasts: Toasts::default(),
             volume: 75,
@@ -217,6 +225,11 @@ impl App {
         self.refresh_status();
         self.refresh_library(ctx);
         self.refresh_settings(ctx);
+        self.refresh_workshop(ctx);
+    }
+
+    fn refresh_workshop(&mut self, ctx: &egui::Context) {
+        self.workshop.refresh_status(&self.backend, ctx);
     }
 
     fn refresh_status(&mut self) {
@@ -335,16 +348,19 @@ impl App {
                     self.customize.invalidate_if_gone(self.status.as_ref());
                 }
                 UiMsg::Event(Event::Settings) => self.refresh_settings(ctx),
+                UiMsg::Event(Event::Workshop) => self.refresh_workshop(ctx),
                 UiMsg::Event(Event::Error { message }) => self.toasts.error(message),
                 UiMsg::Event(Event::Info { message }) => self.toasts.info(message),
                 UiMsg::Event(Event::Quit) => {
                     self.quitting = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
+                UiMsg::Workshop(msg) => self.workshop.receive(msg),
                 UiMsg::Done { label, result } => match *result {
                     Ok(Response::Wallpaper(w)) => {
                         self.toasts.success(format!("{label} {}", w.title))
                     }
+                    Ok(Response::Text(text)) => self.toasts.info(text),
                     Ok(Response::Wallpapers(ws)) => self.toasts.success(match ws.as_slice() {
                         [w] => format!("{label} {}", w.title),
                         ws => format!("{label} {} wallpapers", ws.len()),
@@ -479,7 +495,7 @@ impl App {
         ui.spacing_mut().item_spacing.y = 8.0;
         self.volume_dragging = false;
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-            if widgets::nav_item(ui, false, "ℹ", "About", "Ctrl+4").clicked() {
+            if widgets::nav_item(ui, false, "ℹ", "About", "Ctrl+5").clicked() {
                 self.about_open = true;
             }
             ui.add_space(8.0);
@@ -592,6 +608,46 @@ impl App {
         self.library_actions(ctx, actions);
     }
 
+    fn workshop_page(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let view = workshop::View {
+            connected: self.backend.connected(),
+        };
+        let actions = workshop::page(ui, &view, &mut self.workshop, &self.backend);
+        for action in actions {
+            match action {
+                workshop::Action::Get { id, title, author } => {
+                    let label = match &title {
+                        Some(t) => format!("Requested {t}"),
+                        None => format!("Requested item {id}"),
+                    };
+                    self.backend.background(
+                        ctx,
+                        label,
+                        Request::WorkshopGet {
+                            id,
+                            title,
+                            author,
+                            display: None,
+                        },
+                    );
+                }
+                workshop::Action::Forget { id } => {
+                    self.send(Request::WorkshopForget { id });
+                }
+                workshop::Action::Sync => {
+                    self.backend
+                        .background(ctx, "Synced", Request::WorkshopSync);
+                }
+                workshop::Action::Apply { wallpaper } => self.apply(&wallpaper, None),
+                workshop::Action::Open { url } => crate::ui::open_url(&url),
+                workshop::Action::GoToSettings => {
+                    self.settings_state.show_wallpaper_engine();
+                    self.page = Page::Settings;
+                }
+            }
+        }
+    }
+
     fn screens_page(&mut self, ui: &mut egui::Ui) {
         let Some(status) = self.status.clone() else {
             theme::page_header(ui, "Screens", None, |_| {});
@@ -672,6 +728,7 @@ impl App {
                     devices: &self.devices,
                     displays: &displays,
                     capabilities: &capabilities,
+                    steam: self.workshop.status.as_ref().map(|s| &s.steam),
                 };
                 settings::ui(ui, &mut draft, &mut self.settings_state, &cx)
             })
@@ -1112,7 +1169,7 @@ impl App {
             return;
         }
         ctx.input_mut(|i| {
-            if i.consume_key(egui::Modifiers::COMMAND, Key::Num4) {
+            if i.consume_key(egui::Modifiers::COMMAND, Key::Num5) {
                 self.about_open = true;
                 return;
             }
@@ -1189,6 +1246,7 @@ impl eframe::App for App {
                 self.connection_banner(ui);
                 match self.page {
                     Page::Library => self.library_page(ctx, ui),
+                    Page::Workshop => self.workshop_page(ctx, ui),
                     Page::Screens => self.screens_page(ui),
                     Page::Settings => self.settings_page(ctx, ui),
                 }

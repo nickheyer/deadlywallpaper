@@ -113,6 +113,19 @@ mod tests {
     }
 
     #[test]
+    fn scenes_are_written_by_name() {
+        let info = Info {
+            kind: Kind::Scene,
+            file_name: "scene/scene.json".into(),
+            ..Info::default()
+        };
+        let text = serde_json::to_string(&info).unwrap();
+        assert!(text.contains("\"Type\":\"scene\""), "{text}");
+        let back: Info = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.kind, Kind::Scene);
+    }
+
+    #[test]
     fn tolerates_missing_and_string_types() {
         let info: Info =
             serde_json::from_str(r#"{"Title":"x","Type":"godot","FileName":"g.exe"}"#).unwrap();

@@ -286,6 +286,7 @@ fn kind_rank(kind: Kind) -> i64 {
         Kind::WebAudio => 5,
         Kind::Url => 6,
         Kind::Program => 7,
+        Kind::Scene => 8,
     }
 }
 
@@ -436,6 +437,8 @@ mod tests {
             added: None,
             modified: None,
             folder: Some(PathBuf::from("/media")),
+            workshop: None,
+            tags: Vec::new(),
         }
     }
 

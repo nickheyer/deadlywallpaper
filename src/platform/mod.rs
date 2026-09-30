@@ -65,6 +65,9 @@ pub struct ContentSpec<'a> {
     pub audio: bool,
     pub volume: u8,
     pub settings: &'a Settings,
+    /// Wallpaper Engine's `assets` folder, which scene wallpapers load shaders, effects and
+    /// stock textures from; `None` when it was not found.
+    pub assets: Option<&'a std::path::Path>,
 }
 
 /// Main-thread runtime: native windowing state used by the engine.

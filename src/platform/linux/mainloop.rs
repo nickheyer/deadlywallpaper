@@ -137,7 +137,7 @@ impl RuntimeApi for Runtime {
             (Shell::Canvas(shell), Slot::Canvas(slot)) => match kind {
                 k if k.is_media() => media_view::spawn(spec, slot, self.tx.clone(), &self.display),
                 k if k.is_web() => {
-                    let builder = crate::web::builder(spec, self.tx.clone())?;
+                    let (builder, web_page) = crate::web::builder(spec, self.tx.clone())?;
                     // The page keeps the image's size and moves inside this layout, which
                     // clips it to the display.
                     let inner =
@@ -172,7 +172,7 @@ impl RuntimeApi for Runtime {
                         Ok(())
                     };
                     Ok(Box::new(
-                        WebContent::new(webview, kind, spec.id, self.tx.clone(), slot.size)
+                        WebContent::new(webview, web_page, spec.id, self.tx.clone(), slot.size)
                             .with_view_hook(Box::new(hook)),
                     ))
                 }

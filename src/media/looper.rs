@@ -312,6 +312,8 @@ mod tests {
         let blend = Control {
             text: "Loop blend".into(),
             help: None,
+            condition: None,
+            we: None,
             kind: ControlKind::Slider {
                 value: 0.5,
                 min: 0.0,
@@ -373,6 +375,8 @@ mod tests {
         let blend = Control {
             text: "Loop blend".into(),
             help: None,
+            condition: None,
+            we: None,
             kind: ControlKind::Slider {
                 value: 0.5,
                 min: 0.0,

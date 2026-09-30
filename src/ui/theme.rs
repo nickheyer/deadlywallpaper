@@ -401,6 +401,7 @@ pub fn kind_glyph(kind: Kind) -> &'static str {
         Kind::Web | Kind::Url => "🌐",
         Kind::WebAudio => "🎵",
         Kind::Program => "⚙",
+        Kind::Scene => "✨",
     }
 }
 
@@ -415,6 +416,7 @@ pub fn kind_color(kind: Kind, dark: bool) -> Color32 {
             Kind::Web | Kind::Url => Color32::from_rgb(46, 94, 116),
             Kind::WebAudio => Color32::from_rgb(108, 56, 94),
             Kind::Program => Color32::from_rgb(72, 74, 86),
+            Kind::Scene => Color32::from_rgb(112, 84, 40),
         }
     } else {
         match kind {
@@ -425,6 +427,7 @@ pub fn kind_color(kind: Kind, dark: bool) -> Color32 {
             Kind::Web | Kind::Url => Color32::from_rgb(186, 214, 228),
             Kind::WebAudio => Color32::from_rgb(230, 194, 220),
             Kind::Program => Color32::from_rgb(208, 210, 220),
+            Kind::Scene => Color32::from_rgb(236, 216, 176),
         }
     }
 }
@@ -456,7 +459,7 @@ mod tests {
                 .uv_rect
         };
         let replacement = uv_of(&mut view, '\u{25FB}');
-        let glyphs = "🖼🖥⚙ℹ🔍✖▶⏸⏮↻🔀🎬🎞📡🌐🎵📥⏳✔⚠🔇🔉🔊·…+×⬆⬇☰⊞";
+        let glyphs = "🖼🖥⚙ℹ🔍✖▶⏸⏮↻🔀🎬🎞📡🌐🎵📥⏳✔⚠🔇🔉🔊·…+×⬆⬇☰⊞✨🏪★☆‹›";
         let missing: Vec<char> = glyphs
             .chars()
             .filter(|c| uv_of(&mut view, *c) == replacement)

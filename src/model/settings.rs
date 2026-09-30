@@ -23,6 +23,37 @@ pub struct Settings {
     /// bring their whole folder.
     pub copy_imports: bool,
     pub thumbnails: bool,
+    pub wallpaper_engine: WallpaperEngine,
+}
+
+/// Where Wallpaper Engine content comes from and how it is played.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WallpaperEngine {
+    /// The Steam client folder, when it should not be detected.
+    pub steam_dir: Option<PathBuf>,
+    /// Wallpaper Engine's `assets` folder, when it should not be taken from the Steam
+    /// install of Wallpaper Engine.
+    pub assets_dir: Option<PathBuf>,
+    /// Add every workshop item Steam downloads to the library as soon as it lands.
+    pub auto_import: bool,
+    /// Frame rate limit handed to Wallpaper Engine wallpapers.
+    pub fps: u32,
+    /// Tell Wallpaper Engine wallpapers what the system is playing (title, artist, album
+    /// art, playback state and position).
+    pub media: bool,
+}
+
+impl Default for WallpaperEngine {
+    fn default() -> Self {
+        WallpaperEngine {
+            steam_dir: None,
+            assets_dir: None,
+            auto_import: false,
+            fps: 60,
+            media: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -234,6 +265,7 @@ impl Default for Settings {
             input: Input::default(),
             copy_imports: false,
             thumbnails: true,
+            wallpaper_engine: WallpaperEngine::default(),
         }
     }
 }
@@ -314,5 +346,14 @@ impl Settings {
         }
         self.rules.app_pause.retain(|a| !a.is_empty());
         self.rules.app_pause.dedup();
+        self.wallpaper_engine.fps = self.wallpaper_engine.fps.clamp(10, 240);
+        for dir in [
+            &mut self.wallpaper_engine.steam_dir,
+            &mut self.wallpaper_engine.assets_dir,
+        ] {
+            if dir.as_ref().is_some_and(|d| d.as_os_str().is_empty()) {
+                *dir = None;
+            }
+        }
     }
 }

@@ -13,6 +13,9 @@ pub enum Kind {
     WebAudio,
     Url,
     Program,
+    /// A Wallpaper Engine scene, drawn by the built-in WebGL renderer from the scene's
+    /// unpacked files and Wallpaper Engine's assets folder.
+    Scene,
 }
 
 /// Lively wallpaper packages: a zip holding `LivelyInfo.json`.
@@ -29,6 +32,7 @@ impl Kind {
             Kind::WebAudio => "Visualizer",
             Kind::Url => "Website",
             Kind::Program => "Program",
+            Kind::Scene => "Scene",
         }
     }
 
@@ -46,7 +50,7 @@ impl Kind {
             ],
             Kind::Web => &["html", "htm"],
             Kind::Program => &["exe", "appimage", "sh", "run"],
-            Kind::VideoStream | Kind::WebAudio | Kind::Url => &[],
+            Kind::VideoStream | Kind::WebAudio | Kind::Url | Kind::Scene => &[],
         }
     }
 
@@ -91,7 +95,7 @@ impl Kind {
 
     /// Played through the platform web view.
     pub fn is_web(self) -> bool {
-        matches!(self, Kind::Web | Kind::WebAudio | Kind::Url)
+        matches!(self, Kind::Web | Kind::WebAudio | Kind::Url | Kind::Scene)
     }
 
     /// Source is a URL rather than a local file.
@@ -101,7 +105,10 @@ impl Kind {
 
     /// Source lives in a directory of related files that must travel together.
     pub fn is_directory_project(self) -> bool {
-        matches!(self, Kind::Web | Kind::WebAudio | Kind::Program)
+        matches!(
+            self,
+            Kind::Web | Kind::WebAudio | Kind::Program | Kind::Scene
+        )
     }
 
     pub fn accepts_pointer(self) -> bool {
@@ -174,18 +181,20 @@ impl std::fmt::Display for Kind {
             Kind::WebAudio => "webaudio",
             Kind::Url => "url",
             Kind::Program => "program",
+            Kind::Scene => "scene",
         })
     }
 }
 
 /// Lively's `WallpaperType` encoding: integers in the order
 /// app, web, webaudio, url, bizhawk, unity, godot, video, gif, unityaudio, videostream, picture.
+/// Scenes have no Lively code and are written by name.
 pub mod lively {
     use super::Kind;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    pub fn to_code(k: Kind) -> i64 {
-        match k {
+    pub fn to_code(k: Kind) -> Option<i64> {
+        Some(match k {
             Kind::Program => 0,
             Kind::Web => 1,
             Kind::WebAudio => 2,
@@ -194,7 +203,8 @@ pub mod lively {
             Kind::Gif => 8,
             Kind::VideoStream => 10,
             Kind::Picture => 11,
-        }
+            Kind::Scene => return None,
+        })
     }
 
     pub fn from_code(c: i64) -> Option<Kind> {
@@ -221,12 +231,16 @@ pub mod lively {
             "gif" => Kind::Gif,
             "videostream" | "stream" => Kind::VideoStream,
             "picture" | "image" => Kind::Picture,
+            "scene" => Kind::Scene,
             _ => return None,
         })
     }
 
     pub fn serialize<S: Serializer>(k: &Kind, s: S) -> Result<S::Ok, S::Error> {
-        to_code(*k).serialize(s)
+        match to_code(*k) {
+            Some(code) => code.serialize(s),
+            None => k.to_string().serialize(s),
+        }
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Kind, D::Error> {

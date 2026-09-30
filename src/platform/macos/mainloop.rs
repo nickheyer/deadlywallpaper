@@ -196,7 +196,7 @@ impl RuntimeApi for Runtime {
         match kind {
             k if k.is_media() => media_view::spawn(spec, slot, self.tx.clone(), self.mtm),
             k if k.is_web() => {
-                let builder = crate::web::builder(spec, self.tx.clone())?;
+                let (builder, page) = crate::web::builder(spec, self.tx.clone())?;
                 let bounds = wry::Rect { position: wry::dpi::LogicalPosition::new(0.0, 0.0).into(), size: wry::dpi::LogicalSize::new(slot.size.w as f64, slot.size.h as f64).into() };
                 let webview = builder.with_bounds(bounds).build_as_child(slot).map_err(|e| Error::Web(format!("web view: {e}")))?;
                 // The slot view becomes the image: framed at the scaled size, laid out at the
@@ -213,7 +213,7 @@ impl RuntimeApi for Runtime {
                     view.setFrameCenterRotation(-v.rotation);
                     Ok(())
                 };
-                Ok(Box::new(WebContent::new(webview, kind, spec.id, self.tx.clone(), slot.size).with_view_hook(Box::new(hook))))
+                Ok(Box::new(WebContent::new(webview, page, spec.id, self.tx.clone(), slot.size).with_view_hook(Box::new(hook))))
             }
             Kind::Program => Err(Error::Unsupported("program wallpapers are not supported on macOS: another application's window cannot be embedded".into())),
             _ => Err(Error::Unsupported(format!("{} wallpapers are not supported", kind.label()))),

@@ -129,6 +129,24 @@ pub fn slug(s: &str) -> String {
     }
 }
 
+/// Hand a URL or path to the desktop's default handler.
+pub fn open_external(target: &str) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    let program = "xdg-open";
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(windows)]
+    let program = "explorer";
+    std::process::Command::new(program)
+        .arg(target)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| Error::Platform(format!("open {target}: {e}")))
+}
+
 /// Random suffix for temporary files and library entries.
 pub fn nonce() -> String {
     use std::hash::{BuildHasher, Hasher};

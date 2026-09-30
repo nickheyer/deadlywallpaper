@@ -11,6 +11,7 @@ pub enum Error {
     Web(String),
     Platform(String),
     Ipc(String),
+    Network(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -27,6 +28,7 @@ impl Error {
             Error::Web(_) => "web",
             Error::Platform(_) => "platform",
             Error::Ipc(_) => "ipc",
+            Error::Network(_) => "network",
         }
     }
 }
@@ -42,7 +44,8 @@ impl fmt::Display for Error {
             | Error::Media(m)
             | Error::Web(m)
             | Error::Platform(m)
-            | Error::Ipc(m) => f.write_str(m),
+            | Error::Ipc(m)
+            | Error::Network(m) => f.write_str(m),
         }
     }
 }

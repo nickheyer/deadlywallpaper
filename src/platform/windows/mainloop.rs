@@ -287,7 +287,7 @@ impl RuntimeApi for Runtime {
                 )))
             }
             k if k.is_web() => {
-                let builder = crate::web::builder(spec, self.tx.clone())?;
+                let (builder, page) = crate::web::builder(spec, self.tx.clone())?;
                 let bounds = wry::Rect {
                     position: wry::dpi::PhysicalPosition::new(0, 0).into(),
                     size: wry::dpi::PhysicalSize::new(slot.size.w as u32, slot.size.h as u32)
@@ -309,7 +309,7 @@ impl RuntimeApi for Runtime {
                     )
                 };
                 Ok(Box::new(
-                    WebContent::new(webview, kind, spec.id, self.tx.clone(), slot.size)
+                    WebContent::new(webview, page, spec.id, self.tx.clone(), slot.size)
                         .with_view_hook(Box::new(hook))
                         .with_css_view(true),
                 ))

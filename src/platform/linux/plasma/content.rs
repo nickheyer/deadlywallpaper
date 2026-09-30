@@ -11,6 +11,7 @@ use crate::platform::linux::plasma::script::{self, Client, Val};
 use crate::platform::linux::plasma::{Memory, Shell, Slot};
 use crate::platform::{ContentSpec, MsgSenderApi};
 use crate::web::serve::Server;
+use crate::web::{self, Grants, Routes};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -65,24 +66,32 @@ pub fn spawn(
     ];
     let serve = shell.serve().clone();
     let web = kind.is_web();
+    let mut we = false;
+    let mut routes = Routes::default();
     if web {
-        let root = (!kind.is_online()).then(|| wp.root_dir());
-        let token = serve.register(spec.id, root.clone());
-        let source = if kind.is_online() {
-            wp.source.clone()
-        } else {
-            let file = PathBuf::from(&wp.source);
-            let rel = root
-                .as_ref()
-                .and_then(|r| file.strip_prefix(r).ok())
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_else(|| crate::paths::file_name(&file));
-            serve.page_url(spec.id, &rel)
+        let page = web::page_for(spec)?;
+        we = page.we;
+        routes = page.routes.clone();
+        let token = serve.register(spec.id, page.routes);
+        let source = match &page.relative {
+            None => page.url.clone(),
+            Some(relative) => {
+                let mut url = serve.page_url(spec.id, relative);
+                if let Some(query) = &page.query {
+                    url.push('?');
+                    url.push_str(query);
+                }
+                url
+            }
         };
         values.push(("Source", Val::Str(source)));
+        let general = we.then(|| web::General::from_settings(spec.settings));
         values.push((
             "Bridge",
-            Val::Str(bridge_script(&serve.events_url(spec.id, &token))),
+            Val::Str(bridge_script(
+                &serve.events_url(spec.id, &token),
+                general.as_ref(),
+            )),
         ));
     } else if kind != Kind::VideoStream {
         values.push(("Source", Val::Str(file_url(&wp.source))));
@@ -94,6 +103,9 @@ pub fn spawn(
         containments: slot.containments.clone(),
         id: spec.id,
         kind,
+        we,
+        root: routes.root.clone(),
+        grants: routes.grants.clone(),
         tx: tx.clone(),
         generation,
         serial: 0,
@@ -199,11 +211,12 @@ fn file_url(path: &str) -> String {
     out
 }
 
-/// Lively's JavaScript API plus the event stream that carries engine pushes into the page.
-fn bridge_script(events_url: &str) -> String {
+/// The page API (Lively's, or Wallpaper Engine's with its general properties) plus the event
+/// stream that carries engine pushes into the page.
+fn bridge_script(events_url: &str, general: Option<&web::General>) -> String {
     format!(
-        "{}\n(() => {{\n  const es = new EventSource({});\n  const parse = (e) => JSON.parse(e.data);\n  es.addEventListener('prop', e => {{ const m = parse(e); __dwp.prop(m.name, m.value); }});\n  es.addEventListener('pause', e => __dwp.pause(parse(e)));\n  es.addEventListener('volume', e => __dwp.volume(parse(e)));\n  es.addEventListener('mute', e => __dwp.mute(parse(e)));\n  es.addEventListener('audio', e => __dwp.audio(parse(e)));\n  es.addEventListener('pointer', e => {{ const p = parse(e); __dwp.mouse(p.k, p.x, p.y); }});\n  es.addEventListener('reload', () => location.reload());\n}})();",
-        crate::web::BRIDGE,
+        "{}\n(() => {{\n  const es = new EventSource({});\n  const parse = (e) => JSON.parse(e.data);\n  const on = (name, fn) => es.addEventListener(name, e => {{ try {{ fn(parse(e)); }} catch (err) {{ console.error(name, err); }} }});\n  on('prop', m => __dwp.prop(m.name, m.value));\n  on('props', m => __dwp.props(m));\n  on('general', m => __dwp.general(m));\n  on('dir', m => __dwp.dir(m.name, m.files, m.fetchall));\n  on('media', m => __dwp.media(m.name, m.payload));\n  on('pause', p => __dwp.pause(p));\n  on('volume', v => __dwp.volume(v));\n  on('mute', m => __dwp.mute(m));\n  on('audio', a => __dwp.audio(a));\n  on('pointer', p => __dwp.mouse(p.k, p.x, p.y));\n  es.addEventListener('reload', () => location.reload());\n}})();",
+        web::bridge_for(general),
         script::js_str(events_url)
     )
 }
@@ -238,6 +251,10 @@ pub struct PlasmaContent {
     containments: Vec<i32>,
     id: ContentId,
     kind: Kind,
+    /// Wallpaper Engine page: values, files and audio go through its bridge.
+    we: bool,
+    root: Option<PathBuf>,
+    grants: Grants,
     tx: MsgSender,
     generation: i64,
     serial: u64,
@@ -373,6 +390,21 @@ impl Content for PlasmaContent {
     }
 
     fn apply(&mut self, name: &str, control: &Control, value: Option<&Value>) {
+        if self.we {
+            let Some(update) =
+                web::we_apply(self.root.as_deref(), &self.grants, name, control, value)
+            else {
+                return;
+            };
+            if let Some((files, fetchall)) = &update.files {
+                let data = serde_json::json!({ "name": name, "files": files, "fetchall": fetchall })
+                    .to_string();
+                self.push("dir", &data, Some(&format!("dir:{name}")));
+            }
+            let data = serde_json::json!({ name: update.value }).to_string();
+            self.push("props", &data, Some(&format!("prop:{name}")));
+            return;
+        }
         if self.kind.is_web() {
             let v = match (&control.kind, value) {
                 (ControlKind::Button { .. }, _) => Value::Bool(true),
@@ -517,7 +549,21 @@ impl Content for PlasmaContent {
         self.input = enabled;
     }
 
-    fn audio_data(&mut self, bins: &[f32]) {
+    fn media(&mut self, event: &crate::nowplaying::MediaEvent) {
+        if !self.we {
+            return;
+        }
+        let data = serde_json::json!({ "name": event.name(), "payload": event.payload() })
+            .to_string();
+        self.push("media", &data, Some(&format!("media:{}", event.name())));
+    }
+
+    fn audio_data(&mut self, spectrum: &crate::audio::Spectrum) {
+        let bins = if self.we {
+            &spectrum.we
+        } else {
+            &spectrum.lively
+        };
         let mut s = String::with_capacity(bins.len() * 8 + 2);
         s.push('[');
         for (i, b) in bins.iter().enumerate() {

@@ -3,6 +3,7 @@ pub mod server;
 
 use crate::error::Error;
 use crate::model::{Arrangement, Control, Display, Kind, Layout, Pose, Settings, Summary};
+use crate::we::steam::SteamInfo;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, Write};
@@ -92,6 +93,26 @@ pub enum Request {
         wallpaper: String,
     },
     AudioDevices,
+    /// Steam, Wallpaper Engine and every workshop item Steam has downloaded.
+    WorkshopStatus,
+    /// Fetch a workshop item: import it when Steam already has it, otherwise open its Steam
+    /// page to subscribe and import it as soon as the download lands. `display` applies it
+    /// there afterwards.
+    WorkshopGet {
+        id: u64,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        author: Option<String>,
+        #[serde(default)]
+        display: Option<String>,
+    },
+    /// Stop waiting for a download.
+    WorkshopForget {
+        id: u64,
+    },
+    /// Import every downloaded item the library lacks and refresh the ones Steam updated.
+    WorkshopSync,
     OpenUi,
     Subscribe,
     Quit,
@@ -118,6 +139,7 @@ pub enum Response {
     Wallpaper(Summary),
     /// Everything one import brought in.
     Wallpapers(Vec<Summary>),
+    Workshop(WorkshopStatus),
     Text(String),
 }
 
@@ -135,6 +157,7 @@ impl Response {
                 "not-found" => Error::NotFound(message),
                 "unsupported" => Error::Unsupported(message),
                 "invalid" => Error::Invalid(message),
+                "network" => Error::Network(message),
                 _ => Error::Ipc(message),
             }),
             r => Ok(r),
@@ -151,6 +174,8 @@ pub enum Event {
     Displays,
     Settings,
     Playback,
+    /// Downloads pending, arrived or imported; Steam paths changed.
+    Workshop,
     Error {
         message: String,
     },
@@ -224,6 +249,31 @@ pub struct InfoPatch {
     pub arguments: Option<String>,
 }
 
+/// Steam's side of the Workshop as the daemon sees it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkshopStatus {
+    pub steam: SteamInfo,
+    /// Every item Steam has finished downloading.
+    pub items: Vec<WorkshopItemStatus>,
+    /// Items whose Steam page was opened and whose download has not landed yet.
+    pub pending: Vec<u64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkshopItemStatus {
+    pub id: u64,
+    pub dir: PathBuf,
+    /// Steam's `timeupdated` for the download.
+    pub updated: Option<u64>,
+    /// The library entry made from it.
+    pub wallpaper: Option<String>,
+    pub title: String,
+    /// Steam holds a newer download than the library entry was made from.
+    pub stale: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AudioDevice {
     pub id: String,
@@ -287,6 +337,18 @@ mod tests {
                 name: "X".into(),
             }]),
             Response::Wallpapers(vec![]),
+            Response::Workshop(WorkshopStatus {
+                steam: SteamInfo::default(),
+                items: vec![WorkshopItemStatus {
+                    id: 1,
+                    dir: PathBuf::from("/w/1"),
+                    updated: Some(2),
+                    wallpaper: Some("x".into()),
+                    title: "T".into(),
+                    stale: true,
+                }],
+                pending: vec![3],
+            }),
             Response::Text("t".into()),
             Response::Status(Status {
                 version: "v".into(),
@@ -331,12 +393,22 @@ mod tests {
                     rotation: 90.0,
                 },
             },
+            Request::WorkshopGet {
+                id: 5,
+                title: Some("t".into()),
+                author: None,
+                display: None,
+            },
+            Request::WorkshopForget { id: 5 },
+            Request::WorkshopSync,
+            Request::WorkshopStatus,
         ] {
             let text = serde_json::to_string(&r).expect("serialize request");
             let _: Request = serde_json::from_str(&text).expect("deserialize request");
         }
         for e in [
             Event::Library,
+            Event::Workshop,
             Event::Quit,
             Event::Error {
                 message: "e".into(),

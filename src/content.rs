@@ -164,8 +164,10 @@ pub trait Content {
     fn screenshot(&mut self, path: PathBuf);
     fn pointer(&mut self, ev: PointerEvent);
     fn set_input_enabled(&mut self, enabled: bool);
-    /// Audio spectrum for visualizer wallpapers, 128 bins.
-    fn audio_data(&mut self, bins: &[f32]);
+    /// Audio spectrum for visualizer wallpapers.
+    fn audio_data(&mut self, spectrum: &crate::audio::Spectrum);
+    /// Media integration event for Wallpaper Engine wallpapers.
+    fn media(&mut self, event: &crate::nowplaying::MediaEvent);
     /// Show this part of the image; called right after creation and whenever it changes.
     fn set_view(&mut self, view: &View) -> Result<()>;
 }

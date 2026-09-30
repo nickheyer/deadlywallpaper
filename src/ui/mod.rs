@@ -8,6 +8,7 @@ mod screens;
 mod settings;
 mod theme;
 mod widgets;
+mod workshop;
 
 use crate::error::{Error, Result};
 use crate::ipc::client::Client;
@@ -32,6 +33,8 @@ pub enum UiMsg {
         done: usize,
         failed: Vec<String>,
     },
+    /// Workshop browsing, preview and status results.
+    Workshop(workshop::Msg),
     Disconnected,
 }
 
@@ -186,6 +189,15 @@ impl Backend {
         });
     }
 
+    /// Run `work` on a worker thread and deliver what it returns.
+    pub fn spawn(&self, ctx: &egui::Context, work: impl FnOnce() -> UiMsg + Send + 'static) {
+        let (tx, ctx) = (self.tx.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send(work());
+            ctx.request_repaint();
+        });
+    }
+
     /// Long-running request on its own connection; the result comes back as [`UiMsg::Done`].
     pub fn background(&self, ctx: &egui::Context, label: impl Into<String>, req: Request) {
         let (tx, ctx, label) = (self.tx.clone(), ctx.clone(), label.into());
@@ -217,13 +229,7 @@ pub fn open_url(url: &str) {
 }
 
 fn open_target(target: &str) {
-    #[cfg(target_os = "linux")]
-    let program = "xdg-open";
-    #[cfg(target_os = "macos")]
-    let program = "open";
-    #[cfg(windows)]
-    let program = "explorer";
-    if let Err(e) = std::process::Command::new(program).arg(target).spawn() {
-        log::warn!("open {target}: {e}");
+    if let Err(e) = crate::paths::open_external(target) {
+        log::warn!("{e}");
     }
 }

@@ -2,16 +2,16 @@
 
 use crate::content::ContentId;
 use crate::error::{Error, Result};
+use crate::web::{Routes, Served};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use std::path::PathBuf;
 use std::sync::mpsc::{RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 struct Entry {
-    root: Option<PathBuf>,
+    routes: Routes,
     token: String,
     subscribers: Vec<SyncSender<String>>,
     /// Events replayed to every new subscriber, keyed so later values replace earlier ones.
@@ -55,15 +55,15 @@ impl Server {
         Ok(Server { port, entries })
     }
 
-    /// Register a content; `root` is the directory its files are served from. Returns the
-    /// token its page must present to subscribe to events.
-    pub fn register(&self, id: ContentId, root: Option<PathBuf>) -> String {
+    /// Register a content with what its page may load. Returns the token its page must
+    /// present to subscribe to events.
+    pub fn register(&self, id: ContentId, routes: Routes) -> String {
         let token = format!("{}{}", crate::paths::nonce(), crate::paths::nonce());
         if let Ok(mut all) = self.entries.lock() {
             all.insert(
                 id,
                 Entry {
-                    root,
+                    routes,
                     token: token.clone(),
                     subscribers: Vec::new(),
                     retained: Vec::new(),
@@ -169,21 +169,27 @@ fn handle(mut stream: TcpStream, entries: &Arc<Mutex<HashMap<ContentId, Entry>>>
         subscribe(stream, entries, id, query);
         return;
     }
-    let root = entries
+    let routes = entries
         .lock()
         .ok()
-        .and_then(|all| all.get(&id).and_then(|e| e.root.clone()));
-    let Some(root) = root else {
+        .and_then(|all| all.get(&id).map(|e| e.routes.clone()));
+    let Some(routes) = routes else {
         let _ = respond(&mut stream, 404, "text/plain", b"not found");
         return;
     };
-    let file = match super::resolve(&root, rel) {
-        Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+    let file = match super::route(&routes, rel) {
+        Served::File(file) => file,
+        Served::Embedded { mime, body } => {
+            if headers(&mut stream, 200, mime, body.len() as u64).is_ok() && method != "HEAD" {
+                let _ = stream.write_all(body);
+            }
+            return;
+        }
+        Served::Forbidden => {
             let _ = respond(&mut stream, 403, "text/plain", b"forbidden");
             return;
         }
-        Err(_) => {
+        Served::NotFound => {
             let _ = respond(&mut stream, 404, "text/plain", b"not found");
             return;
         }
@@ -316,7 +322,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("deadlywp-serve-{}", crate::paths::nonce()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("index.html"), "<html>hi</html>").unwrap();
-        let token = server.register(7, Some(root.clone()));
+        let token = server.register(7, Routes::for_root(root.clone()));
 
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
         s.write_all(b"GET /c/7/index.html HTTP/1.1\r\nHost: x\r\n\r\n")
@@ -349,6 +355,45 @@ mod tests {
         let mut body = String::new();
         s.read_to_string(&mut body).unwrap();
         assert!(body.starts_with("HTTP/1.1 403"));
+
+        let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+        s.write_all(b"GET /c/7/__deadlywp/scene.html HTTP/1.1\r\n\r\n")
+            .unwrap();
+        let mut body = String::new();
+        s.read_to_string(&mut body).unwrap();
+        assert!(body.starts_with("HTTP/1.1 200"), "{body}");
+        assert!(body.contains("Content-Type: text/html"), "{body}");
+
+        let outside = std::env::temp_dir().join(format!("deadlywp-grant-{}", crate::paths::nonce()));
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("user.png"), b"user").unwrap();
+        let encoded = outside
+            .join("user.png")
+            .to_string_lossy()
+            .replace(' ', "%20");
+        let file_path = format!("/c/7/__file{encoded}");
+        let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+        s.write_all(format!("GET {file_path} HTTP/1.1\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut body = String::new();
+        s.read_to_string(&mut body).unwrap();
+        assert!(body.starts_with("HTTP/1.1 403"), "{body}");
+        let routes = server
+            .entries
+            .lock()
+            .unwrap()
+            .get(&7)
+            .map(|e| e.routes.clone())
+            .unwrap();
+        routes.grants.set_dir("slides", &outside);
+        let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+        s.write_all(format!("GET {file_path} HTTP/1.1\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut body = String::new();
+        s.read_to_string(&mut body).unwrap();
+        assert!(body.starts_with("HTTP/1.1 200"), "{body}");
+        assert!(body.ends_with("user"), "{body}");
+        let _ = std::fs::remove_dir_all(&outside);
 
         server.push(7, "prop", r#"{"name":"hue","value":3}"#, Some("prop:hue"));
         let mut s = TcpStream::connect(("127.0.0.1", server.port)).unwrap();

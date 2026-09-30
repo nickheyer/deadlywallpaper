@@ -282,7 +282,9 @@ impl Content for ProgramContent {
 
     fn set_input_enabled(&mut self, _enabled: bool) {}
 
-    fn audio_data(&mut self, _bins: &[f32]) {}
+    fn audio_data(&mut self, _spectrum: &crate::audio::Spectrum) {}
+
+    fn media(&mut self, _event: &crate::nowplaying::MediaEvent) {}
 
     /// An embedded window can be placed but not scaled or turned; the slot clips it.
     fn set_view(&mut self, view: &View) -> Result<()> {

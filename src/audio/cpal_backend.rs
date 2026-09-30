@@ -1,6 +1,6 @@
 //! Windows (WASAPI loopback on the default output) and macOS (a chosen input or loopback device).
 
-use crate::audio::{Analyzer, Sink, downmix};
+use crate::audio::{Analyzer, Sink};
 use crate::error::{Error, Result};
 use crate::ipc::AudioDevice;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -37,19 +37,16 @@ pub fn start(device: Option<String>, stop: Arc<AtomicBool>, sink: Sink) -> Resul
         .or_else(|_| dev.default_output_config())
         .map_err(|e| Error::Platform(format!("audio config: {e}")))?;
     let channels = config.channels() as usize;
-    let analyzer = Arc::new(Mutex::new(Analyzer::new()));
+    let analyzer = Arc::new(Mutex::new(Analyzer::new(channels)));
     let sink = Arc::new(Mutex::new(sink));
     let stream = dev
         .build_input_stream(
             config.config(),
             move |data: &[f32], _| {
-                let bins = analyzer
-                    .lock()
-                    .ok()
-                    .and_then(|mut a| a.push(&downmix(data, channels)));
-                if let Some(bins) = bins {
+                let spectrum = analyzer.lock().ok().and_then(|mut a| a.push(data));
+                if let Some(spectrum) = spectrum {
                     if let Ok(mut s) = sink.lock() {
-                        s(bins);
+                        s(spectrum);
                     }
                 }
             },

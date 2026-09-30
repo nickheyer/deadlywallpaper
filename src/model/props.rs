@@ -8,8 +8,49 @@ use std::path::Path;
 pub struct Control {
     pub text: String,
     pub help: Option<String>,
+    /// Wallpaper Engine display condition over sibling controls, as `name.value == true`;
+    /// the control is shown only while it holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+    /// The Wallpaper Engine property this control stands for, when the wallpaper is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub we: Option<WeMeta>,
     #[serde(flatten)]
     pub kind: ControlKind,
+}
+
+/// How a control maps back onto a Wallpaper Engine property.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WeMeta {
+    /// `slider`, `color`, `bool`, `combo`, `textinput`, `file`, `directory`,
+    /// `scenetexture` or `group`.
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// Combo option values by index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<Value>,
+    /// `image` or `video` for file and directory properties.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filetype: Option<String>,
+    /// Directory properties in `fetchall` mode receive every file at once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fetchall: bool,
+}
+
+impl WeMeta {
+    fn parse(v: &Value) -> Option<WeMeta> {
+        let o = v.as_object()?;
+        Some(WeMeta {
+            kind: o.get("type")?.as_str()?.to_string(),
+            values: o
+                .get("values")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+            filetype: o.get("filetype").and_then(Value::as_str).map(str::to_string),
+            fetchall: o.get("fetchall").and_then(Value::as_bool).unwrap_or(false),
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -48,6 +89,17 @@ pub enum ControlKind {
     },
     Checkbox {
         value: bool,
+    },
+    /// A file anywhere on disk, chosen with a picker; `filter` lists accepted extensions.
+    File {
+        value: String,
+        filter: Vec<String>,
+    },
+    /// A folder anywhere on disk, chosen with a picker; `filter` lists the extensions the
+    /// wallpaper reads from it.
+    Folder {
+        value: String,
+        filter: Vec<String>,
     },
 }
 
@@ -106,11 +158,21 @@ impl Control {
             "checkbox" => ControlKind::Checkbox {
                 value: o.get("value").and_then(Value::as_bool).unwrap_or(false),
             },
+            "file" => ControlKind::File {
+                value: s("value").unwrap_or_default(),
+                filter: strings("filter"),
+            },
+            "folder" => ControlKind::Folder {
+                value: s("value").unwrap_or_default(),
+                filter: strings("filter"),
+            },
             _ => return None,
         };
         Some(Control {
             text: s("text").unwrap_or_default(),
             help: s("help"),
+            condition: s("condition").filter(|c| !c.trim().is_empty()),
+            we: o.get("we").and_then(WeMeta::parse),
             kind,
         })
     }
@@ -119,9 +181,10 @@ impl Control {
     pub fn value(&self) -> Option<Value> {
         Some(match &self.kind {
             ControlKind::Slider { value, .. } => json_f64(*value),
-            ControlKind::Textbox { value } | ControlKind::Color { value } => {
-                Value::String(value.clone())
-            }
+            ControlKind::Textbox { value }
+            | ControlKind::Color { value }
+            | ControlKind::File { value, .. }
+            | ControlKind::Folder { value, .. } => Value::String(value.clone()),
             ControlKind::Dropdown { value, .. } | ControlKind::ScalerDropdown { value, .. } => {
                 Value::from(*value)
             }
@@ -233,9 +296,10 @@ impl Properties {
                 Value::Number(n) => n.as_f64().unwrap_or(0.0) != 0.0,
                 _ => return Err(Error::Invalid(format!("'{name}' expects true or false"))),
             }),
-            ControlKind::Textbox { .. } | ControlKind::Color { .. } => {
-                Value::String(as_text(incoming))
-            }
+            ControlKind::Textbox { .. }
+            | ControlKind::Color { .. }
+            | ControlKind::File { .. }
+            | ControlKind::Folder { .. } => Value::String(as_text(incoming)),
             ControlKind::FolderDropdown { .. } => match incoming {
                 Value::Null => Value::Null,
                 v => Value::String(

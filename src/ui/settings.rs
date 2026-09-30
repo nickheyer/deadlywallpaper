@@ -1,5 +1,6 @@
 use crate::ipc::{AudioDevice, Capabilities};
 use crate::model::Display;
+use crate::we::steam::SteamInfo;
 use crate::model::settings::{AudioOutput, PauseScope, Scaler, Settings, StreamQuality, Theme};
 use crate::ui::widgets::{divider, row, toggle};
 use crate::ui::{theme, widgets};
@@ -9,6 +10,8 @@ pub struct Context<'a> {
     pub devices: &'a [AudioDevice],
     pub displays: &'a [Display],
     pub capabilities: &'a Capabilities,
+    /// Where the daemon found Steam and Wallpaper Engine; `None` until it has answered.
+    pub steam: Option<&'a SteamInfo>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -17,6 +20,7 @@ enum Tab {
     General,
     Playback,
     Audio,
+    WallpaperEngine,
     Advanced,
 }
 
@@ -24,6 +28,13 @@ enum Tab {
 pub struct State {
     tab: Tab,
     pub focus_new_app: bool,
+}
+
+impl State {
+    /// Open the Wallpaper Engine tab the next time the page shows.
+    pub fn show_wallpaper_engine(&mut self) {
+        self.tab = Tab::WallpaperEngine;
+    }
 }
 
 pub fn tabs(ui: &mut egui::Ui, state: &mut State) {
@@ -35,6 +46,7 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut State) {
             (Tab::General, "General"),
             (Tab::Playback, "Playback"),
             (Tab::Audio, "Audio"),
+            (Tab::WallpaperEngine, "Wallpaper Engine"),
             (Tab::Advanced, "Advanced"),
         ],
     );
@@ -284,6 +296,113 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                             }
                         });
                 });
+            });
+        }
+        Tab::WallpaperEngine => {
+            section(ui, "Steam", |ui| {
+                let detected = cx.steam.and_then(|s| s.steam_dir.clone());
+                let (label, help) = match (&s.wallpaper_engine.steam_dir, &detected) {
+                    (Some(dir), _) => (dir.to_string_lossy().into_owned(), "Set here; the detected folder is not used".to_string()),
+                    (None, Some(dir)) => (dir.to_string_lossy().into_owned(), "Detected automatically".to_string()),
+                    (None, None) => (
+                        "Not found".to_string(),
+                        "Install Steam, or point at its folder (the one holding steamapps)".to_string(),
+                    ),
+                };
+                row(ui, "Steam folder", &format!("{label}\n{help}"), |ui| {
+                    if ui.add(theme::secondary_button("Change…")).clicked() {
+                        let mut dialog = rfd::FileDialog::new();
+                        if let Some(dir) = s.wallpaper_engine.steam_dir.as_ref().or(detected.as_ref()) {
+                            dialog = dialog.set_directory(dir);
+                        }
+                        if let Some(dir) = dialog.pick_folder() {
+                            s.wallpaper_engine.steam_dir = Some(dir);
+                        }
+                    }
+                    if s.wallpaper_engine.steam_dir.is_some()
+                        && ui
+                            .add(theme::secondary_button("Detect"))
+                            .on_hover_text("Forget this folder and look for Steam again")
+                            .clicked()
+                    {
+                        s.wallpaper_engine.steam_dir = None;
+                    }
+                });
+                divider(ui);
+                let detected_assets = cx
+                    .steam
+                    .filter(|s| !s.assets_overridden)
+                    .and_then(|s| s.assets_dir.clone())
+                    .or_else(|| {
+                        cx.steam
+                            .and_then(|s| s.install_dir.as_ref())
+                            .map(|d| d.join("assets"))
+                    });
+                let (label, help) = match (&s.wallpaper_engine.assets_dir, &detected_assets) {
+                    (Some(dir), _) => (
+                        dir.to_string_lossy().into_owned(),
+                        "Set here; scene wallpapers load their shaders, effects and stock textures from it".to_string(),
+                    ),
+                    (None, Some(dir)) => (
+                        dir.to_string_lossy().into_owned(),
+                        "From the Wallpaper Engine install; scene wallpapers load their shaders, effects and stock textures from it".to_string(),
+                    ),
+                    (None, None) => (
+                        "Not found".to_string(),
+                        "Scene wallpapers need Wallpaper Engine's assets folder: install Wallpaper Engine through Steam, or point at a copy of its assets folder".to_string(),
+                    ),
+                };
+                row(ui, "Wallpaper Engine assets", &format!("{label}\n{help}"), |ui| {
+                    if ui.add(theme::secondary_button("Change…")).clicked() {
+                        let mut dialog = rfd::FileDialog::new();
+                        if let Some(dir) = s.wallpaper_engine.assets_dir.as_ref().or(detected_assets.as_ref()) {
+                            dialog = dialog.set_directory(dir);
+                        }
+                        if let Some(dir) = dialog.pick_folder() {
+                            s.wallpaper_engine.assets_dir = Some(dir);
+                        }
+                    }
+                    if s.wallpaper_engine.assets_dir.is_some()
+                        && ui
+                            .add(theme::secondary_button("Detect"))
+                            .on_hover_text("Forget this folder and use the Wallpaper Engine install's")
+                            .clicked()
+                    {
+                        s.wallpaper_engine.assets_dir = None;
+                    }
+                });
+            });
+            section(ui, "Workshop", |ui| {
+                row(
+                    ui,
+                    "Add Steam downloads automatically",
+                    "Every workshop item Steam downloads joins the library as soon as it lands, and entries are refreshed when Steam updates them",
+                    |ui| {
+                        toggle(ui, &mut s.wallpaper_engine.auto_import);
+                    },
+                );
+            });
+            section(ui, "Playback", |ui| {
+                row(
+                    ui,
+                    "Frame rate limit",
+                    "Handed to Wallpaper Engine wallpapers as their general FPS setting",
+                    |ui| {
+                        let r = ui.add(
+                            egui::Slider::new(&mut s.wallpaper_engine.fps, 10..=240).suffix(" fps"),
+                        );
+                        busy |= r.dragged();
+                    },
+                );
+                divider(ui);
+                row(
+                    ui,
+                    "Media integration",
+                    "Tell Wallpaper Engine wallpapers what the system is playing: title, artist, album art, playback state and position",
+                    |ui| {
+                        toggle(ui, &mut s.wallpaper_engine.media);
+                    },
+                );
             });
         }
         Tab::Advanced => {

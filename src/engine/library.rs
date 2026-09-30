@@ -4,8 +4,10 @@ use crate::error::{Error, Result, ctx};
 use crate::media::thumb;
 use crate::model::info::FILE_NAME;
 use crate::model::kind::PACKAGE_EXTENSIONS;
+use crate::model::wallpaper::WorkshopOrigin;
 use crate::model::{Info, Kind, Wallpaper};
 use crate::paths::{file_name, nonce, slug};
+use crate::we::project::{self, Project, ProjectType};
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -133,6 +135,13 @@ impl Library {
         if PACKAGE_EXTENSIONS.contains(&ext.as_str()) {
             return self.import_zip(path);
         }
+        if file_name(path).eq_ignore_ascii_case(project::FILE_NAME) {
+            let dir = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .ok_or_else(|| Error::Invalid(format!("{} has no parent folder", path.display())))?;
+            return self.import_project(dir, opts, None, None);
+        }
         let kind = Kind::from_extension(&ext)
             .or_else(|| is_executable(path).then_some(Kind::Program))
             .ok_or_else(|| {
@@ -202,6 +211,14 @@ impl Library {
         if dir.join(FILE_NAME).is_file() {
             out.record(
                 self.import_lively_dir(dir)
+                    .map_err(|e| Error::Invalid(format!("{}: {e}", dir.display()))),
+                progress,
+            );
+            return;
+        }
+        if dir.join(project::FILE_NAME).is_file() {
+            out.record(
+                self.import_project(dir, opts, None, None)
                     .map_err(|e| Error::Invalid(format!("{}: {e}", dir.display()))),
                 progress,
             );
@@ -395,6 +412,153 @@ impl Library {
         })
     }
 
+    /// Import a Wallpaper Engine project folder: the one holding `project.json`. Packed
+    /// scenes are unpacked into the entry; other content follows `opts.copy`. `origin` records
+    /// the workshop item the folder came from and `author` its creator's name.
+    pub fn import_project(
+        &self,
+        dir: &Path,
+        opts: &ImportOptions<'_>,
+        origin: Option<WorkshopOrigin>,
+        author: Option<String>,
+    ) -> Result<Wallpaper> {
+        ctx(std::fs::create_dir_all(&self.dir), self.dir.display())?;
+        let dir = ctx(std::fs::canonicalize(dir), dir.display())?;
+        let project = Project::load(&dir.join(project::FILE_NAME))?;
+        let content = dir.join(&project.file);
+        if !content.is_file() {
+            return Err(Error::NotFound(format!(
+                "{} names {} but the file is missing",
+                project::FILE_NAME,
+                project.file
+            )));
+        }
+        let kind = match project.kind {
+            ProjectType::Scene => Kind::Scene,
+            ProjectType::Video => Kind::Video,
+            ProjectType::Web => Kind::Web,
+            ProjectType::Application if cfg!(windows) => Kind::Program,
+            ProjectType::Application => {
+                return Err(Error::Unsupported(format!(
+                    "'{}' is a Wallpaper Engine application wallpaper: a Windows program that runs only on Windows",
+                    project.title
+                )));
+            }
+        };
+        let packed = project.is_packed_scene();
+        let title = project.title.clone();
+        let origin = origin.or_else(|| {
+            crate::we::steam::item_at(&dir).map(|item| WorkshopOrigin {
+                id: item.id,
+                updated: item.updated,
+                source: Some(item.dir),
+            })
+        });
+        let workshop_id = origin.as_ref().map(|o| o.id).or(project.workshop_id);
+        self.create(&title, |entry| {
+            ctx(
+                std::fs::copy(dir.join(project::FILE_NAME), entry.join(project::FILE_NAME))
+                    .map(|_| ()),
+                dir.display(),
+            )?;
+            let mut info = Info {
+                title: title.clone(),
+                kind,
+                desc: project.description.clone(),
+                author: author.clone().filter(|a| !a.trim().is_empty()),
+                contact: workshop_id.map(project::workshop_url),
+                id: workshop_id.map(|id| id.to_string()),
+                tags: (!project.tags.is_empty()).then(|| project.tags.clone()),
+                ..Info::default()
+            };
+            if let Some(preview) = project
+                .preview
+                .as_deref()
+                .map(|p| dir.join(p))
+                .filter(|p| p.is_file())
+            {
+                let name = file_name(&preview);
+                ctx(
+                    std::fs::copy(&preview, entry.join(&name)).map(|_| ()),
+                    preview.display(),
+                )?;
+                info.thumbnail = Some(name);
+            }
+            if packed {
+                let scene_dir = entry.join("scene");
+                let mut pkg = crate::we::pkg::Package::open(&content)?;
+                if !pkg.contains("scene.json") {
+                    return Err(Error::Invalid(format!(
+                        "{} holds no scene.json",
+                        content.display()
+                    )));
+                }
+                let scene = pkg.read_entry("scene.json")?;
+                if let Err(e) = serde_json::from_slice::<serde_json::Value>(&scene) {
+                    return Err(Error::Invalid(format!(
+                        "{}: scene.json is not valid JSON: {e}",
+                        content.display()
+                    )));
+                }
+                log::info!(
+                    "unpacking {} files from {}",
+                    pkg.entries().len(),
+                    content.display()
+                );
+                pkg.extract_to(&scene_dir)?;
+                copy_loose_files(&dir, &content, &scene_dir)?;
+                info.file_name = "scene/scene.json".into();
+            } else if opts.copy {
+                copy_tree(&dir, &entry.join("content"))?;
+                info.file_name = format!("content/{}", project.file);
+            } else {
+                info.file_name = content.to_string_lossy().into_owned();
+                info.is_absolute_path = true;
+            }
+            if kind == Kind::Video && opts.thumbnails && info.thumbnail.is_none() {
+                match thumb::capture(&content, kind, &entry.join(THUMBNAIL), opts.temp_dir) {
+                    Ok(()) => info.thumbnail = Some(THUMBNAIL.into()),
+                    Err(e) => log::warn!("thumbnail for {}: {e}", content.display()),
+                }
+            }
+            if let Some(o) = &origin {
+                o.save(entry)?;
+            }
+            info.save(&entry.join(FILE_NAME))
+        })
+    }
+
+    /// Put a freshly imported entry in place of entry `id`, keeping the id so layouts and
+    /// property copies still point at it. The fresh entry's directory is consumed.
+    pub fn replace(&self, id: &str, fresh: &Wallpaper) -> Result<Wallpaper> {
+        let old = self.get(id)?;
+        let backup = self.dir.join(format!("{id}.old-{}", nonce()));
+        ctx(std::fs::rename(&old.dir, &backup), old.dir.display())?;
+        if let Err(e) = std::fs::rename(&fresh.dir, &old.dir) {
+            let _ = std::fs::rename(&backup, &old.dir);
+            return ctx(Err(e), fresh.dir.display());
+        }
+        if let Err(e) = std::fs::remove_dir_all(&backup) {
+            log::warn!("remove {}: {e}", backup.display());
+        }
+        Wallpaper::load(&old.dir)
+    }
+
+    /// The entry made from workshop item `id`, if any.
+    pub fn find_workshop(&self, id: u64) -> Option<Wallpaper> {
+        self.scan()
+            .into_iter()
+            .find(|w| WorkshopOrigin::load(&w.dir).is_some_and(|o| o.id == id))
+    }
+
+    /// Every entry's workshop origin, for keeping imports in step with Steam.
+    pub fn workshop_entries(&self) -> Vec<(Wallpaper, WorkshopOrigin)> {
+        self.scan()
+            .into_iter()
+            .filter_map(|w| WorkshopOrigin::load(&w.dir).map(|o| (w, o)))
+            .collect()
+    }
+
     /// Remove a wallpaper directory and its property copies. Only directories inside the
     /// library are deleted; referenced media outside it stays untouched.
     pub fn delete(&self, id: &str, properties_dir: &Path) -> Result<()> {
@@ -513,6 +677,35 @@ fn find_index(dir: &Path) -> Option<PathBuf> {
         .into_iter()
         .map(|n| dir.join(n))
         .find(|p| p.is_file())
+}
+
+/// Files a packed scene keeps next to its package (anything but the project's own
+/// bookkeeping) join the unpacked scene, without replacing what the package held.
+fn copy_loose_files(dir: &Path, package: &Path, scene_dir: &Path) -> Result<()> {
+    let skip = |p: &Path| {
+        p == package
+            || file_name(p).eq_ignore_ascii_case(project::FILE_NAME)
+            || file_name(p).to_ascii_lowercase().starts_with("preview.")
+    };
+    walk_tree(dir, &mut HashSet::new(), &mut |src, directory| {
+        if skip(src) {
+            return Ok(());
+        }
+        let rel = src
+            .strip_prefix(dir)
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let dst = scene_dir.join(rel);
+        if directory {
+            ctx(std::fs::create_dir_all(&dst), dst.display())
+        } else if dst.exists() {
+            Ok(())
+        } else {
+            if let Some(parent) = dst.parent() {
+                ctx(std::fs::create_dir_all(parent), parent.display())?;
+            }
+            ctx(std::fs::copy(src, &dst).map(|_| ()), src.display())
+        }
+    })
 }
 
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {
@@ -782,6 +975,138 @@ mod tests {
             Err(Error::Invalid(_))
         ));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn we_project(dir: &Path, kind: &str, file: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(
+            dir.join("project.json"),
+            format!(
+                r#"{{"title":"Nebula","type":"{kind}","file":"{file}","preview":"preview.gif","tags":["Space"],"workshopid":"42",
+                "general":{{"supportsaudioprocessing":true,"properties":{{"speed":{{"type":"slider","value":1,"min":0,"max":2,"text":"Speed","order":1}}}}}}}}"#
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("preview.gif"), b"GIF89a").unwrap();
+    }
+
+    #[test]
+    fn imports_packed_scenes_and_video_projects() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = Library {
+            dir: root.path().join("library"),
+        };
+        let scene = root.path().join("123");
+        we_project(&scene, "scene", "scene.pkg");
+        let mut pkg = Vec::new();
+        crate::we::pkg::write(
+            &mut pkg,
+            "PKGV0018",
+            &[("scene.json", br#"{"objects":[]}"#), ("materials/a.tex", b"TEXV")],
+        )
+        .unwrap();
+        std::fs::write(scene.join("scene.pkg"), pkg).unwrap();
+        std::fs::create_dir_all(scene.join("extras")).unwrap();
+        std::fs::write(scene.join("extras/loose.json"), "{}").unwrap();
+        let opts = ImportOptions {
+            copy: false,
+            thumbnails: false,
+            temp_dir: root.path(),
+        };
+        let origin = WorkshopOrigin {
+            id: 42,
+            updated: Some(5),
+            source: Some(scene.clone()),
+        };
+        let w = lib
+            .import_project(&scene, &opts, Some(origin.clone()), Some("Ada".into()))
+            .unwrap();
+        assert_eq!(w.kind(), Kind::Scene);
+        assert_eq!(w.title(), "Nebula");
+        assert!(!w.info.is_absolute_path);
+        assert!(w.dir.join("scene/scene.json").is_file());
+        assert!(w.dir.join("scene/materials/a.tex").is_file());
+        assert!(w.dir.join("scene/extras/loose.json").is_file());
+        assert!(!w.dir.join("scene/scene.pkg").exists());
+        assert_eq!(w.root_dir(), w.dir.join("scene"));
+        assert_eq!(w.thumbnail, Some(w.dir.join("preview.gif")));
+        assert_eq!(w.info.author.as_deref(), Some("Ada"));
+        assert_eq!(w.info.id.as_deref(), Some("42"));
+        assert!(w.we.as_ref().is_some_and(|p| p.audio));
+        assert!(w.wants_audio());
+        assert!(matches!(
+            w.properties,
+            crate::model::wallpaper::PropertySource::WallpaperEngine(_)
+        ));
+        assert_eq!(WorkshopOrigin::load(&w.dir), Some(origin));
+        assert_eq!(lib.find_workshop(42).map(|f| f.id), Some(w.id.clone()));
+        assert!(lib.find_workshop(43).is_none());
+        let s = w.summary();
+        assert_eq!(s.workshop, Some(42));
+        assert_eq!(s.tags, ["Space"]);
+        assert!(s.customizable);
+
+        let video = root.path().join("video");
+        we_project(&video, "video", "clip.mp4");
+        std::fs::write(video.join("clip.mp4"), "v").unwrap();
+        let v = lib.import_project(&video, &opts, None, None).unwrap();
+        assert_eq!(v.kind(), Kind::Video);
+        assert!(v.info.is_absolute_path);
+        assert_eq!(PathBuf::from(&v.source), video.join("clip.mp4"));
+        assert!(matches!(v.properties, crate::model::wallpaper::PropertySource::BuiltinMedia));
+        assert_eq!(v.info.contact.as_deref(), Some("https://steamcommunity.com/sharedfiles/filedetails/?id=42"));
+
+        let copied = lib
+            .import_project(
+                &video,
+                &ImportOptions {
+                    copy: true,
+                    ..opts
+                },
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(!copied.info.is_absolute_path);
+        assert!(copied.dir.join("content/clip.mp4").is_file());
+
+        let imported = lib.import(root.path().to_str().unwrap(), &opts, &mut |_| {}).unwrap();
+        assert_eq!(imported.wallpapers.len(), 2, "{:?}", imported.problems);
+        assert!(imported.problems.is_empty(), "{:?}", imported.problems);
+        assert_eq!(lib.scan().len(), 5);
+    }
+
+    #[test]
+    fn refuses_broken_projects() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = Library {
+            dir: root.path().join("library"),
+        };
+        let opts = ImportOptions {
+            copy: false,
+            thumbnails: false,
+            temp_dir: root.path(),
+        };
+        let missing = root.path().join("missing");
+        we_project(&missing, "scene", "scene.pkg");
+        assert!(matches!(
+            lib.import_project(&missing, &opts, None, None),
+            Err(Error::NotFound(_))
+        ));
+        let bad = root.path().join("bad");
+        we_project(&bad, "scene", "scene.pkg");
+        std::fs::write(bad.join("scene.pkg"), b"nope").unwrap();
+        assert!(lib.import_project(&bad, &opts, None, None).is_err());
+        if !cfg!(windows) {
+            let app = root.path().join("app");
+            we_project(&app, "application", "wp.exe");
+            std::fs::write(app.join("wp.exe"), b"MZ").unwrap();
+            assert!(matches!(
+                lib.import_project(&app, &opts, None, None),
+                Err(Error::Unsupported(_))
+            ));
+        }
+        assert_eq!(std::fs::read_dir(&lib.dir).unwrap().count(), 0);
     }
 
     #[test]
