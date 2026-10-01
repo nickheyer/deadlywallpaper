@@ -5,6 +5,21 @@
 
 A spitefully ported "re-imagining" of the Windows desktop application "Lively Wallpaper", but better and built for Linux, Mac, and Windows.
 
+## Install
+
+| Channel | How |
+| --- | --- |
+| Arch Linux (AUR) | `yay -S deadlywp-bin` |
+| Cargo | `cargo install deadlywp` |
+| Binaries | [Releases](https://github.com/nickheyer/deadlywallpaper/releases) |
+| Source | `make build && make install` |
+
+## Deps
+
+It's possible you will need a library called `libmpv` in order to play video wallpapers.
+On mac, `brew install mpv`.
+On windows, `libmpv-2.dll` next to `deadlywp.exe` on Windows.
+
 ## Commands
 
 ```

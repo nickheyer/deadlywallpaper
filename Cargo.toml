@@ -6,7 +6,22 @@ rust-version = "1.85"
 license = "MIT"
 description = "Deadly Wallpaper: live wallpapers for Linux, macOS and Windows"
 repository = "https://github.com/nickheyer/deadlywallpaper"
+homepage = "https://github.com/nickheyer/deadlywallpaper"
+readme = "README.md"
+keywords = ["wallpaper", "live-wallpaper", "desktop", "lively", "wallpaper-engine"]
+categories = ["multimedia::video", "gui"]
 default-run = "deadlywp"
+include = [
+  "src/**",
+  "assets/we/**",
+  "assets/plasma/**",
+  "assets/icon.png",
+  "assets/icon-32.png",
+  "assets/tray.png",
+  "assets/deadlywp.desktop",
+  "LICENSE",
+  "README.md",
+]
 
 [[bin]]
 name = "deadlywp"
