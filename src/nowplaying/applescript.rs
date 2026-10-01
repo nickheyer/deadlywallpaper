@@ -10,10 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 const SEP: &str = "\u{1f}";
 
 pub fn start(stop: Arc<AtomicBool>, mut sink: Sink) -> Result<()> {
-    let art_file = std::env::temp_dir().join(format!(
-        "deadlywp-art-{}.bin",
-        crate::paths::nonce()
-    ));
+    let art_file = std::env::temp_dir().join(format!("deadlywp-art-{}.bin", crate::paths::nonce()));
     std::thread::Builder::new()
         .name("nowplaying".into())
         .spawn(move || {
@@ -86,7 +83,10 @@ fn state(s: &str) -> Playback {
     }
 }
 
-fn read_music(art_file: &PathBuf, last_art: &mut Option<(String, Art)>) -> Result<Option<NowPlaying>> {
+fn read_music(
+    art_file: &PathBuf,
+    last_art: &mut Option<(String, Art)>,
+) -> Result<Option<NowPlaying>> {
     let script = format!(
         r#"tell application "Music"
     if player state is stopped then return "stopped"

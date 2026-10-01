@@ -47,7 +47,10 @@ impl WeMeta {
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default(),
-            filetype: o.get("filetype").and_then(Value::as_str).map(str::to_string),
+            filetype: o
+                .get("filetype")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             fetchall: o.get("fetchall").and_then(Value::as_bool).unwrap_or(false),
         })
     }

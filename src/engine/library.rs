@@ -139,7 +139,9 @@ impl Library {
             let dir = path
                 .parent()
                 .filter(|p| !p.as_os_str().is_empty())
-                .ok_or_else(|| Error::Invalid(format!("{} has no parent folder", path.display())))?;
+                .ok_or_else(|| {
+                    Error::Invalid(format!("{} has no parent folder", path.display()))
+                })?;
             return self.import_project(dir, opts, None, None);
         }
         let kind = Kind::from_extension(&ext)
@@ -1002,7 +1004,10 @@ mod tests {
         crate::we::pkg::write(
             &mut pkg,
             "PKGV0018",
-            &[("scene.json", br#"{"objects":[]}"#), ("materials/a.tex", b"TEXV")],
+            &[
+                ("scene.json", br#"{"objects":[]}"#),
+                ("materials/a.tex", b"TEXV"),
+            ],
         )
         .unwrap();
         std::fs::write(scene.join("scene.pkg"), pkg).unwrap();
@@ -1056,24 +1061,24 @@ mod tests {
             PathBuf::from(&v.source),
             video.canonicalize().unwrap().join("clip.mp4")
         );
-        assert!(matches!(v.properties, crate::model::wallpaper::PropertySource::BuiltinMedia));
-        assert_eq!(v.info.contact.as_deref(), Some("https://steamcommunity.com/sharedfiles/filedetails/?id=42"));
+        assert!(matches!(
+            v.properties,
+            crate::model::wallpaper::PropertySource::BuiltinMedia
+        ));
+        assert_eq!(
+            v.info.contact.as_deref(),
+            Some("https://steamcommunity.com/sharedfiles/filedetails/?id=42")
+        );
 
         let copied = lib
-            .import_project(
-                &video,
-                &ImportOptions {
-                    copy: true,
-                    ..opts
-                },
-                None,
-                None,
-            )
+            .import_project(&video, &ImportOptions { copy: true, ..opts }, None, None)
             .unwrap();
         assert!(!copied.info.is_absolute_path);
         assert!(copied.dir.join("content/clip.mp4").is_file());
 
-        let imported = lib.import(root.path().to_str().unwrap(), &opts, &mut |_| {}).unwrap();
+        let imported = lib
+            .import(root.path().to_str().unwrap(), &opts, &mut |_| {})
+            .unwrap();
         assert_eq!(imported.wallpapers.len(), 2, "{:?}", imported.problems);
         assert!(imported.problems.is_empty(), "{:?}", imported.problems);
         assert_eq!(lib.scan().len(), 5);

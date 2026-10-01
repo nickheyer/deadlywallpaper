@@ -86,7 +86,8 @@ fn tokenize(s: &str) -> Result<Vec<Token>, String> {
         if c.is_ascii_alphabetic() || c == '_' || c == '$' {
             let start = i;
             while i < b.len()
-                && ((b[i] as char).is_ascii_alphanumeric() || matches!(b[i] as char, '_' | '$' | '.'))
+                && ((b[i] as char).is_ascii_alphanumeric()
+                    || matches!(b[i] as char, '_' | '$' | '.'))
             {
                 i += 1;
             }
@@ -115,10 +116,12 @@ impl Parser<'_> {
     }
 
     fn eat(&mut self, op: &str) -> bool {
-        if self.peek() == Some(&Token::Op(match OPS.iter().find(|o| **o == op) {
-            Some(o) => o,
-            None => return false,
-        })) {
+        if self.peek()
+            == Some(&Token::Op(match OPS.iter().find(|o| **o == op) {
+                Some(o) => o,
+                None => return false,
+            }))
+        {
             self.pos += 1;
             true
         } else {
@@ -283,12 +286,13 @@ fn loose_equal(a: &Value, b: &Value) -> bool {
         (Value::Null, Value::Null) => true,
         (Value::Null, _) | (_, Value::Null) => false,
         (Value::String(x), Value::String(y)) => x == y,
-        (Value::Bool(_), _) | (_, Value::Bool(_)) | (Value::Number(_), _) | (_, Value::Number(_)) => {
-            match (to_number(a), to_number(b)) {
-                (Some(x), Some(y)) => x == y,
-                _ => false,
-            }
-        }
+        (Value::Bool(_), _)
+        | (_, Value::Bool(_))
+        | (Value::Number(_), _)
+        | (_, Value::Number(_)) => match (to_number(a), to_number(b)) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        },
         _ => a == b,
     }
 }
@@ -336,7 +340,13 @@ mod tests {
 
     #[test]
     fn malformed_conditions_keep_the_control_visible() {
-        for expr in ["count.value ==", "(count.value", "count.value >", "'open", "@"] {
+        for expr in [
+            "count.value ==",
+            "(count.value",
+            "count.value >",
+            "'open",
+            "@",
+        ] {
             assert!(evaluate(expr, &env).is_err(), "{expr}");
             assert!(holds(expr, &env), "{expr}");
         }

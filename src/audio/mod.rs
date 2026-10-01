@@ -87,9 +87,7 @@ impl Analyzer {
             let f = &window[i * self.channels..(i + 1) * self.channels];
             *dst = f.iter().sum::<f32>() / self.channels as f32;
         }
-        self.fft
-            .process(&mut self.input, &mut self.spectrum)
-            .ok()?;
+        self.fft.process(&mut self.input, &mut self.spectrum).ok()?;
         let scale = 1.0 / (WINDOW as f32).sqrt();
         let current: Vec<f32> = self
             .spectrum
@@ -119,9 +117,7 @@ impl Analyzer {
         for (i, dst) in self.input.iter_mut().enumerate() {
             *dst = window[i * self.channels + channel];
         }
-        self.fft
-            .process(&mut self.input, &mut self.spectrum)
-            .ok()?;
+        self.fft.process(&mut self.input, &mut self.spectrum).ok()?;
         Some(
             (0..WE_BANDS)
                 .map(|band| {
@@ -200,14 +196,22 @@ mod tests {
         assert_eq!(s.lively.len(), BINS);
         assert_eq!(s.we.len(), WE_BANDS * 2);
         assert!(s.we[10] > 0.9, "left band 10 = {}", s.we[10]);
-        assert!(s.we[WE_BANDS + 10] < 0.01, "right band 10 = {}", s.we[WE_BANDS + 10]);
+        assert!(
+            s.we[WE_BANDS + 10] < 0.01,
+            "right band 10 = {}",
+            s.we[WE_BANDS + 10]
+        );
         assert!(s.we.iter().all(|v| (0.0..=1.0).contains(v)));
         assert!(s.lively[20] > s.lively[60]);
 
         let mut a = Analyzer::new(2);
         let s = a.push(&tone(937.5, 0.9, false)).expect("first window");
         // The first frame eases towards the target by 0.3 at most.
-        assert!((s.we[WE_BANDS + 10] - 0.3).abs() < 1e-6, "{}", s.we[WE_BANDS + 10]);
+        assert!(
+            (s.we[WE_BANDS + 10] - 0.3).abs() < 1e-6,
+            "{}",
+            s.we[WE_BANDS + 10]
+        );
         assert_eq!(s.we[10], 0.0);
     }
 

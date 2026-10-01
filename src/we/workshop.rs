@@ -217,7 +217,11 @@ pub fn browse_url(q: &Query) -> String {
     let mut url = format!(
         "{BROWSE_URL}?appid={APP_ID}&section=readytouseitems&childpublishedfileid=0&l=english&numperpage={PER_PAGE}&browsesort={}&days={}&p={}&searchtext={}",
         q.sort.param(),
-        if TREND_DAYS.contains(&q.days) { q.days } else { 7 },
+        if TREND_DAYS.contains(&q.days) {
+            q.days
+        } else {
+            7
+        },
         q.page.max(1),
         encode(&q.text)
     );
@@ -396,8 +400,7 @@ fn item_from(v: &Value) -> Option<Item> {
 /// Parse the details API's answer; items Steam does not know are left out.
 pub fn parse_details(json: &str) -> Result<Vec<Item>> {
     let v: Value = serde_json::from_str(json)?;
-    Ok(v
-        .pointer("/response/publishedfiledetails")
+    Ok(v.pointer("/response/publishedfiledetails")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
@@ -488,10 +491,7 @@ impl Client {
             .call()
             .map_err(|e| Error::Network(format!("{url}: {e}")))?;
         if !response.status().is_success() {
-            return Err(Error::Network(format!(
-                "{url}: HTTP {}",
-                response.status()
-            )));
+            return Err(Error::Network(format!("{url}: HTTP {}", response.status())));
         }
         Ok(response)
     }
@@ -536,15 +536,11 @@ impl Client {
 
     /// Full details of one item, with the uploader's name from its page.
     pub fn item(&self, id: u64) -> Result<Item> {
-        let mut item = self
-            .details(&[id])?
-            .into_iter()
-            .next()
-            .ok_or_else(|| {
-                Error::NotFound(format!(
-                    "workshop item {id} is not a Wallpaper Engine item, or it is private"
-                ))
-            })?;
+        let mut item = self.details(&[id])?.into_iter().next().ok_or_else(|| {
+            Error::NotFound(format!(
+                "workshop item {id} is not a Wallpaper Engine item, or it is private"
+            ))
+        })?;
         let url = format!("{ITEM_URL}{id}");
         let html = self
             .get(&url)?

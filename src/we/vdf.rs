@@ -234,7 +234,12 @@ mod tests {
             .collect();
         assert_eq!(paths, ["/home/nick/.local/share/Steam", "D:\\SteamLibrary"]);
         assert_eq!(
-            folders.table("1").unwrap().table("apps").unwrap().u64("431960"),
+            folders
+                .table("1")
+                .unwrap()
+                .table("apps")
+                .unwrap()
+                .u64("431960"),
             Some(1234)
         );
         assert_eq!(folders.table("0").unwrap().value("label"), Some(""));
@@ -242,10 +247,9 @@ mod tests {
 
     #[test]
     fn parses_unquoted_tokens_comments_and_escapes() {
-        let root = parse(
-            "// comment\nroot { key value \"quoted key\" \"a \\\"b\\\"\" nested { x 1 } }",
-        )
-        .unwrap();
+        let root =
+            parse("// comment\nroot { key value \"quoted key\" \"a \\\"b\\\"\" nested { x 1 } }")
+                .unwrap();
         let r = root.table("root").unwrap();
         assert_eq!(r.value("key"), Some("value"));
         assert_eq!(r.value("quoted key"), Some("a \"b\""));

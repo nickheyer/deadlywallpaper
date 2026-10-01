@@ -221,11 +221,7 @@ impl Engine {
             Msg::Tray(action) => return self.tray_action(action),
             Msg::Pointer { x, y, kind } => self.pointer(x, y, kind),
             Msg::Audio(spectrum) => {
-                for a in self
-                    .active
-                    .iter_mut()
-                    .filter(|a| a.wallpaper.wants_audio())
-                {
+                for a in self.active.iter_mut().filter(|a| a.wallpaper.wants_audio()) {
                     a.content.audio_data(&spectrum);
                 }
             }
@@ -678,7 +674,10 @@ impl Engine {
                 }
             };
             for (name, control) in props.controls() {
-                if matches!(control.kind, crate::model::props::ControlKind::Folder { .. }) {
+                if matches!(
+                    control.kind,
+                    crate::model::props::ControlKind::Folder { .. }
+                ) {
                     let value = control.value();
                     a.content.apply(&name, &control, value.as_ref());
                 }
@@ -1234,7 +1233,8 @@ impl Engine {
     ) -> Result<String> {
         if let Some(item) = steam::installed_item(&self.steam, id) {
             if let Some(existing) = self.library.find_workshop(id) {
-                let stale = WorkshopOrigin::load(&existing.dir).is_some_and(|o| is_stale(&o, &item));
+                let stale =
+                    WorkshopOrigin::load(&existing.dir).is_some_and(|o| is_stale(&o, &item));
                 if stale {
                     self.failed_items.retain(|(i, _)| *i != id);
                     let author = author.or_else(|| existing.info.author.clone());
@@ -1357,9 +1357,7 @@ impl Engine {
             let entries = self.library.workshop_entries();
             for item in installed {
                 if self.importing.contains(&item.id)
-                    || self
-                        .failed_items
-                        .contains(&(item.id, item.updated))
+                    || self.failed_items.contains(&(item.id, item.updated))
                 {
                     continue;
                 }
@@ -1400,13 +1398,11 @@ impl Engine {
         let updated = item.updated;
         self.job(
             move || {
-                let author = author.or_else(|| {
-                    match workshop::Client::new(&cache).item(id) {
-                        Ok(details) => details.author,
-                        Err(e) => {
-                            log::warn!("workshop item {id} author: {e}");
-                            None
-                        }
+                let author = author.or_else(|| match workshop::Client::new(&cache).item(id) {
+                    Ok(details) => details.author,
+                    Err(e) => {
+                        log::warn!("workshop item {id} author: {e}");
+                        None
                     }
                 });
                 let fresh = lib.import_project(

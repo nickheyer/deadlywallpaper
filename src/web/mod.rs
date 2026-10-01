@@ -365,10 +365,7 @@ pub fn page_for(spec: &ContentSpec<'_>) -> Result<Page> {
 
 /// Configure a builder for `spec`; the platform attaches it to a slot and hands the page to
 /// [`WebContent::new`].
-pub fn builder(
-    spec: &ContentSpec<'_>,
-    tx: MsgSender,
-) -> Result<(WebViewBuilder<'static>, Page)> {
+pub fn builder(spec: &ContentSpec<'_>, tx: MsgSender) -> Result<(WebViewBuilder<'static>, Page)> {
     let page = page_for(spec)?;
     let id = spec.id;
     let load_tx = tx.clone();
@@ -584,15 +581,17 @@ pub fn list_dir(dir: &Path, extensions: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// A path from a file or directory control: absolute as given, or relative to the wallpaper.
+/// A path from a file or directory control: absolute, or relative to the wallpaper.
+/// Rebuilt from its components so every separator is the platform's own: project files and
+/// pages name files with `/`, which Windows keeps verbatim when joined.
 fn user_path(root: Option<&Path>, value: &str) -> PathBuf {
-    let p = Path::new(value);
+    let p: PathBuf = Path::new(value).components().collect();
     if p.is_absolute() {
-        return p.to_path_buf();
+        return p;
     }
     match root {
         Some(r) => r.join(p),
-        None => p.to_path_buf(),
+        None => p,
     }
 }
 
@@ -1185,7 +1184,13 @@ mod tests {
         routes.grants.set_dir("folder", &pictures);
         assert_eq!(
             route(&routes, &file_route(&pictures.join("sub").join("deep.jpg"))),
-            Served::File(pictures.join("sub").join("deep.jpg").canonicalize().unwrap())
+            Served::File(
+                pictures
+                    .join("sub")
+                    .join("deep.jpg")
+                    .canonicalize()
+                    .unwrap()
+            )
         );
         assert_eq!(route(&routes, &traversal), Served::Forbidden);
         assert_eq!(route(&routes, &file_route(&pictures)), Served::Forbidden);
@@ -1217,17 +1222,38 @@ mod tests {
         };
         assert_eq!(
             route(&combined, "materials/own.json"),
-            Served::File(scene.join("materials").join("own.json").canonicalize().unwrap())
+            Served::File(
+                scene
+                    .join("materials")
+                    .join("own.json")
+                    .canonicalize()
+                    .unwrap()
+            )
         );
         assert_eq!(
             route(&combined, "shaders/generic.frag"),
-            Served::File(assets.join("shaders").join("generic.frag").canonicalize().unwrap())
+            Served::File(
+                assets
+                    .join("shaders")
+                    .join("generic.frag")
+                    .canonicalize()
+                    .unwrap()
+            )
         );
         assert_eq!(
             route(&combined, "__assets/shaders/generic.frag"),
-            Served::File(assets.join("shaders").join("generic.frag").canonicalize().unwrap())
+            Served::File(
+                assets
+                    .join("shaders")
+                    .join("generic.frag")
+                    .canonicalize()
+                    .unwrap()
+            )
         );
-        assert_eq!(route(&combined, "__assets/../scene/materials/own.json"), Served::Forbidden);
+        assert_eq!(
+            route(&combined, "__assets/../scene/materials/own.json"),
+            Served::Forbidden
+        );
         assert_eq!(route(&combined, "shaders/missing.frag"), Served::NotFound);
         let plain = Routes {
             combined: false,
@@ -1235,7 +1261,10 @@ mod tests {
         };
         assert_eq!(route(&plain, "shaders/generic.frag"), Served::NotFound);
         let no_assets = Routes::for_root(&scene);
-        assert_eq!(route(&no_assets, "__assets/shaders/generic.frag"), Served::NotFound);
+        assert_eq!(
+            route(&no_assets, "__assets/shaders/generic.frag"),
+            Served::NotFound
+        );
     }
 
     #[test]
@@ -1252,11 +1281,13 @@ mod tests {
         assert_eq!(route(&routes, "index.html"), Served::NotFound);
         let response = serve(&routes, request(&page_url("__deadlywp/scene.html")));
         assert_eq!(response.status(), 200);
-        assert!(bridge_for(Some(&General {
-            fps: 30,
-            language: "de-de".into()
-        }))
-        .ends_with("__dwp.general({fps: 30, language: \"de-de\"});"));
+        assert!(
+            bridge_for(Some(&General {
+                fps: 30,
+                language: "de-de".into()
+            }))
+            .ends_with("__dwp.general({fps: 30, language: \"de-de\"});")
+        );
         assert_eq!(bridge_for(None), BRIDGE);
     }
 
@@ -1300,7 +1331,14 @@ mod tests {
             },
             Some(meta("color")),
         );
-        let u = we_apply(Some(&root), &grants, "tint", &color, Some(&json!("#ff8000"))).unwrap();
+        let u = we_apply(
+            Some(&root),
+            &grants,
+            "tint",
+            &color,
+            Some(&json!("#ff8000")),
+        )
+        .unwrap();
         assert_eq!(u.value, json!("1 0.501961 0"));
         assert_eq!(u.files, None);
 
@@ -1382,8 +1420,16 @@ mod tests {
                 pictures.join("b.jpg").to_string_lossy().into_owned(),
             ]
         );
-        assert!(grants.granted(&pictures.join("nested").join("deep.png")).is_some());
-        assert!(grants.granted(&root.join("materials").join("default.png")).is_none());
+        assert!(
+            grants
+                .granted(&pictures.join("nested").join("deep.png"))
+                .is_some()
+        );
+        assert!(
+            grants
+                .granted(&root.join("materials").join("default.png"))
+                .is_none()
+        );
 
         let videos = control(
             ControlKind::Folder {
@@ -1415,7 +1461,10 @@ mod tests {
             },
             None,
         );
-        assert_eq!(we_apply(None, &grants, "l", &label, Some(&json!("x"))), None);
+        assert_eq!(
+            we_apply(None, &grants, "l", &label, Some(&json!("x"))),
+            None
+        );
         let button = control(
             ControlKind::Button {
                 value: String::new(),

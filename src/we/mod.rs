@@ -37,7 +37,11 @@ fn system_locale() -> String {
 
 /// Map a POSIX or BCP 47 locale to Wallpaper Engine's code list.
 pub fn to_we_locale(locale: &str) -> String {
-    let base = locale.split(['.', '@']).next().unwrap_or("").replace('_', "-");
+    let base = locale
+        .split(['.', '@'])
+        .next()
+        .unwrap_or("")
+        .replace('_', "-");
     let mut parts = base.split('-');
     let lang = parts.next().unwrap_or("en").to_ascii_lowercase();
     let region = parts
@@ -54,10 +58,10 @@ pub fn to_we_locale(locale: &str) -> String {
         };
     }
     const KNOWN: &[&str] = &[
-        "ar-sa", "be-by", "bg-bg", "cs-cz", "da-dk", "de-de", "el-gr", "en-us", "es-es",
-        "eu-es", "fa-ir", "fi-fi", "fr-fr", "he-il", "hu-hu", "id-id", "it-it", "ja-jp",
-        "ko-kr", "lt-lt", "nb-no", "nl-nl", "pl-pl", "pt-br", "pt-pt", "ro-ro", "ru-ru",
-        "sk-sk", "sl-si", "sv-se", "th-th", "tr-tr", "uk-ua", "vi-vn",
+        "ar-sa", "be-by", "bg-bg", "cs-cz", "da-dk", "de-de", "el-gr", "en-us", "es-es", "eu-es",
+        "fa-ir", "fi-fi", "fr-fr", "he-il", "hu-hu", "id-id", "it-it", "ja-jp", "ko-kr", "lt-lt",
+        "nb-no", "nl-nl", "pl-pl", "pt-br", "pt-pt", "ro-ro", "ru-ru", "sk-sk", "sl-si", "sv-se",
+        "th-th", "tr-tr", "uk-ua", "vi-vn",
     ];
     if let Some(r) = &region {
         let exact = format!("{lang}-{r}");

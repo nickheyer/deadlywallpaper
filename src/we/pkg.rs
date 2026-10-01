@@ -10,9 +10,9 @@
 //! ```
 
 use crate::error::{Error, Result, ctx};
-use std::io::{Read, Seek, SeekFrom};
 #[cfg(test)]
 use std::io::Write;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 
 const MAX_NAME: u32 = 4096;
@@ -49,9 +49,7 @@ impl<R: Read + Seek> Package<R> {
         }
         let count = read_u32(&mut reader)?;
         if count > MAX_ENTRIES {
-            return Err(Error::Invalid(format!(
-                "package claims {count} entries"
-            )));
+            return Err(Error::Invalid(format!("package claims {count} entries")));
         }
         let mut entries = Vec::with_capacity(count as usize);
         for _ in 0..count {
@@ -201,7 +199,10 @@ mod tests {
         let mut pkg = Package::read(Cursor::new(sample())).unwrap();
         let names: Vec<&str> = pkg.entries().iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, ["scene.json", "materials/a.json", "materials/a.tex"]);
-        assert_eq!(pkg.read_entry("materials/a.tex").unwrap(), [0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(
+            pkg.read_entry("materials/a.tex").unwrap(),
+            [0, 1, 2, 3, 4, 5, 6, 7]
+        );
         assert_eq!(pkg.read_entry("scene.json").unwrap(), br#"{"objects":[]}"#);
         assert!(pkg.read_entry("missing").is_err());
         assert!(pkg.contains("materials/a.json"));
@@ -212,7 +213,9 @@ mod tests {
             b"{}"
         );
         assert_eq!(
-            std::fs::read(dir.path().join("materials/a.tex")).unwrap().len(),
+            std::fs::read(dir.path().join("materials/a.tex"))
+                .unwrap()
+                .len(),
             8
         );
     }

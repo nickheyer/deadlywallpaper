@@ -368,7 +368,9 @@ fn print_workshop_item(item: &we::workshop::Item, full: bool) {
             item.updated,
             item.favorites,
             item.views,
-            item.stars.map(|s| s.to_string()).unwrap_or_else(|| "-".into())
+            item.stars
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "-".into())
         );
         if !item.description.trim().is_empty() {
             println!("\n{}", item.description.trim());

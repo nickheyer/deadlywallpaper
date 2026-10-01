@@ -1,9 +1,9 @@
 use crate::ipc::{AudioDevice, Capabilities};
 use crate::model::Display;
-use crate::we::steam::SteamInfo;
 use crate::model::settings::{AudioOutput, PauseScope, Scaler, Settings, StreamQuality, Theme};
 use crate::ui::widgets::{divider, row, toggle};
 use crate::ui::{theme, widgets};
+use crate::we::steam::SteamInfo;
 use eframe::egui::{self, RichText};
 
 pub struct Context<'a> {
@@ -302,17 +302,26 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
             section(ui, "Steam", |ui| {
                 let detected = cx.steam.and_then(|s| s.steam_dir.clone());
                 let (label, help) = match (&s.wallpaper_engine.steam_dir, &detected) {
-                    (Some(dir), _) => (dir.to_string_lossy().into_owned(), "Set here; the detected folder is not used".to_string()),
-                    (None, Some(dir)) => (dir.to_string_lossy().into_owned(), "Detected automatically".to_string()),
+                    (Some(dir), _) => (
+                        dir.to_string_lossy().into_owned(),
+                        "Set here; the detected folder is not used".to_string(),
+                    ),
+                    (None, Some(dir)) => (
+                        dir.to_string_lossy().into_owned(),
+                        "Detected automatically".to_string(),
+                    ),
                     (None, None) => (
                         "Not found".to_string(),
-                        "Install Steam, or point at its folder (the one holding steamapps)".to_string(),
+                        "Install Steam, or point at its folder (the one holding steamapps)"
+                            .to_string(),
                     ),
                 };
                 row(ui, "Steam folder", &format!("{label}\n{help}"), |ui| {
                     if ui.add(theme::secondary_button("Change…")).clicked() {
                         let mut dialog = rfd::FileDialog::new();
-                        if let Some(dir) = s.wallpaper_engine.steam_dir.as_ref().or(detected.as_ref()) {
+                        if let Some(dir) =
+                            s.wallpaper_engine.steam_dir.as_ref().or(detected.as_ref())
+                        {
                             dialog = dialog.set_directory(dir);
                         }
                         if let Some(dir) = dialog.pick_folder() {
@@ -352,25 +361,37 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                         "Scene wallpapers need Wallpaper Engine's assets folder: install Wallpaper Engine through Steam, or point at a copy of its assets folder".to_string(),
                     ),
                 };
-                row(ui, "Wallpaper Engine assets", &format!("{label}\n{help}"), |ui| {
-                    if ui.add(theme::secondary_button("Change…")).clicked() {
-                        let mut dialog = rfd::FileDialog::new();
-                        if let Some(dir) = s.wallpaper_engine.assets_dir.as_ref().or(detected_assets.as_ref()) {
-                            dialog = dialog.set_directory(dir);
+                row(
+                    ui,
+                    "Wallpaper Engine assets",
+                    &format!("{label}\n{help}"),
+                    |ui| {
+                        if ui.add(theme::secondary_button("Change…")).clicked() {
+                            let mut dialog = rfd::FileDialog::new();
+                            if let Some(dir) = s
+                                .wallpaper_engine
+                                .assets_dir
+                                .as_ref()
+                                .or(detected_assets.as_ref())
+                            {
+                                dialog = dialog.set_directory(dir);
+                            }
+                            if let Some(dir) = dialog.pick_folder() {
+                                s.wallpaper_engine.assets_dir = Some(dir);
+                            }
                         }
-                        if let Some(dir) = dialog.pick_folder() {
-                            s.wallpaper_engine.assets_dir = Some(dir);
+                        if s.wallpaper_engine.assets_dir.is_some()
+                            && ui
+                                .add(theme::secondary_button("Detect"))
+                                .on_hover_text(
+                                    "Forget this folder and use the Wallpaper Engine install's",
+                                )
+                                .clicked()
+                        {
+                            s.wallpaper_engine.assets_dir = None;
                         }
-                    }
-                    if s.wallpaper_engine.assets_dir.is_some()
-                        && ui
-                            .add(theme::secondary_button("Detect"))
-                            .on_hover_text("Forget this folder and use the Wallpaper Engine install's")
-                            .clicked()
-                    {
-                        s.wallpaper_engine.assets_dir = None;
-                    }
-                });
+                    },
+                );
             });
             section(ui, "Workshop", |ui| {
                 row(

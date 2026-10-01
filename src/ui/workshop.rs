@@ -314,7 +314,9 @@ pub fn page(ui: &mut egui::Ui, v: &View, state: &mut State, backend: &Backend) -
             .on_hover_text("Fetch this item through Steam and add it to the library");
         let edit = ui.add(
             egui::TextEdit::singleline(&mut state.paste)
-                .hint_text(RichText::new("Item id or Steam URL").color(theme::palette(ui).text_faint))
+                .hint_text(
+                    RichText::new("Item id or Steam URL").color(theme::palette(ui).text_faint),
+                )
                 .desired_width(230.0)
                 .margin(Margin::symmetric(10, 7)),
         );
@@ -361,7 +363,9 @@ pub fn page(ui: &mut egui::Ui, v: &View, state: &mut State, backend: &Backend) -
             .resizable(false)
             .show_separator_line(false)
             .frame(panel_frame)
-            .show(ui, |ui| details_panel(ui, v, state, backend, id, &mut actions));
+            .show(ui, |ui| {
+                details_panel(ui, v, state, backend, id, &mut actions)
+            });
     }
     egui::CentralPanel::default()
         .frame(Frame::NONE)
@@ -482,7 +486,11 @@ fn filter_bar(ui: &mut egui::Ui, state: &mut State) -> bool {
             changed = true;
         }
         if typed {
-            ui.label(RichText::new("Press Enter to search").small().color(p.text_faint));
+            ui.label(
+                RichText::new("Press Enter to search")
+                    .small()
+                    .color(p.text_faint),
+            );
         }
         egui::ComboBox::from_id_salt("workshop-sort")
             .selected_text(state.query.sort.label())
@@ -612,7 +620,13 @@ fn listing(
 ) {
     let p = theme::palette(ui);
     if let Some(e) = state.error.clone() {
-        if widgets::empty_state(ui, "⚠", "The Workshop could not be reached", &e, Some("Retry")) {
+        if widgets::empty_state(
+            ui,
+            "⚠",
+            "The Workshop could not be reached",
+            &e,
+            Some("Retry"),
+        ) {
             state.error = None;
             state.search(backend, &ui.ctx().clone());
         }
@@ -655,7 +669,8 @@ fn listing(
                 });
             }
             for row in items.chunks(cols) {
-                let (row_rect, _) = ui.allocate_exact_size(egui::vec2(avail, card_h), Sense::hover());
+                let (row_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(avail, card_h), Sense::hover());
                 if !ui.is_rect_visible(row_rect) {
                     continue;
                 }
@@ -683,7 +698,14 @@ fn kind_of(item: &Item) -> Kind {
 
 /// Draw a preview covering `rect`; spinner while it downloads, a glyph with the error when it
 /// could not be fetched.
-fn preview(ui: &mut egui::Ui, state: &mut State, backend: &Backend, item: &Item, rect: Rect, corner: CornerRadius) {
+fn preview(
+    ui: &mut egui::Ui,
+    state: &mut State,
+    backend: &Backend,
+    item: &Item,
+    rect: Rect,
+    corner: CornerRadius,
+) {
     let p = theme::palette(ui);
     let kind = kind_of(item);
     let url = item.preview_sized(PREVIEW_PX);
@@ -715,7 +737,11 @@ fn preview(ui: &mut egui::Ui, state: &mut State, backend: &Backend, item: &Item,
         }
         Some(Preview::Failed(e)) => {
             widgets::thumbnail(ui, rect, None, kind, corner);
-            failed_glyph(ui, rect, &format!("The preview could not be downloaded: {e}"));
+            failed_glyph(
+                ui,
+                rect,
+                &format!("The preview could not be downloaded: {e}"),
+            );
         }
         Some(Preview::Loading) => {
             widgets::thumbnail(ui, rect, None, kind, corner);
@@ -746,8 +772,13 @@ fn failed_glyph(ui: &mut egui::Ui, rect: Rect, tooltip: &str) {
         FontId::proportional(24.0),
         p.warning,
     );
-    ui.interact(glyph, ui.id().with(("preview-failed", rect.min.x as i32, rect.min.y as i32)), Sense::hover())
-        .on_hover_text(tooltip);
+    ui.interact(
+        glyph,
+        ui.id()
+            .with(("preview-failed", rect.min.x as i32, rect.min.y as i32)),
+        Sense::hover(),
+    )
+    .on_hover_text(tooltip);
 }
 
 fn state_badge(state: &ItemState) -> Option<(&'static str, bool)> {
@@ -761,28 +792,55 @@ fn state_badge(state: &ItemState) -> Option<(&'static str, bool)> {
 }
 
 /// The one action that moves an item forward from where it stands.
-fn primary_action(item: &Item, state: &ItemState, v: &View, steam_found: bool) -> (&'static str, Option<Action>, &'static str) {
+fn primary_action(
+    item: &Item,
+    state: &ItemState,
+    v: &View,
+    steam_found: bool,
+) -> (&'static str, Option<Action>, &'static str) {
     let get = || Action::Get {
         id: item.id,
         title: Some(item.title.clone()),
         author: item.author.clone(),
     };
     match state {
-        ItemState::InLibrary(w) => ("Apply", Some(Action::Apply { wallpaper: w.clone() }), "Show it on the selected display"),
+        ItemState::InLibrary(w) => (
+            "Apply",
+            Some(Action::Apply {
+                wallpaper: w.clone(),
+            }),
+            "Show it on the selected display",
+        ),
         ItemState::Stale(_) => (
             "Update",
             Some(get()),
             "Refresh the library entry from Steam's newer download",
         ),
-        ItemState::Downloaded => ("Add to library", Some(get()), "Steam has it already; add it to the library"),
-        ItemState::Pending => ("Cancel", Some(Action::Forget { id: item.id }), "Stop waiting for this download"),
+        ItemState::Downloaded => (
+            "Add to library",
+            Some(get()),
+            "Steam has it already; add it to the library",
+        ),
+        ItemState::Pending => (
+            "Cancel",
+            Some(Action::Forget { id: item.id }),
+            "Stop waiting for this download",
+        ),
         ItemState::Unknown => {
             if !v.connected {
                 ("Get", None, "Connecting to the daemon…")
             } else if !steam_found {
-                ("Get", None, "Steam was not found: install Steam and Wallpaper Engine, or set the Steam folder in Settings")
+                (
+                    "Get",
+                    None,
+                    "Steam was not found: install Steam and Wallpaper Engine, or set the Steam folder in Settings",
+                )
             } else {
-                ("Get", Some(get()), "Open its Steam page to subscribe; it is added as soon as Steam finishes downloading it")
+                (
+                    "Get",
+                    Some(get()),
+                    "Open its Steam page to subscribe; it is added as soon as Steam finishes downloading it",
+                )
             }
         }
     }
@@ -816,9 +874,15 @@ fn card(
     } else {
         Stroke::new(1.0, p.stroke.lerp_to_gamma(p.stroke_strong, t))
     };
-    ui.painter()
-        .rect(rect, CornerRadius::same(12), fill, stroke, StrokeKind::Inside);
-    let image_rect = Rect::from_min_size(rect.min, egui::vec2(rect.width(), rect.width())).shrink(1.5);
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(12),
+        fill,
+        stroke,
+        StrokeKind::Inside,
+    );
+    let image_rect =
+        Rect::from_min_size(rect.min, egui::vec2(rect.width(), rect.width())).shrink(1.5);
     let corners = CornerRadius {
         nw: 11,
         ne: 11,
@@ -832,7 +896,11 @@ fn card(
             image_rect.min + egui::vec2(8.0, 8.0),
             Align2::LEFT_TOP,
             label,
-            if accent { p.accent } else { Color32::from_black_alpha(170) },
+            if accent {
+                p.accent
+            } else {
+                Color32::from_black_alpha(170)
+            },
             Color32::WHITE,
         );
     }
@@ -1034,9 +1102,20 @@ fn details_panel(
             ui.spacing_mut().item_spacing.y = 8.0;
             let width = ui.available_width();
             let (image_rect, _) = ui.allocate_exact_size(egui::vec2(width, width), Sense::hover());
-            preview(ui, state, backend, &item, image_rect, CornerRadius::same(10));
-            let close = Rect::from_min_size(image_rect.right_top() + egui::vec2(-36.0, 8.0), egui::Vec2::splat(28.0));
-            let mut close_ui = ui.new_child(UiBuilder::new().id_salt("workshop-close").max_rect(close));
+            preview(
+                ui,
+                state,
+                backend,
+                &item,
+                image_rect,
+                CornerRadius::same(10),
+            );
+            let close = Rect::from_min_size(
+                image_rect.right_top() + egui::vec2(-36.0, 8.0),
+                egui::Vec2::splat(28.0),
+            );
+            let mut close_ui =
+                ui.new_child(UiBuilder::new().id_salt("workshop-close").max_rect(close));
             if close_ui
                 .add(
                     Button::new(RichText::new("✖").color(Color32::WHITE))
@@ -1051,7 +1130,15 @@ fn details_panel(
                 state.selected = None;
             }
             ui.add_space(4.0);
-            ui.add(egui::Label::new(RichText::new(&item.title).size(17.0).strong().color(p.text_strong)).wrap());
+            ui.add(
+                egui::Label::new(
+                    RichText::new(&item.title)
+                        .size(17.0)
+                        .strong()
+                        .color(p.text_strong),
+                )
+                .wrap(),
+            );
             match &item.author {
                 Some(a) => theme::weak(ui, &format!("by {a}")),
                 None if state.detail_loading == Some(id) => theme::weak(ui, "by …"),
@@ -1083,7 +1170,9 @@ fn details_panel(
                     if matches!(item_state, ItemState::Stale(_))
                         && ui.add(theme::secondary_button("Apply")).clicked()
                     {
-                        actions.push(Action::Apply { wallpaper: w.clone() });
+                        actions.push(Action::Apply {
+                            wallpaper: w.clone(),
+                        });
                     }
                 }
                 if ui
@@ -1105,18 +1194,46 @@ fn details_panel(
                         ui.add(egui::Label::new(RichText::new(value).color(p.text)).wrap());
                         ui.end_row();
                     };
-                    fact("Type", item.kind().map(|k| k.tag().to_string()).unwrap_or_else(|| "Unknown".into()));
+                    fact(
+                        "Type",
+                        item.kind()
+                            .map(|k| k.tag().to_string())
+                            .unwrap_or_else(|| "Unknown".into()),
+                    );
                     fact(
                         "Rating",
-                        item.rating().map(|r| r.tag().to_string()).unwrap_or_else(|| "Not rated".into()),
+                        item.rating()
+                            .map(|r| r.tag().to_string())
+                            .unwrap_or_else(|| "Not rated".into()),
                     );
                     fact("Stars", stars_text(&item));
                     fact("Subscribers", group_digits(item.subscriptions));
                     fact("Favorites", group_digits(item.favorites));
                     fact("Views", group_digits(item.views));
-                    fact("Size", if item.size > 0 { size_text(item.size) } else { "Unknown".into() });
-                    fact("Updated", if item.updated > 0 { date_text(item.updated) } else { "Unknown".into() });
-                    fact("Posted", if item.created > 0 { date_text(item.created) } else { "Unknown".into() });
+                    fact(
+                        "Size",
+                        if item.size > 0 {
+                            size_text(item.size)
+                        } else {
+                            "Unknown".into()
+                        },
+                    );
+                    fact(
+                        "Updated",
+                        if item.updated > 0 {
+                            date_text(item.updated)
+                        } else {
+                            "Unknown".into()
+                        },
+                    );
+                    fact(
+                        "Posted",
+                        if item.created > 0 {
+                            date_text(item.created)
+                        } else {
+                            "Unknown".into()
+                        },
+                    );
                     fact("Item id", item.id.to_string());
                 });
             if !item.tags.is_empty() {
@@ -1147,12 +1264,20 @@ fn details_panel(
             if state.detail_loading == Some(id) {
                 ui.horizontal(|ui| {
                     ui.add(egui::Spinner::new().size(12.0).color(p.text_weak));
-                    ui.label(RichText::new("Fetching the full description…").small().color(p.text_weak));
+                    ui.label(
+                        RichText::new("Fetching the full description…")
+                            .small()
+                            .color(p.text_weak),
+                    );
                 });
             }
             if let Some((e, msg)) = &state.detail_error {
                 if *e == id {
-                    ui.label(RichText::new(format!("Full details unavailable: {msg}")).small().color(p.warning));
+                    ui.label(
+                        RichText::new(format!("Full details unavailable: {msg}"))
+                            .small()
+                            .color(p.warning),
+                    );
                 }
             }
             ui.add_space(8.0);
@@ -1265,7 +1390,10 @@ mod tests {
             ],
             pending: vec![4],
         })));
-        assert_eq!(state.item_state(1), ItemState::InLibrary("one-000001".into()));
+        assert_eq!(
+            state.item_state(1),
+            ItemState::InLibrary("one-000001".into())
+        );
         assert_eq!(state.item_state(2), ItemState::Stale("two-000002".into()));
         assert_eq!(state.item_state(3), ItemState::Downloaded);
         assert_eq!(state.item_state(4), ItemState::Pending);

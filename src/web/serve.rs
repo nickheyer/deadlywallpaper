@@ -364,7 +364,8 @@ mod tests {
         assert!(body.starts_with("HTTP/1.1 200"), "{body}");
         assert!(body.contains("Content-Type: text/html"), "{body}");
 
-        let outside = std::env::temp_dir().join(format!("deadlywp-grant-{}", crate::paths::nonce()));
+        let outside =
+            std::env::temp_dir().join(format!("deadlywp-grant-{}", crate::paths::nonce()));
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("user.png"), b"user").unwrap();
         let encoded = outside

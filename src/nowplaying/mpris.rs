@@ -16,8 +16,19 @@ const ROOT: &str = "org.mpris.MediaPlayer2";
 
 /// Desktop entries of players whose content is video.
 const VIDEO_PLAYERS: &[&str] = &[
-    "mpv", "vlc", "celluloid", "totem", "haruna", "smplayer", "dragon", "kodi", "jellyfin",
-    "plex", "mplayer", "kaffeine", "gnome-videos",
+    "mpv",
+    "vlc",
+    "celluloid",
+    "totem",
+    "haruna",
+    "smplayer",
+    "dragon",
+    "kodi",
+    "jellyfin",
+    "plex",
+    "mplayer",
+    "kaffeine",
+    "gnome-videos",
 ];
 
 pub fn start(stop: Arc<AtomicBool>, mut sink: Sink) -> Result<()> {
@@ -66,11 +77,7 @@ fn read(conn: &Connection, chosen: &mut Option<String>) -> zbus::Result<Option<N
                     .position(|(n, p, _)| n == c && *p != Playback::Stopped)
             })
         })
-        .or_else(|| {
-            readings
-                .iter()
-                .position(|(_, p, _)| *p == Playback::Paused)
-        });
+        .or_else(|| readings.iter().position(|(_, p, _)| *p == Playback::Paused));
     Ok(match pick {
         Some(i) => {
             let (name, _, np) = readings.swap_remove(i);
@@ -97,9 +104,11 @@ fn read_player(conn: &Connection, name: &str) -> zbus::Result<NowPlaying> {
         metadata
             .get(key)
             .and_then(|v| {
-                String::try_from(v.clone())
-                    .ok()
-                    .or_else(|| Vec::<String>::try_from(v.clone()).ok().map(|l| l.join(", ")))
+                String::try_from(v.clone()).ok().or_else(|| {
+                    Vec::<String>::try_from(v.clone())
+                        .ok()
+                        .map(|l| l.join(", "))
+                })
             })
             .unwrap_or_default()
     };

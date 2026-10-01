@@ -44,10 +44,7 @@ pub fn locate(steam_override: Option<&Path>, assets_override: Option<&Path>) -> 
         .map(Path::to_path_buf)
         .filter(|p| p.is_dir())
         .or_else(|| candidates().into_iter().find(|p| is_steam_dir(p)));
-    let libraries = steam_dir
-        .as_deref()
-        .map(libraries)
-        .unwrap_or_default();
+    let libraries = steam_dir.as_deref().map(libraries).unwrap_or_default();
     let install_dir = libraries
         .iter()
         .map(|lib| lib.join("steamapps").join("common").join(INSTALL_DIR))
@@ -128,10 +125,7 @@ pub fn libraries(steam_dir: &Path) -> Vec<PathBuf> {
     if let Ok(text) = std::fs::read_to_string(&vdf_path) {
         match vdf::parse(&text) {
             Ok(root) => {
-                let folders = root
-                    .table("libraryfolders")
-                    .cloned()
-                    .unwrap_or_default();
+                let folders = root.table("libraryfolders").cloned().unwrap_or_default();
                 for (key, node) in folders.iter() {
                     match node {
                         vdf::Node::Table(t) => {
@@ -199,7 +193,14 @@ pub fn item_at(dir: &Path) -> Option<InstalledItem> {
         workshop.file_name()?.to_str()?,
         steamapps.file_name()?.to_str()?,
     ];
-    if names != [APP_ID.to_string().as_str(), "content", "workshop", "steamapps"] {
+    if names
+        != [
+            APP_ID.to_string().as_str(),
+            "content",
+            "workshop",
+            "steamapps",
+        ]
+    {
         return None;
     }
     let library = steamapps.parent()?;
@@ -354,7 +355,10 @@ mod tests {
         let steam = root.path().join("steam");
         std::fs::create_dir_all(steam.join("steamapps")).unwrap();
         let lib = library_with(root.path(), 123, Some(1700000000));
-        let install = lib.join("steamapps/common").join(INSTALL_DIR).join("assets");
+        let install = lib
+            .join("steamapps/common")
+            .join(INSTALL_DIR)
+            .join("assets");
         std::fs::create_dir_all(install.join("shaders")).unwrap();
         std::fs::create_dir_all(install.join("effects")).unwrap();
         std::fs::write(
@@ -387,7 +391,10 @@ mod tests {
         let at = item_at(&items[0].dir).expect("a workshop folder");
         assert_eq!((at.id, at.updated), (123, Some(1700000000)));
         assert_eq!(item_at(&root.path().join("elsewhere").join("123")), None);
-        assert_eq!(item_at(&lib.join("steamapps/workshop/content/570/123")), None);
+        assert_eq!(
+            item_at(&lib.join("steamapps/workshop/content/570/123")),
+            None
+        );
     }
 
     #[test]
@@ -399,7 +406,10 @@ mod tests {
         assert_eq!(info.assets_dir.as_deref(), Some(assets.as_path()));
         assert!(info.assets_overridden);
         assert!(info.install_dir.is_none());
-        let none = locate(Some(&root.path().join("nope")), Some(&root.path().join("gone")));
+        let none = locate(
+            Some(&root.path().join("nope")),
+            Some(&root.path().join("gone")),
+        );
         assert!(none.assets_dir.is_none() || !none.assets_overridden);
     }
 
@@ -414,7 +424,11 @@ mod tests {
             ..SteamInfo::default()
         };
         let items = installed(&info);
-        assert_eq!(items.len(), 1, "only folders holding project.json are items");
+        assert_eq!(
+            items.len(),
+            1,
+            "only folders holding project.json are items"
+        );
         assert_eq!(items[0].id, 7);
         assert_eq!(items[0].updated, None);
     }

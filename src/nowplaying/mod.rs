@@ -493,7 +493,10 @@ mod tests {
             position: 1.0,
             duration: 2.0,
         };
-        assert_eq!(name.payload(), serde_json::json!({"position": 1.0, "duration": 2.0}));
+        assert_eq!(
+            name.payload(),
+            serde_json::json!({"position": 1.0, "duration": 2.0})
+        );
         assert_eq!(
             MediaEvent::Playback {
                 state: Playback::Paused

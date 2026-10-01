@@ -325,11 +325,7 @@ impl Project {
     }
 }
 
-fn parse_property(
-    key: &str,
-    v: &Value,
-    localize: &dyn Fn(&str) -> String,
-) -> Option<Property> {
+fn parse_property(key: &str, v: &Value, localize: &dyn Fn(&str) -> String) -> Option<Property> {
     let o = v.as_object()?;
     let s = |k: &str| o.get(k).and_then(Value::as_str);
     let f = |k: &str| o.get(k).and_then(number);
@@ -450,7 +446,10 @@ pub fn hex_of(rgb: [f64; 3]) -> String {
 /// `#rrggbb` (or `#rgb`) to the `"r g b"` string Wallpaper Engine uses.
 pub fn hex_to_we(hex: &str) -> String {
     let h = hex.trim().trim_start_matches('#');
-    let digits: Vec<u8> = h.bytes().filter_map(|b| (b as char).to_digit(16).map(|d| d as u8)).collect();
+    let digits: Vec<u8> = h
+        .bytes()
+        .filter_map(|b| (b as char).to_digit(16).map(|d| d as u8))
+        .collect();
     let (r, g, b) = match digits.len() {
         3 => (digits[0] * 17, digits[1] * 17, digits[2] * 17),
         n if n >= 6 => (
@@ -464,7 +463,11 @@ pub fn hex_to_we(hex: &str) -> String {
         let v = c as f64 / 255.0;
         let s = format!("{v:.6}");
         let s = s.trim_end_matches('0').trim_end_matches('.');
-        if s.is_empty() { "0".to_string() } else { s.to_string() }
+        if s.is_empty() {
+            "0".to_string()
+        } else {
+            s.to_string()
+        }
     };
     format!("{} {} {}", f(r), f(g), f(b))
 }
@@ -583,7 +586,17 @@ mod tests {
         let keys: Vec<&str> = p.properties.iter().map(|p| p.key.as_str()).collect();
         assert_eq!(
             keys,
-            ["schemecolor", "hdr", "showsun", "count", "speed", "style", "name", "bg", "pics"]
+            [
+                "schemecolor",
+                "hdr",
+                "showsun",
+                "count",
+                "speed",
+                "style",
+                "name",
+                "bg",
+                "pics"
+            ]
         );
         assert_eq!(p.properties[0].text, "Scheme color");
         assert_eq!(p.properties[3].text, "Count");
@@ -592,7 +605,12 @@ mod tests {
             Some("count.value > 2")
         );
         match &p.properties[4].kind {
-            PropertyKind::Slider { value, min, max, step } => {
+            PropertyKind::Slider {
+                value,
+                min,
+                max,
+                step,
+            } => {
                 assert_eq!((*value, *min, *max), (2.0, 0.5, 5.0));
                 assert!((step - 0.1).abs() < 1e-9);
             }
@@ -612,7 +630,11 @@ mod tests {
         }
         assert!(matches!(
             &p.properties[8].kind,
-            PropertyKind::Directory { fetch_all: true, file_type: FileType::Image, .. }
+            PropertyKind::Directory {
+                fetch_all: true,
+                file_type: FileType::Image,
+                ..
+            }
         ));
         assert_eq!(p.properties[1].kind, PropertyKind::Group);
     }
@@ -624,7 +646,12 @@ mod tests {
         let names: Vec<String> = controls.controls().into_iter().map(|(n, _)| n).collect();
         assert_eq!(names[0], "schemecolor");
         let color = controls.get("schemecolor").unwrap();
-        assert_eq!(color.kind, ControlKind::Color { value: "#8040ff".into() });
+        assert_eq!(
+            color.kind,
+            ControlKind::Color {
+                value: "#8040ff".into()
+            }
+        );
         assert_eq!(color.we.as_ref().unwrap().kind, "color");
         let style = controls.get("style").unwrap();
         match style.kind {
@@ -634,12 +661,24 @@ mod tests {
             }
             _ => panic!(),
         }
-        assert_eq!(style.we.as_ref().unwrap().values, vec![json!("a"), json!(2)]);
+        assert_eq!(
+            style.we.as_ref().unwrap().values,
+            vec![json!("a"), json!(2)]
+        );
         let sun = controls.get("showsun").unwrap();
         assert_eq!(sun.condition.as_deref(), Some("count.value > 2"));
-        assert!(matches!(controls.get("pics").unwrap().kind, ControlKind::Folder { .. }));
-        assert!(matches!(controls.get("bg").unwrap().kind, ControlKind::File { .. }));
-        assert!(matches!(controls.get("hdr").unwrap().kind, ControlKind::Label { .. }));
+        assert!(matches!(
+            controls.get("pics").unwrap().kind,
+            ControlKind::Folder { .. }
+        ));
+        assert!(matches!(
+            controls.get("bg").unwrap().kind,
+            ControlKind::File { .. }
+        ));
+        assert!(matches!(
+            controls.get("hdr").unwrap().kind,
+            ControlKind::Label { .. }
+        ));
     }
 
     #[test]
@@ -656,7 +695,8 @@ mod tests {
         assert_eq!(we_value(&style, Some(&json!(1))), Some(json!(2)));
         let sun = controls.get("showsun").unwrap();
         assert_eq!(we_value(&sun, Some(&json!(true))), Some(json!(true)));
-        let plain = crate::model::Control::parse(&json!({"type": "textbox", "value": "x"})).unwrap();
+        let plain =
+            crate::model::Control::parse(&json!({"type": "textbox", "value": "x"})).unwrap();
         assert_eq!(we_value(&plain, Some(&json!("y"))), Some(json!("y")));
         assert_eq!(we_value(&plain, None), None);
     }
@@ -691,7 +731,10 @@ mod tests {
     fn localizes_labels() {
         assert_eq!(localize("Plain", None), "Plain");
         assert_eq!(localize("ui_some_thing", None), "Some thing");
-        assert_eq!(localize("ui_browse_properties_scheme_color", None), "Scheme color");
+        assert_eq!(
+            localize("ui_browse_properties_scheme_color", None),
+            "Scheme color"
+        );
         let l: Map<String, Value> = serde_json::from_str(r#"{"de-de": {"ui_x": "Ex"}}"#).unwrap();
         assert_eq!(localize("ui_x", Some(&l)), "Ex");
     }

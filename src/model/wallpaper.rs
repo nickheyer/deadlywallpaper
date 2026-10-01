@@ -48,7 +48,9 @@ impl WorkshopOrigin {
 
     pub fn load(dir: &Path) -> Option<WorkshopOrigin> {
         let text = std::fs::read_to_string(dir.join(WorkshopOrigin::FILE_NAME)).ok()?;
-        serde_json::from_str(&text).ok().filter(|o: &WorkshopOrigin| o.id > 0)
+        serde_json::from_str(&text)
+            .ok()
+            .filter(|o: &WorkshopOrigin| o.id > 0)
     }
 
     pub fn save(&self, dir: &Path) -> Result<()> {

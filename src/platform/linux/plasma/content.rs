@@ -397,8 +397,9 @@ impl Content for PlasmaContent {
                 return;
             };
             if let Some((files, fetchall)) = &update.files {
-                let data = serde_json::json!({ "name": name, "files": files, "fetchall": fetchall })
-                    .to_string();
+                let data =
+                    serde_json::json!({ "name": name, "files": files, "fetchall": fetchall })
+                        .to_string();
                 self.push("dir", &data, Some(&format!("dir:{name}")));
             }
             let data = serde_json::json!({ name: update.value }).to_string();
@@ -553,8 +554,8 @@ impl Content for PlasmaContent {
         if !self.we {
             return;
         }
-        let data = serde_json::json!({ "name": event.name(), "payload": event.payload() })
-            .to_string();
+        let data =
+            serde_json::json!({ "name": event.name(), "payload": event.payload() }).to_string();
         self.push("media", &data, Some(&format!("media:{}", event.name())));
     }
 

@@ -379,10 +379,9 @@ impl Panel {
 /// Names of controls whose Wallpaper Engine display condition does not hold right now.
 fn hidden_controls(controls: &[(String, Control)]) -> std::collections::HashSet<String> {
     let lookup = |name: &str| -> Option<Value> {
-        controls
-            .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, c)| crate::we::project::we_value(c, c.value().as_ref()).unwrap_or(Value::Null))
+        controls.iter().find(|(n, _)| n == name).map(|(_, c)| {
+            crate::we::project::we_value(c, c.value().as_ref()).unwrap_or(Value::Null)
+        })
     };
     controls
         .iter()
