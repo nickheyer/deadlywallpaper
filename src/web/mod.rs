@@ -157,20 +157,16 @@ impl Grants {
         self.set(control, None);
     }
 
-    /// Whether `path` (which must exist) is a granted file or lies under a granted directory.
-    pub fn allows(&self, path: &Path) -> bool {
-        let Ok(real) = path.canonicalize() else {
-            return false;
-        };
-        if !real.is_file() {
-            return false;
-        }
-        self.0.lock().is_ok_and(|all| {
+    /// The real path of `path` when it is a granted file or lies under a granted directory.
+    pub fn granted(&self, path: &Path) -> Option<PathBuf> {
+        let real = path.canonicalize().ok().filter(|p| p.is_file())?;
+        let allowed = self.0.lock().is_ok_and(|all| {
             all.values().any(|g| match g {
                 Grant::File(f) => *f == real,
                 Grant::Dir(d) => real.starts_with(d),
             })
-        })
+        });
+        allowed.then_some(real)
     }
 }
 
@@ -234,12 +230,10 @@ pub fn route(routes: &Routes, path: &str) -> Served {
         } else {
             PathBuf::from(format!("/{}", decoded.trim_start_matches('/')))
         };
-        return if routes.grants.allows(&absolute) {
-            Served::File(absolute)
-        } else if absolute.exists() {
-            Served::Forbidden
-        } else {
-            Served::NotFound
+        return match routes.grants.granted(&absolute) {
+            Some(real) => Served::File(real),
+            None if absolute.exists() => Served::Forbidden,
+            None => Served::NotFound,
         };
     }
     let Some(root) = &routes.root else {
@@ -1343,7 +1337,7 @@ mod tests {
         .unwrap();
         let default = root.join("materials").join("default.png");
         assert_eq!(u.value, json!(default.to_string_lossy()));
-        assert!(grants.allows(&default));
+        assert!(grants.granted(&default).is_some());
         let u = we_apply(
             Some(&root),
             &grants,
@@ -1353,11 +1347,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(u.value, json!(pictures.join("b.jpg").to_string_lossy()));
-        assert!(grants.allows(&pictures.join("b.jpg")));
-        assert!(!grants.allows(&default));
+        assert!(grants.granted(&pictures.join("b.jpg")).is_some());
+        assert!(grants.granted(&default).is_none());
         let u = we_apply(Some(&root), &grants, "image", &file, Some(&json!(""))).unwrap();
         assert_eq!(u.value, json!(""));
-        assert!(!grants.allows(&pictures.join("b.jpg")));
+        assert!(grants.granted(&pictures.join("b.jpg")).is_none());
 
         let folder = control(
             ControlKind::Folder {
@@ -1388,8 +1382,8 @@ mod tests {
                 pictures.join("b.jpg").to_string_lossy().into_owned(),
             ]
         );
-        assert!(grants.allows(&pictures.join("nested").join("deep.png")));
-        assert!(!grants.allows(&root.join("materials").join("default.png")));
+        assert!(grants.granted(&pictures.join("nested").join("deep.png")).is_some());
+        assert!(grants.granted(&root.join("materials").join("default.png")).is_none());
 
         let videos = control(
             ControlKind::Folder {

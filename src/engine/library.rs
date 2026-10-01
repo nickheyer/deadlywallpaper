@@ -1052,7 +1052,10 @@ mod tests {
         let v = lib.import_project(&video, &opts, None, None).unwrap();
         assert_eq!(v.kind(), Kind::Video);
         assert!(v.info.is_absolute_path);
-        assert_eq!(PathBuf::from(&v.source), video.join("clip.mp4"));
+        assert_eq!(
+            PathBuf::from(&v.source),
+            video.canonicalize().unwrap().join("clip.mp4")
+        );
         assert!(matches!(v.properties, crate::model::wallpaper::PropertySource::BuiltinMedia));
         assert_eq!(v.info.contact.as_deref(), Some("https://steamcommunity.com/sharedfiles/filedetails/?id=42"));
 

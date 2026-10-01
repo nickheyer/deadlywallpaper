@@ -37,6 +37,16 @@ jobs:
       - uses: actions/checkout@v7
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libpulse-dev libwayland-dev libmpv-dev
+      - if: runner.os == 'macOS'
+        run: brew install mpv
+      - if: runner.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo shinchiro/mpv-winbuild-cmake --pattern 'mpv-dev-x86_64-2*.7z' --dir libmpv
+          7z e -r -olibmpv libmpv/mpv-dev-x86_64-*.7z libmpv-2.dll
+          test -f libmpv/libmpv-2.dll
+          cygpath -w "$PWD/libmpv" >> "$GITHUB_PATH"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
