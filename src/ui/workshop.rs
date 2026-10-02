@@ -584,24 +584,24 @@ fn filter_bar(ui: &mut egui::Ui, state: &mut State) -> bool {
                 });
         });
         labelled(ui, "Rating", |ui| {
-            egui::ComboBox::from_id_salt("workshop-rating")
-                .selected_text(rating_label(state.query.mature))
-                .width(120.0)
-                .show_ui(ui, |ui| {
-                    for mature in [false, true] {
-                        if ui
-                            .selectable_value(&mut state.query.mature, mature, rating_label(mature))
-                            .on_hover_text(if mature {
-                                "Items rated Everyone, Questionable or Mature"
-                            } else {
-                                "Items rated Everyone only"
-                            })
-                            .changed()
-                        {
-                            changed = true;
-                        }
-                    }
-                });
+            let summary = ratings_label(&state.query.ratings);
+            changed |= multiselect(
+                ui,
+                "workshop-rating",
+                &summary,
+                Rating::ALL.into_iter().map(|r| (r, r.tag())),
+                &mut state.query.ratings,
+            );
+        });
+        labelled(ui, "Size", |ui| {
+            let summary = sizes_label(&state.query.sizes);
+            changed |= multiselect(
+                ui,
+                "workshop-size",
+                &summary,
+                workshop::SIZES.into_iter().map(|s| (s.to_string(), s)),
+                &mut state.query.sizes,
+            );
         });
     });
     if !state.query.tags.is_empty() {
@@ -641,8 +641,60 @@ fn labelled(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
     });
 }
 
-fn rating_label(mature: bool) -> &'static str {
-    if mature { "All ratings" } else { "Everyone" }
+/// A dropdown of checkboxes; returns whether the selection changed. Values are kept in the
+/// order they were ticked.
+fn multiselect<T: Clone + PartialEq>(
+    ui: &mut egui::Ui,
+    id: &str,
+    summary: &str,
+    options: impl IntoIterator<Item = (T, &'static str)>,
+    selected: &mut Vec<T>,
+) -> bool {
+    let mut changed = false;
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(summary)
+        .width(190.0)
+        .show_ui(ui, |ui| {
+            for (value, label) in options {
+                let mut on = selected.contains(&value);
+                if ui.checkbox(&mut on, label).changed() {
+                    toggle(selected, value);
+                    changed = true;
+                }
+            }
+        });
+    changed
+}
+
+/// "Everyone", "Everyone, Mature" or "All ratings".
+fn ratings_label(ratings: &[Rating]) -> String {
+    if ratings.is_empty() || Rating::ALL.iter().all(|r| ratings.contains(r)) {
+        return "All ratings".into();
+    }
+    Rating::ALL
+        .into_iter()
+        .filter(|r| ratings.contains(r))
+        .map(Rating::tag)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// "Any size", the one size chosen, or how many are.
+fn sizes_label(sizes: &[String]) -> String {
+    match sizes {
+        [] => "Any size".into(),
+        [one] => one.clone(),
+        many => format!("{} sizes", many.len()),
+    }
+}
+
+/// Add `value` to `list` when it is not there, remove it when it is.
+fn toggle<T: PartialEq>(list: &mut Vec<T>, value: T) {
+    if let Some(i) = list.iter().position(|v| *v == value) {
+        list.remove(i);
+    } else {
+        list.push(value);
+    }
 }
 
 /// Previous and next page under the cards; returns whether the page changed.
@@ -1451,8 +1503,8 @@ fn details_panel(
     }
 }
 
-/// Clicking a tag filters by it: type tags become the type filter, rating tags the mature
-/// switch, anything else a required tag.
+/// Clicking a tag filters by it: type tags become the type filter, rating and size tags
+/// join (or leave) their multiselects, anything else is a required tag.
 fn apply_tag_filter(state: &mut State, tag: &str) {
     if let Some(kind) = ProjectType::parse(tag) {
         state.query.kind = if state.query.kind == Some(kind) {
@@ -1462,22 +1514,15 @@ fn apply_tag_filter(state: &mut State, tag: &str) {
         };
         return;
     }
-    if [Rating::Questionable, Rating::Mature]
-        .iter()
-        .any(|r| r.tag().eq_ignore_ascii_case(tag))
-    {
-        state.query.mature = true;
+    if let Some(rating) = Rating::parse(tag) {
+        toggle(&mut state.query.ratings, rating);
         return;
     }
-    if Rating::Everyone.tag().eq_ignore_ascii_case(tag) {
-        state.query.mature = false;
+    if let Some(size) = workshop::size_tag(tag) {
+        toggle(&mut state.query.sizes, size.to_string());
         return;
     }
-    if let Some(i) = state.query.tags.iter().position(|t| t == tag) {
-        state.query.tags.remove(i);
-    } else {
-        state.query.tags.push(tag.to_string());
-    }
+    toggle(&mut state.query.tags, tag.to_string());
 }
 
 #[cfg(test)]
@@ -1517,14 +1562,26 @@ mod tests {
         apply_tag_filter(&mut state, "Scene");
         assert_eq!(state.query.kind, None);
         apply_tag_filter(&mut state, "Mature");
-        assert!(state.query.mature);
+        assert_eq!(state.query.ratings, [Rating::Everyone, Rating::Mature]);
+        assert_eq!(ratings_label(&state.query.ratings), "Everyone, Mature");
         apply_tag_filter(&mut state, "Everyone");
-        assert!(!state.query.mature);
+        assert_eq!(state.query.ratings, [Rating::Mature]);
+        apply_tag_filter(&mut state, "Questionable");
+        apply_tag_filter(&mut state, "Everyone");
+        assert_eq!(ratings_label(&state.query.ratings), "All ratings");
+        assert_eq!(ratings_label(&[]), "All ratings");
         apply_tag_filter(&mut state, "Anime");
         apply_tag_filter(&mut state, "3840 x 2160");
-        assert_eq!(state.query.tags, ["Anime", "3840 x 2160"]);
+        assert_eq!(state.query.tags, ["Anime"]);
+        assert_eq!(state.query.sizes, ["3840 x 2160"]);
+        assert_eq!(sizes_label(&state.query.sizes), "3840 x 2160");
+        apply_tag_filter(&mut state, "1920 x 1080");
+        assert_eq!(sizes_label(&state.query.sizes), "2 sizes");
+        apply_tag_filter(&mut state, "3840 x 2160");
+        apply_tag_filter(&mut state, "1920 x 1080");
+        assert_eq!(sizes_label(&state.query.sizes), "Any size");
         apply_tag_filter(&mut state, "Anime");
-        assert_eq!(state.query.tags, ["3840 x 2160"]);
+        assert!(state.query.tags.is_empty());
     }
 
     #[test]
@@ -1605,6 +1662,5 @@ mod tests {
             }),
             "Queued in Steam…"
         );
-        assert_eq!(rating_label(true), "All ratings");
     }
 }

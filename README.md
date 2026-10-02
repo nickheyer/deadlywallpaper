@@ -48,7 +48,8 @@ deadlywp import <source>         add a file, a folder of wallpapers, a Lively .z
 deadlywp export <id> out.zip     write a Lively package
 deadlywp delete <id>
 deadlywp workshop search [words] [--sort trend|recent|updated|subscribers|rated]
-                                 [--type scene|video|web|application] [--days N] [--mature] [--page N]
+                                 [--type scene|video|web|application] [--days N] [--page N]
+                                 [--rating everyone|questionable|mature]... [--size 1080p|4k|"Ultrawide 3440 x 1440"|...]...
 deadlywp workshop show <id|url>  details of one Workshop item
 deadlywp workshop get <id|url> [-d N]
                                  have Steam download an item and add it; -d applies it there

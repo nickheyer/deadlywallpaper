@@ -134,9 +134,13 @@ enum WorkshopCommand {
         /// Days the trend sort ranks over: 1, 7, 30, 90, 180 or 365
         #[arg(long, default_value_t = 7)]
         days: u32,
-        /// Include items rated Questionable or Mature
+        /// Age ratings to show, any of everyone, questionable or mature; repeat for several
+        #[arg(short, long, default_value = "everyone")]
+        rating: Vec<String>,
+        /// Screen sizes to show, as Steam names them ("1920 x 1080", "Ultrawide 3440 x 1440",
+        /// "Portrait 1080 x 1920", ...) or 720p, 1080p, 1440p, 4k; repeat for several
         #[arg(long)]
-        mature: bool,
+        size: Vec<String>,
         #[arg(short, long, default_value_t = 1)]
         page: u32,
     },
@@ -295,7 +299,8 @@ fn workshop_command(cmd: WorkshopCommand) -> Result<()> {
             sort,
             kind,
             days,
-            mature,
+            rating,
+            size,
             page,
         } => {
             let query = Query {
@@ -310,7 +315,23 @@ fn workshop_command(cmd: WorkshopCommand) -> Result<()> {
                     })
                     .transpose()?,
                 tags: Vec::new(),
-                mature,
+                ratings: rating
+                    .iter()
+                    .map(|r| {
+                        we::workshop::Rating::parse(r)
+                            .ok_or_else(|| Error::Invalid(format!("'{r}' is not an age rating")))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                sizes: size
+                    .iter()
+                    .map(|s| {
+                        we::workshop::size_tag(s)
+                            .map(str::to_string)
+                            .ok_or_else(|| {
+                                Error::Invalid(format!("'{s}' is not a Workshop screen size"))
+                            })
+                    })
+                    .collect::<Result<Vec<_>>>()?,
                 page,
             };
             let client = Client::new(&paths::Paths::discover()?.cache_dir);

@@ -427,7 +427,17 @@ impl Library {
         ctx(std::fs::create_dir_all(&self.dir), self.dir.display())?;
         let dir = ctx(std::fs::canonicalize(dir), dir.display())?;
         let project = Project::load(&dir.join(project::FILE_NAME))?;
-        let content = dir.join(&project.file);
+        let mut content = dir.join(&project.file);
+        let mut packed = project.is_packed_scene();
+        // The Workshop uploader packs a scene into scene.pkg and leaves project.json naming
+        // the scene.json inside it; Wallpaper Engine reads the scene out of the package then.
+        if !packed && project.kind == ProjectType::Scene && !content.is_file() {
+            let package = dir.join(SCENE_PACKAGE);
+            if package.is_file() {
+                content = package;
+                packed = true;
+            }
+        }
         if !content.is_file() {
             return Err(Error::NotFound(format!(
                 "{} names {} but the file is missing",
@@ -447,7 +457,6 @@ impl Library {
                 )));
             }
         };
-        let packed = project.is_packed_scene();
         let title = project.title.clone();
         let origin = origin.or_else(|| {
             crate::we::steam::item_at(&dir).map(|item| WorkshopOrigin {
@@ -680,6 +689,9 @@ fn find_index(dir: &Path) -> Option<PathBuf> {
         .map(|n| dir.join(n))
         .find(|p| p.is_file())
 }
+
+/// The package a Workshop upload packs a scene into.
+const SCENE_PACKAGE: &str = "scene.pkg";
 
 /// Files a packed scene keeps next to its package (anything but the project's own
 /// bookkeeping) join the unpacked scene, without replacing what the package held.
@@ -1115,6 +1127,43 @@ mod tests {
             ));
         }
         assert_eq!(std::fs::read_dir(&lib.dir).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn imports_scenes_packed_by_the_workshop_uploader() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = Library {
+            dir: root.path().join("library"),
+        };
+        let opts = ImportOptions {
+            copy: false,
+            thumbnails: false,
+            temp_dir: root.path(),
+        };
+        // project.json names scene.json, which exists only inside scene.pkg.
+        let scene = root.path().join("2471321039");
+        we_project(&scene, "scene", "scene.json");
+        let mut pkg = Vec::new();
+        crate::we::pkg::write(
+            &mut pkg,
+            "PKGV0018",
+            &[("scene.json", br#"{"objects":[]}"#), ("a.tex", b"TEXV")],
+        )
+        .unwrap();
+        std::fs::write(scene.join("scene.pkg"), pkg).unwrap();
+        let w = lib.import_project(&scene, &opts, None, None).unwrap();
+        assert_eq!(w.kind(), Kind::Scene);
+        assert!(w.dir.join("scene/scene.json").is_file());
+        assert!(w.dir.join("scene/a.tex").is_file());
+        assert!(!w.dir.join("scene/scene.pkg").exists());
+        assert_eq!(w.root_dir(), w.dir.join("scene"));
+        // Without the package, the named file really is missing.
+        let bare = root.path().join("bare");
+        we_project(&bare, "scene", "scene.json");
+        assert!(matches!(
+            lib.import_project(&bare, &opts, None, None),
+            Err(Error::NotFound(_))
+        ));
     }
 
     #[test]

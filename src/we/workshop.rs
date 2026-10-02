@@ -2,13 +2,14 @@
 //! pages (server-rendered, with the item list embedded as JSON), the public file-details API
 //! and the preview image CDN.
 
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, ctx};
 use crate::we::project::ProjectType;
 use crate::we::steam::APP_ID;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 const BROWSE_URL: &str = "https://steamcommunity.com/workshop/browse/";
 const DETAILS_URL: &str =
@@ -76,6 +77,8 @@ pub enum Rating {
 }
 
 impl Rating {
+    pub const ALL: [Rating; 3] = [Rating::Everyone, Rating::Questionable, Rating::Mature];
+
     pub fn tag(self) -> &'static str {
         match self {
             Rating::Everyone => "Everyone",
@@ -84,11 +87,55 @@ impl Rating {
         }
     }
 
-    fn from_tag(tag: &str) -> Option<Rating> {
-        [Rating::Everyone, Rating::Questionable, Rating::Mature]
+    pub fn parse(tag: &str) -> Option<Rating> {
+        let tag = tag.trim();
+        Rating::ALL
             .into_iter()
             .find(|r| r.tag().eq_ignore_ascii_case(tag))
     }
+}
+
+/// Wallpaper Engine's resolution tags, spelt as Steam's Workshop lists them.
+pub const SIZES: [&str; 25] = [
+    "Standard Definition",
+    "1280 x 720",
+    "1366 x 768",
+    "1920 x 1080",
+    "2560 x 1440",
+    "3840 x 2160",
+    "Ultrawide Standard Definition",
+    "Ultrawide 2560 x 1080",
+    "Ultrawide 3440 x 1440",
+    "Dual Standard Definition",
+    "Dual 3840 x 1080",
+    "Dual 5120 x 1440",
+    "Dual 7680 x 2160",
+    "Triple Standard Definition",
+    "Triple 4096 x 768",
+    "Triple 5760 x 1080",
+    "Triple 7680 x 1440",
+    "Triple 11520 x 2160",
+    "Portrait Standard Definition",
+    "Portrait 720 x 1280",
+    "Portrait 1080 x 1920",
+    "Portrait 1440 x 2560",
+    "Portrait 2160 x 3840",
+    "Other resolution",
+    "Dynamic resolution",
+];
+
+/// The resolution tag `s` names, spelt as Steam spells it; `720p`, `1080p`, `1440p`, `2160p`
+/// and `4k` name the plain widescreen sizes.
+pub fn size_tag(s: &str) -> Option<&'static str> {
+    let s = s.trim();
+    let short = match s.to_ascii_lowercase().as_str() {
+        "720p" => Some("1280 x 720"),
+        "1080p" => Some("1920 x 1080"),
+        "1440p" => Some("2560 x 1440"),
+        "2160p" | "4k" => Some("3840 x 2160"),
+        _ => None,
+    };
+    short.or_else(|| SIZES.into_iter().find(|t| t.eq_ignore_ascii_case(s)))
 }
 
 /// Trend periods Steam offers, in days.
@@ -104,10 +151,12 @@ pub struct Query {
     pub days: u32,
     /// Only items of this type.
     pub kind: Option<ProjectType>,
-    /// Further tags every item must carry (genre, resolution, ...).
+    /// Further tags every item must carry (genre, category, ...).
     pub tags: Vec<String>,
-    /// Include items rated Questionable or Mature.
-    pub mature: bool,
+    /// The age ratings to show; none means every rating.
+    pub ratings: Vec<Rating>,
+    /// The resolution tags to show, spelt as Steam spells them; none means every size.
+    pub sizes: Vec<String>,
     /// 1-based page number.
     pub page: u32,
 }
@@ -120,7 +169,8 @@ impl Default for Query {
             days: 7,
             kind: None,
             tags: Vec::new(),
-            mature: false,
+            ratings: vec![Rating::Everyone],
+            sizes: Vec::new(),
             page: 1,
         }
     }
@@ -159,7 +209,7 @@ impl Item {
     }
 
     pub fn rating(&self) -> Option<Rating> {
-        self.tags.iter().find_map(|t| Rating::from_tag(t))
+        self.tags.iter().find_map(|t| Rating::parse(t))
     }
 
     pub fn url(&self) -> String {
@@ -233,13 +283,100 @@ pub fn browse_url(q: &Query) -> String {
         url.push_str("&requiredtags%5B%5D=");
         url.push_str(&encode(tag));
     }
-    if !q.mature {
-        for r in [Rating::Questionable, Rating::Mature] {
+    if !q.ratings.is_empty() {
+        for r in Rating::ALL.into_iter().filter(|r| !q.ratings.contains(r)) {
             url.push_str("&excludedtags%5B%5D=");
-            url.push_str(r.tag());
+            url.push_str(&encode(r.tag()));
+        }
+    }
+    if !q.sizes.is_empty() {
+        for size in SIZES
+            .into_iter()
+            .filter(|s| !q.sizes.iter().any(|w| w.eq_ignore_ascii_case(s)))
+        {
+            url.push_str("&excludedtags%5B%5D=");
+            url.push_str(&encode(size));
         }
     }
     url
+}
+
+/// Least time between two requests to Steam's own sites, which answer bursts with 403s.
+const REQUEST_GAP: Duration = Duration::from_millis(400);
+/// How long Steam is left alone after it answers 403 or 429.
+const COOLDOWN: Duration = Duration::from_secs(60);
+
+/// Paces every request to Steam's sites from this process, however many threads make them.
+struct Throttle {
+    /// When the last request went out, or will go out.
+    last: Option<Instant>,
+    blocked_until: Option<Instant>,
+}
+
+static THROTTLE: Mutex<Throttle> = Mutex::new(Throttle {
+    last: None,
+    blocked_until: None,
+});
+
+impl Throttle {
+    /// How much longer Steam has to be left alone, when it asked for that.
+    fn blocked_for(&self, now: Instant) -> Option<Duration> {
+        self.blocked_until
+            .and_then(|t| t.checked_duration_since(now))
+            .filter(|d| !d.is_zero())
+    }
+
+    /// Take the next turn: how long to wait before sending.
+    fn take_turn(&mut self, now: Instant) -> Duration {
+        let wait = self
+            .last
+            .map(|l| (l + REQUEST_GAP).saturating_duration_since(now))
+            .unwrap_or_default();
+        self.last = Some(now + wait);
+        wait
+    }
+
+    fn back_off(&mut self, now: Instant) {
+        self.blocked_until = Some(now + COOLDOWN);
+    }
+}
+
+fn steam_site(url: &str) -> bool {
+    url.contains("steamcommunity.com/") || url.contains("steampowered.com/")
+}
+
+/// Wait for this request's turn with Steam's sites, or refuse it while Steam cools off.
+fn pace(url: &str) -> Result<()> {
+    if !steam_site(url) {
+        return Ok(());
+    }
+    let wait = {
+        let mut throttle = THROTTLE.lock().unwrap_or_else(|e| e.into_inner());
+        let now = Instant::now();
+        if let Some(left) = throttle.blocked_for(now) {
+            return Err(Error::Network(format!(
+                "Steam is rate limiting this machine; requests resume in {} s",
+                left.as_secs().max(1)
+            )));
+        }
+        throttle.take_turn(now)
+    };
+    std::thread::sleep(wait);
+    Ok(())
+}
+
+/// Note how Steam answered: a 403 or 429 starts the cooling-off period.
+fn answered(url: &str, status: u16) {
+    if steam_site(url) && matches!(status, 403 | 429) {
+        THROTTLE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .back_off(Instant::now());
+        log::warn!(
+            "{url}: HTTP {status}; leaving Steam alone for {} s",
+            COOLDOWN.as_secs()
+        );
+    }
 }
 
 fn encode(s: &str) -> String {
@@ -476,11 +613,13 @@ impl Client {
     }
 
     fn get(&self, url: &str) -> Result<ureq::http::Response<ureq::Body>> {
+        pace(url)?;
         let response = self
             .agent
             .get(url)
             .call()
             .map_err(|e| Error::Network(format!("{url}: {e}")))?;
+        answered(url, response.status().as_u16());
         if !response.status().is_success() {
             return Err(Error::Network(format!("{url}: HTTP {}", response.status())));
         }
@@ -505,11 +644,13 @@ impl Client {
             for (i, id) in chunk.iter().enumerate() {
                 form.push((format!("publishedfileids[{i}]"), id.to_string()));
             }
+            pace(DETAILS_URL)?;
             let mut response = self
                 .agent
                 .post(DETAILS_URL)
                 .send_form(form)
                 .map_err(|e| Error::Network(format!("{DETAILS_URL}: {e}")))?;
+            answered(DETAILS_URL, response.status().as_u16());
             if !response.status().is_success() {
                 return Err(Error::Network(format!(
                     "{DETAILS_URL}: HTTP {}",
@@ -532,14 +673,33 @@ impl Client {
                 "workshop item {id} is not a Wallpaper Engine item, or it is private"
             ))
         })?;
+        item.author = self.author(id)?;
+        Ok(item)
+    }
+
+    /// The uploader's name from the item's page, kept on disk so that every later import of
+    /// the item asks Steam nothing.
+    pub fn author(&self, id: u64) -> Result<Option<String>> {
+        let dir = self.cache.join("authors");
+        let path = dir.join(id.to_string());
+        if let Some(name) = std::fs::read_to_string(&path)
+            .ok()
+            .filter(|n| !n.is_empty())
+        {
+            return Ok(Some(name));
+        }
         let url = format!("{ITEM_URL}{id}");
         let html = self
             .get(&url)?
             .body_mut()
             .read_to_string()
             .map_err(|e| Error::Network(format!("{url}: {e}")))?;
-        item.author = parse_author(&html);
-        Ok(item)
+        let author = parse_author(&html);
+        if let Some(name) = &author {
+            ctx(std::fs::create_dir_all(&dir), dir.display())?;
+            crate::paths::write(&path, name)?;
+        }
+        Ok(author)
     }
 
     /// The preview image at `url`, downloaded once into the cache.
@@ -725,25 +885,80 @@ mod tests {
             sort: Sort::Subscribers,
             days: 30,
             kind: Some(ProjectType::Scene),
-            tags: vec!["3840 x 2160".into()],
-            mature: false,
+            tags: vec!["Anime".into()],
+            ratings: vec![Rating::Everyone],
+            sizes: Vec::new(),
             page: 2,
         });
         assert!(url.starts_with("https://steamcommunity.com/workshop/browse/?appid=431960&"));
         assert!(url.contains("browsesort=totaluniquesubscribers"));
         assert!(url.contains("&days=30&p=2&searchtext=ocean+waves+%26+sun"));
-        assert!(url.contains("&requiredtags%5B%5D=Scene&requiredtags%5B%5D=3840+x+2160"));
+        assert!(url.contains("&requiredtags%5B%5D=Scene&requiredtags%5B%5D=Anime"));
         assert!(url.contains("&excludedtags%5B%5D=Questionable&excludedtags%5B%5D=Mature"));
+        assert!(!url.contains("Standard+Definition"));
         let all = browse_url(&Query {
-            mature: true,
+            ratings: Vec::new(),
             days: 5,
             ..Query::default()
         });
         assert!(!all.contains("excludedtags"));
         assert!(all.contains("&days=7&"));
+        // Steam wants every required tag, so "either of these sizes" excludes the other 23
+        // sizes, and ratings work the same way.
+        let sized = browse_url(&Query {
+            ratings: vec![Rating::Everyone, Rating::Questionable],
+            sizes: vec!["1920 x 1080".into(), "3840 x 2160".into()],
+            ..Query::default()
+        });
+        assert!(!sized.contains("requiredtags"));
+        assert_eq!(sized.matches("excludedtags").count(), 24);
+        assert!(sized.contains("&excludedtags%5B%5D=Mature"));
+        assert!(!sized.contains("Everyone") && !sized.contains("Questionable"));
+        assert!(sized.contains("&excludedtags%5B%5D=2560+x+1440"));
+        assert!(!sized.contains("1920+x+1080") && !sized.contains("3840+x+2160"));
+        assert_eq!(size_tag("4k"), Some("3840 x 2160"));
+        assert_eq!(
+            size_tag("ultrawide 3440 X 1440"),
+            Some("Ultrawide 3440 x 1440")
+        );
+        assert_eq!(size_tag("huge"), None);
+        assert_eq!(Rating::parse(" mature "), Some(Rating::Mature));
         assert_eq!(Sort::parse("most subscribed"), Some(Sort::Subscribers));
         assert_eq!(Sort::parse("mostrecent"), Some(Sort::Recent));
         assert_eq!(Sort::parse("updated"), Some(Sort::Updated));
         assert_eq!(Sort::parse("bogus"), None);
+    }
+
+    #[test]
+    fn requests_to_steam_are_spaced_and_a_403_starts_a_cooldown() {
+        let mut t = Throttle {
+            last: None,
+            blocked_until: None,
+        };
+        let t0 = Instant::now();
+        assert_eq!(t.take_turn(t0), Duration::ZERO);
+        assert_eq!(t.take_turn(t0), REQUEST_GAP);
+        assert_eq!(t.take_turn(t0), REQUEST_GAP * 2);
+        assert_eq!(t.take_turn(t0 + REQUEST_GAP * 10), Duration::ZERO);
+        assert!(t.blocked_for(t0).is_none());
+        t.back_off(t0);
+        assert_eq!(t.blocked_for(t0), Some(COOLDOWN));
+        assert!(t.blocked_for(t0 + COOLDOWN).is_none());
+        assert!(steam_site(
+            "https://steamcommunity.com/workshop/browse/?appid=431960"
+        ));
+        assert!(steam_site(DETAILS_URL));
+        assert!(!steam_site(
+            "https://images.steamusercontent.com/ugc/1/2.jpg"
+        ));
+    }
+
+    #[test]
+    fn authors_are_remembered_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let client = Client::new(dir.path());
+        std::fs::create_dir_all(client.cache.join("authors")).unwrap();
+        std::fs::write(client.cache.join("authors/42"), "Ada").unwrap();
+        assert_eq!(client.author(42).unwrap(), Some("Ada".into()));
     }
 }

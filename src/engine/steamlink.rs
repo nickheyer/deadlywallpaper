@@ -644,8 +644,8 @@ impl Engine {
         let updated = item.updated;
         self.job(
             move || {
-                let author = author.or_else(|| match workshop::Client::new(&cache).item(id) {
-                    Ok(details) => details.author,
+                let author = author.or_else(|| match workshop::Client::new(&cache).author(id) {
+                    Ok(name) => name,
                     Err(e) => {
                         log::warn!("workshop item {id} author: {e}");
                         None
