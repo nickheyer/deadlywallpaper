@@ -615,7 +615,7 @@ impl App {
         let actions = workshop::page(ui, &view, &mut self.workshop, &self.backend);
         for action in actions {
             match action {
-                workshop::Action::Get { id, title, author } => {
+                workshop::Action::Download { id, title, author } => {
                     let label = match &title {
                         Some(t) => format!("Requested {t}"),
                         None => format!("Requested item {id}"),
@@ -631,8 +631,9 @@ impl App {
                         },
                     );
                 }
-                workshop::Action::Forget { id } => {
-                    self.send(Request::WorkshopForget { id });
+                workshop::Action::Cancel { id } => {
+                    self.backend
+                        .background(ctx, "Cancelled", Request::WorkshopCancel { id });
                 }
                 workshop::Action::Sync => {
                     self.backend

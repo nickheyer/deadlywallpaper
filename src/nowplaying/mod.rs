@@ -156,7 +156,8 @@ impl Art {
                     let decoded = crate::web::percent_decode(path);
                     return Ok(std::fs::read(&decoded)?);
                 }
-                let mut response = ureq::get(u)
+                let mut response = crate::http::agent(std::time::Duration::from_secs(20))
+                    .get(u)
                     .call()
                     .map_err(|e| crate::error::Error::Network(format!("{u}: {e}")))?;
                 response

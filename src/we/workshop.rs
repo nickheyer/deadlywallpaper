@@ -469,17 +469,8 @@ pub struct Client {
 
 impl Client {
     pub fn new(cache_dir: &Path) -> Client {
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(30)))
-            .user_agent(format!(
-                "{}/{}",
-                crate::paths::APP_ID,
-                env!("CARGO_PKG_VERSION")
-            ))
-            .http_status_as_error(false)
-            .build();
         Client {
-            agent: config.into(),
+            agent: crate::http::agent(Duration::from_secs(30)),
             cache: cache_dir.join("workshop"),
         }
     }

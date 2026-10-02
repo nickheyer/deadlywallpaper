@@ -13,6 +13,7 @@ use std::time::Duration;
 static STOP: AtomicBool = AtomicBool::new(false);
 
 pub fn run() -> Result<()> {
+    crate::we::steamapi::announce_app();
     let paths = Paths::discover()?;
     crate::logger::init(Some(&paths.log_file()), std::io::stderr().is_terminal());
     log::info!("deadlywp {} starting", env!("CARGO_PKG_VERSION"));

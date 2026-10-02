@@ -397,7 +397,7 @@ pub fn ui(ui: &mut egui::Ui, s: &mut Settings, state: &mut State, cx: &Context<'
                 row(
                     ui,
                     "Add Steam downloads automatically",
-                    "Every workshop item Steam downloads joins the library as soon as it lands, and entries are refreshed when Steam updates them",
+                    "Every Workshop item Steam downloads, subscriptions made in Steam itself included, joins the library as soon as it lands, and entries are refreshed when Steam updates them",
                     |ui| {
                         toggle(ui, &mut s.wallpaper_engine.auto_import);
                     },

@@ -2,6 +2,7 @@
 
 pub mod library;
 pub mod playback;
+mod steamlink;
 pub mod stream;
 
 use crate::audio::Capture;
@@ -9,13 +10,10 @@ use crate::content::{Content, ContentEvent, ContentId, PointerEvent, PointerKind
 use crate::error::{Error, Result, ctx};
 use crate::geom::Size;
 use crate::ipc::server::{Reply, Server};
-use crate::ipc::{
-    ActiveInfo, Capabilities, Event, InfoPatch, Request, Response, Status, WorkshopItemStatus,
-    WorkshopStatus,
-};
+use crate::ipc::{ActiveInfo, Capabilities, Event, InfoPatch, Request, Response, Status};
 use crate::model::display;
 use crate::model::props::Properties;
-use crate::model::wallpaper::{PropertySource, WorkshopOrigin};
+use crate::model::wallpaper::PropertySource;
 use crate::model::{Arrangement, Display, Kind, Layout, Placement, Settings, Wallpaper};
 use crate::msg::{Msg, TrayAction};
 use crate::nowplaying::{MediaEvent, Monitor};
@@ -24,9 +22,9 @@ use crate::platform::{
     ContentSpec, MsgSender, MsgSenderApi, Runtime, RuntimeApi, ShellApi, Slot, Snapshot,
 };
 use crate::tray::Tray;
-use crate::we::steam::{self, InstalledItem, SteamInfo};
+use crate::we::steam::SteamInfo;
 use crate::we::workshop;
-use library::{ImportOptions, Library, THUMBNAIL};
+use library::{Library, THUMBNAIL};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -56,19 +54,6 @@ struct PendingShot {
     deadline: Instant,
 }
 
-/// A workshop item whose Steam page was opened; imported when its download lands.
-struct PendingItem {
-    id: u64,
-    author: Option<String>,
-    /// Apply the wallpaper here once imported.
-    display: Option<String>,
-    /// Scans that found the folder before Steam's manifest listed it; the manifest carries
-    /// the update time and is written moments after the files land.
-    unlisted_scans: u8,
-}
-
-/// Ticks between looks at Steam's workshop folders while something is expected there.
-const WORKSHOP_SCAN_TICKS: u64 = 3;
 /// How often the folders that Wallpaper Engine directory properties point at are re-read,
 /// so wallpapers hear about files added or removed there.
 const FOLDER_RESCAN: Duration = Duration::from_secs(5);
@@ -99,7 +84,8 @@ pub struct Engine {
     media: Option<Monitor>,
     /// The last media events, replayed to Wallpaper Engine wallpapers as they load.
     media_state: Vec<MediaEvent>,
-    pending_items: Vec<PendingItem>,
+    /// The Steam client: its library, the connection to it and the downloads under way.
+    steam_link: steamlink::SteamLink,
     /// Workshop items being imported right now, so a scan does not import them twice.
     importing: Vec<u64>,
     /// Downloads whose import failed, with Steam's `timeupdated` at the time; they are tried
@@ -149,7 +135,7 @@ impl Engine {
             steam: SteamInfo::default(),
             media: None,
             media_state: Vec::new(),
-            pending_items: Vec::new(),
+            steam_link: steamlink::SteamLink::default(),
             importing: Vec::new(),
             failed_items: Vec::new(),
             last_installed: Vec::new(),
@@ -648,9 +634,7 @@ impl Engine {
             )));
         }
         self.evaluate();
-        if self.ticks % WORKSHOP_SCAN_TICKS == 0 {
-            self.workshop_scan();
-        }
+        self.workshop_tick();
         if self.last_folder_rescan.elapsed() >= FOLDER_RESCAN {
             self.last_folder_rescan = Instant::now();
             self.rescan_folders();
@@ -1142,11 +1126,9 @@ impl Engine {
                     .map_or_else(|e| Response::error(&e), Response::Text),
                 Err(e) => Response::error(&e),
             },
-            Request::WorkshopForget { id } => {
-                self.pending_items.retain(|p| p.id != id);
-                self.broadcast(Event::Workshop);
-                Response::Ok
-            }
+            Request::WorkshopCancel { id } => self
+                .workshop_cancel(id)
+                .map_or_else(|e| Response::error(&e), Response::Text),
             Request::WorkshopSync => self
                 .workshop_sync()
                 .map_or_else(|e| Response::error(&e), Response::Text),
@@ -1164,309 +1146,12 @@ impl Engine {
         true
     }
 
-    fn refresh_steam(&mut self) {
-        let we = &self.settings.wallpaper_engine;
-        self.steam = steam::locate(we.steam_dir.as_deref(), we.assets_dir.as_deref());
-        match (&self.steam.steam_dir, &self.steam.assets_dir) {
-            (Some(s), Some(a)) => log::info!(
-                "Steam at {}; Wallpaper Engine assets at {}",
-                s.display(),
-                a.display()
-            ),
-            (Some(s), None) => log::info!(
-                "Steam at {}; Wallpaper Engine is not installed there",
-                s.display()
-            ),
-            (None, _) => log::info!("Steam was not found"),
-        }
-    }
-
     fn import_options(&self) -> (bool, bool, PathBuf) {
         (
             self.settings.copy_imports,
             self.settings.thumbnails,
             self.paths.temp_dir(),
         )
-    }
-
-    fn workshop_status(&self) -> WorkshopStatus {
-        let entries = self.library.workshop_entries();
-        let items = steam::installed(&self.steam)
-            .into_iter()
-            .map(|it| {
-                let entry = entries.iter().find(|(_, o)| o.id == it.id);
-                let title = entry
-                    .map(|(w, _)| w.title())
-                    .or_else(|| {
-                        crate::we::project::Project::load(
-                            &it.dir.join(crate::we::project::FILE_NAME),
-                        )
-                        .ok()
-                        .map(|p| p.title)
-                    })
-                    .unwrap_or_else(|| it.id.to_string());
-                WorkshopItemStatus {
-                    id: it.id,
-                    stale: entry.is_some_and(|(_, o)| is_stale(o, &it)),
-                    wallpaper: entry.map(|(w, _)| w.id.clone()),
-                    title,
-                    dir: it.dir,
-                    updated: it.updated,
-                }
-            })
-            .collect();
-        WorkshopStatus {
-            steam: self.steam.clone(),
-            items,
-            pending: self.pending_items.iter().map(|p| p.id).collect(),
-        }
-    }
-
-    /// Import a downloaded item, or open its Steam page and import it when it lands. Returns
-    /// a sentence saying which happened.
-    fn workshop_get(
-        &mut self,
-        id: u64,
-        title: Option<String>,
-        author: Option<String>,
-        display: Option<String>,
-    ) -> Result<String> {
-        if let Some(item) = steam::installed_item(&self.steam, id) {
-            if let Some(existing) = self.library.find_workshop(id) {
-                let stale =
-                    WorkshopOrigin::load(&existing.dir).is_some_and(|o| is_stale(&o, &item));
-                if stale {
-                    self.failed_items.retain(|(i, _)| *i != id);
-                    let author = author.or_else(|| existing.info.author.clone());
-                    self.workshop_import(item, author, display, Some(existing.id.clone()));
-                    return Ok(format!(
-                        "Refreshing '{}' from Steam's newer download",
-                        existing.title()
-                    ));
-                }
-                if let Some(d) = display {
-                    self.layout.assign(&d, &existing.id);
-                    self.reconcile();
-                }
-                return Ok(format!("'{}' is already in the library", existing.title()));
-            }
-            self.failed_items.retain(|(i, _)| *i != id);
-            self.workshop_import(item, author, display, None);
-            return Ok(format!(
-                "Adding {} from Steam's download",
-                title.unwrap_or_else(|| format!("item {id}"))
-            ));
-        }
-        if self.steam.steam_dir.is_none() {
-            return Err(Error::Unsupported(
-                "Steam was not found on this machine; workshop items are downloaded by the Steam client, so install Steam and Wallpaper Engine, or point Settings at the Steam folder".into(),
-            ));
-        }
-        crate::paths::open_external(&format!("steam://url/CommunityFilePage/{id}"))?;
-        self.pending_items.retain(|p| p.id != id);
-        self.pending_items.push(PendingItem {
-            id,
-            author,
-            display,
-            unlisted_scans: 0,
-        });
-        self.broadcast(Event::Workshop);
-        Ok(format!(
-            "Opened the Steam page for item {id}: subscribe there and it is added as soon as Steam finishes downloading it"
-        ))
-    }
-
-    /// Import everything Steam has that the library lacks; refresh what Steam updated.
-    fn workshop_sync(&mut self) -> Result<String> {
-        self.failed_items.clear();
-        self.last_installed.clear();
-        if self.steam.steam_dir.is_none() {
-            return Err(Error::Unsupported(
-                "Steam was not found on this machine, so there are no workshop downloads to add"
-                    .into(),
-            ));
-        }
-        let entries = self.library.workshop_entries();
-        let mut added = 0;
-        let mut refreshed = 0;
-        for item in steam::installed(&self.steam) {
-            if self.importing.contains(&item.id) {
-                continue;
-            }
-            match entries.iter().find(|(_, o)| o.id == item.id) {
-                None => {
-                    added += 1;
-                    self.workshop_import(item, None, None, None);
-                }
-                Some((w, o)) if is_stale(o, &item) => {
-                    refreshed += 1;
-                    self.workshop_import(item, w.info.author.clone(), None, Some(w.id.clone()));
-                }
-                Some(_) => {}
-            }
-        }
-        Ok(match (added, refreshed) {
-            (0, 0) => "The library already holds every workshop item Steam has downloaded".into(),
-            (a, r) => format!("Adding {a} and refreshing {r} workshop item(s)"),
-        })
-    }
-
-    /// Look for pending downloads that landed and, with auto-import on, for anything new.
-    fn workshop_scan(&mut self) {
-        if self.pending_items.is_empty() && !self.settings.wallpaper_engine.auto_import {
-            return;
-        }
-        if self.steam.libraries.is_empty() {
-            return;
-        }
-        let installed = steam::installed(&self.steam);
-        for p in &mut self.pending_items {
-            if installed
-                .iter()
-                .any(|i| i.id == p.id && i.updated.is_none())
-            {
-                p.unlisted_scans = p.unlisted_scans.saturating_add(1);
-            }
-        }
-        let arrived: Vec<PendingItem> = {
-            let (done, waiting): (Vec<PendingItem>, Vec<PendingItem>) =
-                self.pending_items.drain(..).partition(|p| {
-                    installed
-                        .iter()
-                        .any(|i| i.id == p.id && (i.updated.is_some() || p.unlisted_scans >= 3))
-                });
-            self.pending_items = waiting;
-            done
-        };
-        for p in arrived {
-            if let Some(item) = installed.iter().find(|i| i.id == p.id).cloned() {
-                if let Some(existing) = self.library.find_workshop(p.id) {
-                    if let Some(d) = p.display {
-                        self.layout.assign(&d, &existing.id);
-                        self.reconcile();
-                    }
-                } else {
-                    self.workshop_import(item, p.author, p.display, None);
-                }
-            }
-            self.broadcast(Event::Workshop);
-        }
-        let seen: Vec<(u64, Option<u64>)> = installed.iter().map(|i| (i.id, i.updated)).collect();
-        if self.settings.wallpaper_engine.auto_import && seen != self.last_installed {
-            self.last_installed = seen;
-            let entries = self.library.workshop_entries();
-            for item in installed {
-                if self.importing.contains(&item.id)
-                    || self.failed_items.contains(&(item.id, item.updated))
-                {
-                    continue;
-                }
-                match entries.iter().find(|(_, o)| o.id == item.id) {
-                    None => self.workshop_import(item, None, None, None),
-                    Some((w, o)) if is_stale(o, &item) => {
-                        let (author, id) = (w.info.author.clone(), w.id.clone());
-                        self.workshop_import(item, author, None, Some(id));
-                    }
-                    Some(_) => {}
-                }
-            }
-        }
-    }
-
-    /// Import `item` off the main thread. `replace` names the library entry it refreshes.
-    fn workshop_import(
-        &mut self,
-        item: InstalledItem,
-        author: Option<String>,
-        display: Option<String>,
-        replace: Option<String>,
-    ) {
-        if self.importing.contains(&item.id) {
-            return;
-        }
-        self.importing.push(item.id);
-        let lib = self.library.clone();
-        let (copy, thumbnails, temp) = self.import_options();
-        let cache = self.paths.cache_dir.clone();
-        let id = item.id;
-        let origin = WorkshopOrigin {
-            id,
-            updated: item.updated,
-            source: Some(item.dir.clone()),
-        };
-        let refreshing = replace.is_some();
-        let updated = item.updated;
-        self.job(
-            move || {
-                let author = author.or_else(|| match workshop::Client::new(&cache).item(id) {
-                    Ok(details) => details.author,
-                    Err(e) => {
-                        log::warn!("workshop item {id} author: {e}");
-                        None
-                    }
-                });
-                let fresh = lib.import_project(
-                    &item.dir,
-                    &ImportOptions {
-                        copy,
-                        thumbnails,
-                        temp_dir: &temp,
-                    },
-                    Some(origin),
-                    author,
-                )?;
-                match &replace {
-                    Some(old) => lib.replace(old, &fresh),
-                    None => Ok(fresh),
-                }
-            },
-            move |e, r| {
-                e.importing.retain(|i| *i != id);
-                match r {
-                    Ok(w) => {
-                        log::info!("workshop item {id} imported as '{}'", w.title());
-                        if refreshing {
-                            e.active.retain(|a| a.wallpaper.id != w.id);
-                        }
-                        e.broadcast(Event::Info {
-                            message: format!(
-                                "{} '{}' from the Steam Workshop",
-                                if refreshing { "Refreshed" } else { "Added" },
-                                w.title()
-                            ),
-                        });
-                        if let Some(d) = display {
-                            e.layout.assign(&d, &w.id);
-                        }
-                        e.reconcile();
-                    }
-                    Err(err) => {
-                        e.failed_items.push((id, updated));
-                        e.report(&Error::Media(format!("workshop item {id}: {err}")));
-                    }
-                }
-                e.broadcast(Event::Library);
-                e.broadcast(Event::Workshop);
-            },
-        );
-    }
-
-    /// `import` or `set` with a workshop reference: fetch the item, then reply once it is in
-    /// the library (or as soon as Steam has been asked for it).
-    fn import_workshop_ref(&mut self, id: u64, display: Option<String>, reply: Reply) -> bool {
-        if let Some(existing) = self.library.find_workshop(id) {
-            if let Some(d) = display {
-                self.layout.assign(&d, &existing.id);
-                self.reconcile();
-            }
-            reply(Response::Wallpaper(existing.summary()));
-            return true;
-        }
-        match self.workshop_get(id, None, None, display) {
-            Ok(text) => reply(Response::Text(text)),
-            Err(e) => reply(Response::error(&e)),
-        }
-        true
     }
 
     fn status(&self) -> Status {
@@ -1886,9 +1571,4 @@ impl Engine {
         ))));
         true
     }
-}
-
-/// Whether Steam's download is newer than what the entry was made from.
-fn is_stale(origin: &WorkshopOrigin, item: &InstalledItem) -> bool {
-    matches!((origin.updated, item.updated), (Some(o), Some(i)) if i > o)
 }

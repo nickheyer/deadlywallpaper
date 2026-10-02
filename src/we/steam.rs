@@ -405,7 +405,10 @@ mod tests {
         let info = locate(Some(&root.path().join("nope")), Some(&assets));
         assert_eq!(info.assets_dir.as_deref(), Some(assets.as_path()));
         assert!(info.assets_overridden);
-        assert!(info.install_dir.is_none());
+        assert_ne!(
+            info.steam_dir.as_deref(),
+            Some(root.path().join("nope").as_path())
+        );
         let none = locate(
             Some(&root.path().join("nope")),
             Some(&root.path().join("gone")),

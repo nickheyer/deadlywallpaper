@@ -6,6 +6,7 @@ mod daemon;
 mod engine;
 mod error;
 mod geom;
+mod http;
 mod ipc;
 mod logger;
 mod media;
@@ -141,18 +142,19 @@ enum WorkshopCommand {
     },
     /// Show one item: an id or its Steam page URL
     Show { item: String },
-    /// Fetch an item through Steam and add it to the library; --display applies it there
+    /// Have Steam download an item and add it to the library; --display applies it there
     Get {
         item: String,
         #[arg(short, long)]
         display: Option<String>,
     },
-    /// Add every item Steam has downloaded and refresh the ones Steam updated
+    /// Download every subscription Steam has not fetched, add every download and refresh the
+    /// ones Steam updated
     Sync,
-    /// Where Steam and Wallpaper Engine are, and every downloaded item
+    /// Steam, Wallpaper Engine, downloads under way and every downloaded item
     Status,
-    /// Stop waiting for an item's download
-    Forget { item: String },
+    /// Stop an item's download
+    Cancel { item: String },
 }
 
 fn main() {
@@ -336,7 +338,7 @@ fn workshop_command(cmd: WorkshopCommand) -> Result<()> {
         },
         WorkshopCommand::Sync => Request::WorkshopSync,
         WorkshopCommand::Status => Request::WorkshopStatus,
-        WorkshopCommand::Forget { item } => Request::WorkshopForget {
+        WorkshopCommand::Cancel { item } => Request::WorkshopCancel {
             id: workshop_item_ref(&item)?,
         },
     };
@@ -459,6 +461,17 @@ fn print_response(resp: Response) {
                     .unwrap_or_else(|| "not found".into())
             };
             println!("steam: {}", shown(&ws.steam.steam_dir));
+            println!(
+                "steam client: {}",
+                match &ws.client {
+                    ipc::SteamClient::Running => match &ws.account {
+                        Some(a) => format!("running, signed in as {a}"),
+                        None => "running".into(),
+                    },
+                    ipc::SteamClient::NotRunning => "not running".into(),
+                    ipc::SteamClient::Unavailable { reason } => reason.clone(),
+                }
+            );
             println!("wallpaper engine: {}", shown(&ws.steam.install_dir));
             println!(
                 "assets: {}{}",
@@ -469,8 +482,18 @@ fn print_response(resp: Response) {
                     ""
                 }
             );
-            for id in &ws.pending {
-                println!("{id}\tpending\t\t");
+            for d in &ws.downloads {
+                let progress = match d.fraction() {
+                    Some(f) => format!("{:.0}%", f * 100.0),
+                    None => String::new(),
+                };
+                println!(
+                    "{}\t{}\t{}\t{}",
+                    d.id,
+                    d.phase.label().to_lowercase(),
+                    d.name(),
+                    progress
+                );
             }
             for item in &ws.items {
                 let state = match (&item.wallpaper, item.stale) {

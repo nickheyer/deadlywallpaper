@@ -5,6 +5,7 @@ pub mod condition;
 pub mod pkg;
 pub mod project;
 pub mod steam;
+pub mod steamapi;
 pub mod vdf;
 pub mod workshop;
 

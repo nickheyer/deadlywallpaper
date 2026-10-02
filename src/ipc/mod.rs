@@ -93,11 +93,12 @@ pub enum Request {
         wallpaper: String,
     },
     AudioDevices,
-    /// Steam, Wallpaper Engine and every workshop item Steam has downloaded.
+    /// Steam, Wallpaper Engine, every workshop item Steam has downloaded and every download
+    /// under way.
     WorkshopStatus,
-    /// Fetch a workshop item: import it when Steam already has it, otherwise open its Steam
-    /// page to subscribe and import it as soon as the download lands. `display` applies it
-    /// there afterwards.
+    /// Get a workshop item: add it when Steam already holds it, otherwise have the Steam
+    /// client subscribe to and download it, then add it as soon as it lands. `display`
+    /// applies it there afterwards.
     WorkshopGet {
         id: u64,
         #[serde(default)]
@@ -107,11 +108,12 @@ pub enum Request {
         #[serde(default)]
         display: Option<String>,
     },
-    /// Stop waiting for a download.
-    WorkshopForget {
+    /// Stop a download, unsubscribing again when the daemon subscribed for it.
+    WorkshopCancel {
         id: u64,
     },
-    /// Import every downloaded item the library lacks and refresh the ones Steam updated.
+    /// Download every subscription Steam has not fetched yet, add every downloaded item the
+    /// library lacks and refresh the ones Steam updated.
     WorkshopSync,
     OpenUi,
     Subscribe,
@@ -174,7 +176,8 @@ pub enum Event {
     Displays,
     Settings,
     Playback,
-    /// Downloads pending, arrived or imported; Steam paths changed.
+    /// Downloads started, moved, landed or were added; the Steam client came or went; Steam
+    /// paths changed.
     Workshop,
     Error {
         message: String,
@@ -254,10 +257,76 @@ pub struct InfoPatch {
 #[serde(default)]
 pub struct WorkshopStatus {
     pub steam: SteamInfo,
+    /// Whether the Steam client is running, or why it cannot be reached at all.
+    pub client: SteamClient,
+    /// The signed-in account's name, once a download has connected to Steam.
+    pub account: Option<String>,
     /// Every item Steam has finished downloading.
     pub items: Vec<WorkshopItemStatus>,
-    /// Items whose Steam page was opened and whose download has not landed yet.
-    pub pending: Vec<u64>,
+    /// Items the Steam client is fetching for the daemon.
+    pub downloads: Vec<WorkshopDownload>,
+}
+
+/// The Steam client, as far as the daemon can tell without connecting to it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum SteamClient {
+    #[default]
+    NotRunning,
+    Running,
+    /// Steam's client library cannot be used on this machine.
+    Unavailable {
+        reason: String,
+    },
+}
+
+/// One item on its way from the Steam Workshop.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkshopDownload {
+    pub id: u64,
+    pub title: Option<String>,
+    pub phase: DownloadPhase,
+    /// Bytes fetched so far and in total; the total is zero until Steam has started.
+    pub done: u64,
+    pub total: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadPhase {
+    /// Steam is subscribing the account to the item.
+    Subscribing,
+    /// Steam has the item in its download queue.
+    #[default]
+    Queued,
+    Downloading,
+    /// The files landed and the library entry is being made.
+    Importing,
+}
+
+impl DownloadPhase {
+    pub fn label(self) -> &'static str {
+        match self {
+            DownloadPhase::Subscribing => "Subscribing",
+            DownloadPhase::Queued => "Queued in Steam",
+            DownloadPhase::Downloading => "Downloading",
+            DownloadPhase::Importing => "Adding to library",
+        }
+    }
+}
+
+impl WorkshopDownload {
+    /// Fraction fetched, once Steam has said how much there is.
+    pub fn fraction(&self) -> Option<f32> {
+        (self.total > 0).then(|| (self.done as f64 / self.total as f64).clamp(0.0, 1.0) as f32)
+    }
+
+    pub fn name(&self) -> String {
+        self.title
+            .clone()
+            .unwrap_or_else(|| format!("item {}", self.id))
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -347,7 +416,15 @@ mod tests {
                     title: "T".into(),
                     stale: true,
                 }],
-                pending: vec![3],
+                client: SteamClient::Unavailable { reason: "r".into() },
+                account: Some("a".into()),
+                downloads: vec![WorkshopDownload {
+                    id: 3,
+                    title: None,
+                    phase: DownloadPhase::Downloading,
+                    done: 1,
+                    total: 2,
+                }],
             }),
             Response::Text("t".into()),
             Response::Status(Status {
@@ -399,7 +476,7 @@ mod tests {
                 author: None,
                 display: None,
             },
-            Request::WorkshopForget { id: 5 },
+            Request::WorkshopCancel { id: 5 },
             Request::WorkshopSync,
             Request::WorkshopStatus,
         ] {

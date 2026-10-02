@@ -137,7 +137,9 @@ pub fn open_external(target: &str) -> Result<()> {
     let program = "open";
     #[cfg(windows)]
     let program = "explorer";
-    std::process::Command::new(program)
+    let mut command = std::process::Command::new(program);
+    crate::we::steamapi::scrub(&mut command);
+    command
         .arg(target)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

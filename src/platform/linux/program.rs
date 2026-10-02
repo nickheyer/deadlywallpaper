@@ -33,7 +33,9 @@ pub fn spawn(
     if !exe.is_file() {
         return Err(Error::NotFound(format!("{} does not exist", exe.display())));
     }
-    let child = Command::new(&exe)
+    let mut command = Command::new(&exe);
+    crate::we::steamapi::scrub(&mut command);
+    let child = command
         .args(wp.info.args())
         .current_dir(exe.parent().unwrap_or(Path::new(".")))
         .stdin(Stdio::null())
