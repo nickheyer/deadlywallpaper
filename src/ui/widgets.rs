@@ -568,6 +568,38 @@ pub fn row(ui: &mut egui::Ui, label: &str, help: &str, add: impl FnOnce(&mut egu
     });
 }
 
+/// The buttons of a dialog, right-aligned on a row exactly one button tall. A modal is first
+/// measured against the whole window, and a row that could use the leftover height would keep
+/// the buttons centred in it and the dialog stretched ever after.
+pub fn dialog_buttons(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), 32.0),
+        egui::Layout::right_to_left(egui::Align::Center),
+        add,
+    );
+}
+
+/// A multi-line text field
+pub fn text_area(ui: &mut egui::Ui, id_salt: &str, value: &mut String, width: f32, rows: usize) {
+    let height = ui.text_style_height(&TextStyle::Body) * rows as f32 + 16.0;
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, height),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt(id_salt)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.add(
+                        TextEdit::multiline(value)
+                            .desired_rows(rows)
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+        },
+    );
+}
+
 pub fn divider(ui: &mut egui::Ui) {
     let p = theme::palette(ui);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), Sense::hover());

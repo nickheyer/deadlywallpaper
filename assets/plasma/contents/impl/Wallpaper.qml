@@ -17,7 +17,7 @@ Item {
     }
 
     function isWeb(kind) {
-        return kind === "web" || kind === "webaudio" || kind === "url"
+        return kind === "web" || kind === "webaudio" || kind === "url" || kind === "scene"
     }
 
     // Everything the wallpaper reports carries the generation it applies to.

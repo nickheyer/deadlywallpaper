@@ -2,6 +2,8 @@ mod about;
 mod align;
 mod app;
 mod customize;
+mod edit;
+mod fonts;
 mod library;
 mod order;
 mod screens;
@@ -60,6 +62,7 @@ pub fn run() -> Result<()> {
         Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             theme::install(&cc.egui_ctx);
+            fonts::install(&cc.egui_ctx);
             Ok(Box::new(app::App::new(cc, paths)))
         }),
     )

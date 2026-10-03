@@ -43,6 +43,7 @@ libloading = "0.9"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 eframe = { version = "0.36", features = ["persistence"] }
 egui_extras = { version = "0.36", features = ["image", "file", "gif"] }
+ab_glyph = "0.2"
 rfd = "0.17"
 wry = "0.57"
 tray-icon = { version = "0.25", default-features = false, features = ["libappindicator"] }

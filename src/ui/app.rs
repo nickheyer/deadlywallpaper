@@ -1,10 +1,12 @@
-use crate::ipc::{AudioDevice, Event, InfoPatch, Request, Response, Status};
+use crate::ipc::{AudioDevice, Event, Request, Response, Status};
 use crate::model::settings::Theme;
 use crate::model::{Arrangement, Kind, Settings, Summary};
 use crate::paths::Paths;
 use crate::ui::order::{Key as SortKey, Layout as ViewLayout};
 use crate::ui::widgets::{self, Toasts};
-use crate::ui::{Backend, UiMsg, about, customize, library, screens, settings, theme, workshop};
+use crate::ui::{
+    Backend, UiMsg, about, customize, edit, library, screens, settings, theme, workshop,
+};
 use eframe::egui::{self, Frame, Key, Margin, RichText};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -78,16 +80,7 @@ const GROUPED_KEY: &str = "library.grouped";
 const LAYOUT_KEY: &str = "library.layout";
 
 pub enum Dialog {
-    Edit {
-        id: String,
-        title: String,
-        author: String,
-        desc: String,
-        contact: String,
-        license: String,
-        arguments: String,
-        program: bool,
-    },
+    Edit(Box<edit::Single>),
     Delete {
         id: String,
         title: String,
@@ -96,15 +89,7 @@ pub enum Dialog {
         ids: Vec<String>,
         titles: Vec<String>,
     },
-    /// Fields ticked `true` are written to every selected wallpaper, empty values clearing
-    /// them; unticked fields are left alone.
-    EditMany {
-        ids: Vec<String>,
-        author: (bool, String),
-        license: (bool, String),
-        contact: (bool, String),
-        desc: (bool, String),
-    },
+    EditMany(edit::Many),
 }
 
 /// A file name for each export that is new in `folder` and unique within the batch.
@@ -760,100 +745,18 @@ impl App {
         let frame = theme::dialog_frame(ctx);
         let mut next = None;
         match dialog {
-            Dialog::Edit {
-                id,
-                mut title,
-                mut author,
-                mut desc,
-                mut contact,
-                mut license,
-                mut arguments,
-                program,
-            } => {
+            Dialog::Edit(mut state) => {
                 let modal = egui::Modal::new(egui::Id::new("edit"))
                     .frame(frame)
-                    .show(ctx, |ui| {
-                        ui.set_width(560.0);
-                        ui.label(
-                            RichText::new("Edit")
-                                .size(18.0)
-                                .strong()
-                                .color(p.text_strong),
-                        );
-                        ui.add_space(10.0);
-                        egui::Grid::new("edit")
-                            .num_columns(2)
-                            .spacing([14.0, 10.0])
-                            .show(ui, |ui| {
-                                for (label, value, multiline) in [
-                                    ("Title", &mut title, false),
-                                    ("Author", &mut author, false),
-                                    ("Description", &mut desc, true),
-                                    ("Website", &mut contact, false),
-                                    ("License", &mut license, false),
-                                ] {
-                                    ui.label(RichText::new(label).color(p.text_weak));
-                                    if multiline {
-                                        ui.add(
-                                            egui::TextEdit::multiline(value)
-                                                .desired_rows(3)
-                                                .desired_width(420.0),
-                                        );
-                                    } else {
-                                        ui.add(
-                                            egui::TextEdit::singleline(value).desired_width(420.0),
-                                        );
-                                    }
-                                    ui.end_row();
-                                }
-                                if program {
-                                    ui.label(RichText::new("Arguments").color(p.text_weak));
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut arguments)
-                                            .desired_width(420.0)
-                                            .font(egui::TextStyle::Monospace),
-                                    );
-                                    ui.end_row();
-                                }
-                            });
-                        ui.add_space(14.0);
-                        let mut done = false;
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .add_enabled(!title.trim().is_empty(), theme::primary("Save"))
-                                .clicked()
-                            {
-                                let patch = InfoPatch {
-                                    title: Some(title.clone()),
-                                    author: Some(author.clone()),
-                                    desc: Some(desc.clone()),
-                                    contact: Some(contact.clone()),
-                                    license: Some(license.clone()),
-                                    arguments: program.then(|| arguments.clone()),
-                                };
-                                self.send(Request::EditInfo {
-                                    wallpaper: id.clone(),
-                                    patch,
-                                });
-                                done = true;
-                            }
-                            if ui.add(theme::secondary_button("Cancel")).clicked() {
-                                done = true;
-                            }
-                        });
-                        done
-                    });
-                if !modal.inner && !modal.should_close() {
-                    next = Some(Dialog::Edit {
-                        id,
-                        title,
-                        author,
-                        desc,
-                        contact,
-                        license,
-                        arguments,
-                        program,
-                    });
+                    .show(ctx, |ui| edit::single(ui, &mut state));
+                match modal.inner {
+                    Some(edit::Outcome::Save) => self.send(Request::EditInfo {
+                        wallpaper: state.entry.id.clone(),
+                        patch: state.patch(),
+                    }),
+                    Some(edit::Outcome::Cancel) => {}
+                    None if !modal.should_close() => next = Some(Dialog::Edit(state)),
+                    None => {}
                 }
             }
             Dialog::Delete { id, title } => {
@@ -870,20 +773,17 @@ impl App {
                             );
                             ui.add_space(14.0);
                             let mut done = false;
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui.add(theme::danger("Remove")).clicked() {
-                                        self.send(Request::Delete {
-                                            wallpaper: id.clone(),
-                                        });
-                                        done = true;
-                                    }
-                                    if ui.add(theme::secondary_button("Cancel")).clicked() {
-                                        done = true;
-                                    }
-                                },
-                            );
+                            widgets::dialog_buttons(ui, |ui| {
+                                if ui.add(theme::danger("Remove")).clicked() {
+                                    self.send(Request::Delete {
+                                        wallpaper: id.clone(),
+                                    });
+                                    done = true;
+                                }
+                                if ui.add(theme::secondary_button("Cancel")).clicked() {
+                                    done = true;
+                                }
+                            });
                             done
                         });
                 if !modal.inner && !modal.should_close() {
@@ -916,7 +816,7 @@ impl App {
                         }
                         ui.add_space(14.0);
                         let mut done = false;
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        widgets::dialog_buttons(ui, |ui| {
                             if ui.add(theme::danger("Remove")).clicked() {
                                 self.backend.batch(
                                     ctx,
@@ -940,108 +840,30 @@ impl App {
                     next = Some(Dialog::DeleteMany { ids, titles });
                 }
             }
-            Dialog::EditMany {
-                ids,
-                mut author,
-                mut license,
-                mut contact,
-                mut desc,
-            } => {
+            Dialog::EditMany(mut state) => {
                 let modal = egui::Modal::new(egui::Id::new("edit-many"))
                     .frame(frame)
-                    .show(ctx, |ui| {
-                        ui.set_width(560.0);
-                        ui.label(
-                            RichText::new(format!(
-                                "Edit {}",
-                                library::count(ids.len(), "wallpaper")
-                            ))
-                            .size(18.0)
-                            .strong()
-                            .color(p.text_strong),
+                    .show(ctx, |ui| edit::many(ui, &mut state));
+                match modal.inner {
+                    Some(edit::Outcome::Save) => {
+                        let patch = state.patch();
+                        self.backend.batch(
+                            ctx,
+                            "Updated",
+                            "wallpaper",
+                            state
+                                .ids
+                                .iter()
+                                .map(|id| Request::EditInfo {
+                                    wallpaper: id.clone(),
+                                    patch: patch.clone(),
+                                })
+                                .collect(),
                         );
-                        ui.add_space(4.0);
-                        theme::hint(
-                            ui,
-                            "Ticked fields are written to every selected wallpaper; leave a \
-                             ticked field empty to clear it.",
-                        );
-                        ui.add_space(10.0);
-                        egui::Grid::new("edit-many")
-                            .num_columns(3)
-                            .spacing([14.0, 10.0])
-                            .show(ui, |ui| {
-                                for (label, (set, value), multiline) in [
-                                    ("Author", &mut author, false),
-                                    ("License", &mut license, false),
-                                    ("Website", &mut contact, false),
-                                    ("Description", &mut desc, true),
-                                ] {
-                                    ui.checkbox(set, "");
-                                    ui.label(RichText::new(label).color(if *set {
-                                        p.text
-                                    } else {
-                                        p.text_weak
-                                    }));
-                                    ui.add_enabled_ui(*set, |ui| {
-                                        if multiline {
-                                            ui.add(
-                                                egui::TextEdit::multiline(value)
-                                                    .desired_rows(3)
-                                                    .desired_width(400.0),
-                                            );
-                                        } else {
-                                            ui.add(
-                                                egui::TextEdit::singleline(value)
-                                                    .desired_width(400.0),
-                                            );
-                                        }
-                                    });
-                                    ui.end_row();
-                                }
-                            });
-                        ui.add_space(14.0);
-                        let any = author.0 || license.0 || contact.0 || desc.0;
-                        let mut done = false;
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.add_enabled(any, theme::primary("Save")).clicked() {
-                                let field =
-                                    |(set, value): &(bool, String)| set.then(|| value.clone());
-                                let patch = InfoPatch {
-                                    title: None,
-                                    author: field(&author),
-                                    license: field(&license),
-                                    contact: field(&contact),
-                                    desc: field(&desc),
-                                    arguments: None,
-                                };
-                                self.backend.batch(
-                                    ctx,
-                                    "Updated",
-                                    "wallpaper",
-                                    ids.iter()
-                                        .map(|id| Request::EditInfo {
-                                            wallpaper: id.clone(),
-                                            patch: patch.clone(),
-                                        })
-                                        .collect(),
-                                );
-                                done = true;
-                            }
-                            if ui.add(theme::secondary_button("Cancel")).clicked() {
-                                done = true;
-                            }
-                        });
-                        done
-                    });
-                if !modal.inner && !modal.should_close() {
-                    next = Some(Dialog::EditMany {
-                        ids,
-                        author,
-                        license,
-                        contact,
-                        desc,
-                    });
+                    }
+                    Some(edit::Outcome::Cancel) => {}
+                    None if !modal.should_close() => next = Some(Dialog::EditMany(state)),
+                    None => {}
                 }
             }
         }
@@ -1076,16 +898,7 @@ impl App {
                 }
                 library::Action::Edit { id } => {
                     if let Some(w) = self.library.iter().find(|w| w.id == id) {
-                        self.dialog = Some(Dialog::Edit {
-                            id: id.clone(),
-                            title: w.title.clone(),
-                            author: w.author.clone().unwrap_or_default(),
-                            desc: w.desc.clone().unwrap_or_default(),
-                            contact: w.contact.clone().unwrap_or_default(),
-                            license: w.license.clone().unwrap_or_default(),
-                            arguments: w.arguments.clone().unwrap_or_default(),
-                            program: w.kind == Kind::Program,
-                        });
+                        self.dialog = Some(Dialog::Edit(Box::new(edit::Single::of(w))));
                     }
                 }
                 library::Action::Export { id } => {
@@ -1126,13 +939,7 @@ impl App {
                 library::Action::Filter(kind) => self.filter = kind,
                 library::Action::GoToScreens => self.page = Page::Screens,
                 library::Action::BulkEdit { ids } => {
-                    self.dialog = Some(Dialog::EditMany {
-                        ids,
-                        author: (false, String::new()),
-                        license: (false, String::new()),
-                        contact: (false, String::new()),
-                        desc: (false, String::new()),
-                    });
+                    self.dialog = Some(Dialog::EditMany(edit::Many::new(ids)));
                 }
                 library::Action::BulkThumbnail { ids } => self.backend.batch(
                     ctx,
