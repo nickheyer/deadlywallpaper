@@ -394,8 +394,9 @@
     }
 
     // ---- frame loop -----------------------------------------------------------------------------
+    // The hosts unpause can arrive while load() is still awaiting objects
     schedule() {
-      if (this.frameQueued || this.paused || this.failed) return;
+      if (!this.loaded || this.frameQueued || this.paused || this.failed) return;
       this.frameQueued = true;
       G.requestAnimationFrame((stamp) => { this.frameQueued = false; this.frame(stamp); });
     }

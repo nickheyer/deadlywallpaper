@@ -405,19 +405,18 @@
         for (const [k, v] of Object.entries(this.link.discoveredCombos)) define(k, v);
       }
       const body = routeBorderSamples(this.applyFragmentTexCoordCompatibility(this.applyLinkedVaryingCompatibility(this.preprocessed)));
-      out += undefinedConditionMacros(out, body).map((name) => '#define ' + name + ' 0\n').join('');
-      out += body;
+      const resolved = resolveConditionMacros(out, body);
+      out += resolved.defines.map((name) => '#define ' + name + ' 0\n').join('');
+      out += resolved.body;
       this.final = out;
       return out;
     }
   }
 
   const PREDEFINED_MACROS = new Set(['__VERSION__', '__LINE__', '__FILE__', 'GL_ES', 'defined']);
-
-  // GLSL ES rejects an undefined identifier inside #if / #elif where desktop GLSL reads 0, so
-  // every such identifier that neither a combo nor a #define supplies is defined as 0 -- unless
-  // the source also asks whether it is defined at all (#ifdef, #ifndef, defined()).
-  function undefinedConditionMacros(header, body) {
+  const DEFINED_CALL = /\bdefined[ \t]*\(?[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*\)?/;
+  const CONDITION_IDENTIFIER = /(^|[^A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*)/g;
+  function resolveConditionMacros(header, body) {
     const defined = new Set(PREDEFINED_MACROS);
     const defineRe = /^[ \t]*#[ \t]*define[ \t]+([A-Za-z_][A-Za-z0-9_]*)/gm;
     let m;
@@ -425,23 +424,29 @@
     const tested = new Set();
     const ifdefRe = /^[ \t]*#[ \t]*(?:ifdef|ifndef)[ \t]+([A-Za-z_][A-Za-z0-9_]*)/gm;
     while ((m = ifdefRe.exec(body)) !== null) tested.add(m[1]);
-    const definedRe = /\bdefined[ \t]*\(?[ \t]*([A-Za-z_][A-Za-z0-9_]*)/g;
+    const definedRe = new RegExp(DEFINED_CALL.source.replace('[A-Za-z_][A-Za-z0-9_]*', '([A-Za-z_][A-Za-z0-9_]*)'), 'g');
     while ((m = definedRe.exec(body)) !== null) tested.add(m[1]);
-    const out = [];
+    const defines = [];
     const seen = new Set();
-    const condRe = /^[ \t]*#[ \t]*(?:if|elif)[ \t]+([^\n]*)$/gm;
-    while ((m = condRe.exec(body)) !== null) {
-      const expr = m[1].replace(/\/\/.*$/, '').replace(/\bdefined[ \t]*\(?[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*\)?/g, ' ');
-      const idRe = /(?:^|[^A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*)/g;
-      let id;
-      while ((id = idRe.exec(expr)) !== null) {
-        const name = id[1];
-        if (defined.has(name) || tested.has(name) || seen.has(name)) continue;
-        seen.add(name);
-        out.push(name);
+    const splitter = new RegExp('(' + DEFINED_CALL.source + ')');
+    const condRe = /^([ \t]*#[ \t]*(?:if|elif)[ \t]+)([^\n]*)$/gm;
+    const rewritten = body.replace(condRe, (all, directive, rest) => {
+      const commentAt = rest.indexOf('//');
+      const expr = commentAt >= 0 ? rest.slice(0, commentAt) : rest;
+      const comment = commentAt >= 0 ? rest.slice(commentAt) : '';
+      // Odd pieces are defined(X) calls, whose X is neither collected nor replaced.
+      const pieces = expr.split(splitter);
+      for (let i = 0; i < pieces.length; i += 2) {
+        pieces[i] = pieces[i].replace(CONDITION_IDENTIFIER, (whole, before, name) => {
+          if (defined.has(name)) return whole;
+          if (tested.has(name)) return before + '0';
+          if (!seen.has(name)) { seen.add(name); defines.push(name); }
+          return whole;
+        });
       }
-    }
-    return out;
+      return directive + pieces.join('') + comment;
+    });
+    return { defines, body: rewritten };
   }
 
   const LIGHTING_V1 = `// begin of generated module LightingV1
@@ -573,7 +578,7 @@ vec3 PerformLighting_V1(vec3 worldPos, vec3 albedo, vec3 normal, vec3 viewDir,
     return { program, uniforms, attributes };
   }
 
-  const api = { VERTEX, FRAGMENT, Unit, Shader, buildProgram, parseVector, parseScalar, OVERLOADS, HEADER_DEFINES, undefinedConditionMacros, routeBorderSamples };
+  const api = { VERTEX, FRAGMENT, Unit, Shader, buildProgram, parseVector, parseScalar, OVERLOADS, HEADER_DEFINES, resolveConditionMacros, routeBorderSamples };
   G.WEShader = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
